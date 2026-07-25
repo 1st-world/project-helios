@@ -14,49 +14,122 @@
 <body>
   <aside class="sidebar">
     <div class="brand">
-      <span class="brand-mark"><i data-lucide="sparkles"></i></span><span class="brand-name">HELIOS</span>
+      <span class="brand-mark"><i data-lucide="sparkles"></i></span>
+      <span class="brand-name">HELIOS</span>
       <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Collapse sidebar" title="Collapse sidebar"><i data-lucide="panel-left-close"></i></button>
     </div>
     <button id="new-chat" class="new-chat" type="button"><i data-lucide="plus"></i><span>New chat</span></button>
+
     <div class="side-label">CONVERSATIONS</div>
     <nav id="conversation-list" class="conversation-list" aria-label="Conversations"></nav>
+
     <section class="workspace-section" aria-labelledby="workspace-heading">
-      <div class="workspace-title"><span id="workspace-heading">WORKSPACE</span><div><button id="choose-workspace" type="button" title="Open workspace folder" aria-label="Open workspace folder"><i data-lucide="folder-open"></i></button><button id="refresh-workspace" type="button" title="Refresh workspace" aria-label="Refresh workspace"><i data-lucide="refresh-cw"></i></button></div></div>
+      <div class="workspace-title">
+        <span id="workspace-heading">WORKSPACE</span>
+        <div>
+          <button id="choose-workspace" type="button" title="Open workspace folder" aria-label="Open workspace folder"><i data-lucide="folder-open"></i></button>
+          <button id="refresh-workspace" type="button" title="Refresh workspace" aria-label="Refresh workspace"><i data-lucide="refresh-cw"></i></button>
+        </div>
+      </div>
       <p id="workspace-path" class="workspace-path">Loading workspace...</p>
       <p class="workspace-help">This folder is your project context. Select a file to include its contents in the next message.</p>
       <div id="workspace-tree" class="workspace-tree"></div>
     </section>
   </aside>
+
   <main>
-    <header><div class="model-control"><i data-lucide="bot"></i><select id="deployment-select" aria-label="Azure deployment"><option>{{ model_name }}</option></select><span class="model-tag">RESPONSES API</span></div><div class="header-actions"><div id="connection-status" class="status"><i></i> Checking connection</div><button id="open-settings" class="icon-button" type="button" title="Azure OpenAI settings" aria-label="Azure OpenAI settings"><i data-lucide="settings-2"></i></button></div></header>
-    <section id="chat" class="chat" aria-live="polite"><div class="empty-state"><span><i data-lucide="sparkles"></i></span><h1>How can I help?</h1><p>Use your Azure OpenAI deployment to explore and work with local project files.</p></div></section>
-    <section id="usage-panel" class="usage-panel hidden"><span>IN <b id="input-tokens">0</b></span><span>OUT <b id="output-tokens">0</b></span><span>TOTAL <b id="total-tokens">0</b></span><span><b id="response-time">0</b> ms</span><span>$<b id="estimated-cost">0.000000</b></span></section>
+    <header>
+      <div class="model-control">
+        <i data-lucide="bot"></i>
+        <select id="deployment-select" aria-label="Azure deployment">
+          <option>{{ model_name }}</option>
+        </select>
+        <span class="model-tag">RESPONSES API</span>
+      </div>
+      <div class="header-actions">
+        <div id="connection-status" class="status">
+          <i></i> Checking connection
+        </div>
+        <button id="open-settings" class="icon-button" type="button" title="Azure OpenAI settings" aria-label="Azure OpenAI settings"><i data-lucide="settings-2"></i></button>
+      </div>
+    </header>
+
+    <section id="chat" class="chat" aria-live="polite">
+      <div class="empty-state">
+        <span><i data-lucide="sparkles"></i></span>
+        <h1>How can I help?</h1>
+        <p>Use your Azure OpenAI deployment to explore and work with local project files.</p>
+      </div>
+    </section>
+
+    <section id="usage-panel" class="usage-panel hidden">
+      <span>IN <b id="input-tokens">0</b></span>
+      <span>OUT <b id="output-tokens">0</b></span>
+      <span>TOTAL <b id="total-tokens">0</b></span>
+      <span><b id="response-time">0</b> ms</span>
+      <span>$<b id="estimated-cost">0.000000</b></span>
+    </section>
+
     <footer>
-      <div id="file-chip" class="file-chip hidden"><i data-lucide="paperclip"></i><span></span><button type="button" title="Remove file" aria-label="Remove file"><i data-lucide="x"></i></button></div>
-      <div class="composer"><textarea id="prompt" rows="1" placeholder="Message Helios..." aria-label="Message"></textarea><div class="composer-actions"><button id="load-file" class="quiet" type="button"><i data-lucide="paperclip"></i><span>Workspace file</span></button><span class="hint">Enter to send | Shift+Enter newline</span><button id="stop" class="stop hidden" type="button"><i data-lucide="square"></i><span>Stop</span></button><button id="send" class="send" type="button"><span>Send</span><i data-lucide="arrow-up"></i></button></div></div>
+      <div id="file-chip" class="file-chip hidden">
+        <i data-lucide="paperclip"></i>
+        <span></span>
+        <button type="button" title="Remove file" aria-label="Remove file"><i data-lucide="x"></i></button>
+      </div>
+      <div class="composer">
+        <textarea id="prompt" rows="1" placeholder="Message Helios..." aria-label="Message"></textarea>
+        <div class="composer-actions">
+          <button id="load-file" class="quiet" type="button"><i data-lucide="paperclip"></i><span>Workspace file</span></button>
+          <span class="hint">Enter to send | Shift+Enter newline</span>
+          <button id="stop" class="stop hidden" type="button"><i data-lucide="square"></i><span>Stop</span></button>
+          <button id="send" class="send" type="button"><span>Send</span><i data-lucide="arrow-up"></i></button>
+        </div>
+      </div>
     </footer>
   </main>
+
   <div id="toast" class="toast hidden"></div>
+
   <dialog id="workspace-dialog" class="settings-dialog">
     <form id="workspace-form" method="dialog">
-      <div class="dialog-heading"><div><i data-lucide="folder-open"></i><h2>Open workspace folder</h2></div><button class="dialog-close" type="button" data-close-dialog="workspace-dialog" aria-label="Close"><i data-lucide="x"></i></button></div>
+      <div class="dialog-heading">
+        <div>
+          <i data-lucide="folder-open"></i>
+          <h2>Open workspace folder</h2>
+        </div>
+        <button class="dialog-close" type="button" data-close-dialog="workspace-dialog" aria-label="Close"><i data-lucide="x"></i></button>
+      </div>
       <p>Helios will access files inside this local folder only. Paste the absolute folder path from your computer.</p>
       <label>Folder path<input id="workspace-path-input" required placeholder="C:\\Projects\\my-project"></label>
-      <div class="dialog-actions"><button class="quiet" type="button" data-close-dialog="workspace-dialog">Cancel</button><button class="send" type="submit"><i data-lucide="folder-open"></i><span>Open folder</span></button></div>
+      <div class="dialog-actions">
+        <button class="quiet" type="button" data-close-dialog="workspace-dialog">Cancel</button>
+        <button class="send" type="submit"><i data-lucide="folder-open"></i><span>Open folder</span></button>
+      </div>
     </form>
   </dialog>
+
   <dialog id="settings-dialog" class="settings-dialog">
     <form id="azure-settings-form" method="dialog">
-      <div class="dialog-heading"><div><i data-lucide="cloud-cog"></i><h2>Azure OpenAI connection</h2></div><button class="dialog-close" type="button" data-close-dialog="settings-dialog" aria-label="Close"><i data-lucide="x"></i></button></div>
+      <div class="dialog-heading">
+        <div>
+          <i data-lucide="cloud-cog"></i>
+          <h2>Azure OpenAI connection</h2>
+        </div>
+        <button class="dialog-close" type="button" data-close-dialog="settings-dialog" aria-label="Close"><i data-lucide="x"></i></button>
+      </div>
       <p>Connection details are kept in this running local app only. Your API key is never returned to the browser.</p>
       <label>Azure endpoint<input id="azure-endpoint" type="url" placeholder="https://your-resource.openai.azure.com/"></label>
       <label>API version<input id="azure-api-version" placeholder="2025-04-01-preview"></label>
       <label>API key<input id="azure-api-key" type="password" placeholder="Leave blank to keep the current key"></label>
       <label>Deployments<input id="azure-deployments" placeholder="gpt-4.1, gpt-4.1-mini"></label>
       <label>Active deployment<input id="azure-deployment" required placeholder="gpt-4.1-mini"></label>
-      <div class="dialog-actions"><button class="quiet" type="button" data-close-dialog="settings-dialog">Cancel</button><button class="send" type="submit"><i data-lucide="save"></i><span>Save connection</span></button></div>
+      <div class="dialog-actions">
+        <button class="quiet" type="button" data-close-dialog="settings-dialog">Cancel</button>
+        <button class="send" type="submit"><i data-lucide="save"></i><span>Save connection</span></button>
+      </div>
     </form>
   </dialog>
+
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
