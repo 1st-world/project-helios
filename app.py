@@ -2,6 +2,7 @@
 
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -21,8 +22,9 @@ from services.workspace_service import WorkspaceAccessError, WorkspaceService
 
 
 settings.logs_root.mkdir(parents=True, exist_ok=True)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-                    handlers=[logging.FileHandler(settings.logs_root / "helios.log", encoding="utf-8"), logging.StreamHandler()])
+file_handler = RotatingFileHandler(settings.logs_root / "helios.log", maxBytes=5 * 1024 * 1024, backupCount=10, encoding="utf-8")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", handlers=[file_handler, logging.StreamHandler()])
+logging.getLogger("watchfiles").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 conversation_manager = ConversationManager(settings.conversations_root)
@@ -235,4 +237,4 @@ async def chat(payload: ChatRequest):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=True, reload_excludes=["logs/*", "conversation/*", "workspace/*"])
