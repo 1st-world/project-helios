@@ -3,7 +3,9 @@ const state = {
   controller: null,
   workspaceFile: null,
   workspaceRoot: '',
-  generating: false
+  generating: false,
+  activeProfileId: null,
+  profiles: []
 };
 const $ = (selector) => document.querySelector(selector);
 const chat = $('#chat');
@@ -58,8 +60,10 @@ function setGenerating(value) {
 }
 function setSidebarCollapsed(collapsed) {
   document.body.classList.toggle('sidebar-collapsed', collapsed);
-  const toggle = $('#sidebar-toggle'); toggle.innerHTML = `<i data-lucide="${collapsed ? 'panel-left-open' : 'panel-left-close'}"></i>`;
-  toggle.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar'; toggle.setAttribute('aria-label', toggle.title);
+  const toggle = $('#sidebar-toggle');
+  toggle.innerHTML = `<i data-lucide="${collapsed ? 'panel-left-open' : 'panel-left-close'}"></i>`;
+  toggle.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+  toggle.setAttribute('aria-label', toggle.title);
   localStorage.setItem('helios.sidebarCollapsed', String(collapsed));
   refreshIcons();
 }
@@ -142,23 +146,6 @@ function renderTree(entries, parent) {
       renderTree(entry.children, children);
     }
   });
-}
-
-function populateDeployments(data) {
-  const select = $('#deployment-select');
-  select.innerHTML = '';
-  const deployments = data.deployments?.length ? data.deployments : [data.deployment || 'No deployment configured'];
-  deployments.forEach((deployment) => {
-    const option = document.createElement('option');
-    option.value = deployment;
-    option.textContent = deployment;
-    option.selected = deployment === data.deployment;
-    select.append(option);
-  });
-  $('#azure-endpoint').value = data.endpoint || '';
-  $('#azure-api-version').value = data.api_version || '';
-  $('#azure-deployment').value = data.deployment || '';
-  $('#azure-deployments').value = (data.deployments || []).join(', ');
 }
 
 // API & Event Handlers
@@ -309,7 +296,13 @@ async function sendMessage(options = {}) {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: text, conversation_id: state.conversationId, workspace_file: state.workspaceFile, regenerate_message_index: options.regenerateMessageIndex }),
+      body: JSON.stringify({
+        prompt: text,
+        conversation_id: state.conversationId,
+        workspace_file: state.workspaceFile,
+        profile_id: state.activeProfileId,
+        regenerate_message_index: options.regenerateMessageIndex
+      }),
       signal: state.controller.signal
     });
     if (!response.ok) throw new Error((await response.json()).detail || 'Request failed.');
@@ -342,16 +335,114 @@ async function sendMessage(options = {}) {
   } finally {
     state.controller = null;
     setGenerating(false);
-    if (state.conversationId) { await openConversation(state.conversationId) } else loadConversations();
+    if (state.conversationId) {
+      await openConversation(state.conversationId);
+    } else {
+      loadConversations();
+    }
   }
 }
 
-async function loadAzureSettings() {
+function resetProfileForm() {
+  $('#editing-profile-id').value = '';
+  $('#profile-form-title').textContent = 'Add New Profile';
+  $('#profile-name').value = '';
+  $('#azure-endpoint').value = '';
+  $('#azure-api-version').value = '2024-02-15-preview';
+  $('#azure-api-key').value = '';
+  $('#azure-deployment').value = '';
+  $('#delete-profile-btn').classList.add('hidden');
+}
+
+function selectProfileForEditing(profile) {
+  $('#editing-profile-id').value = profile.id;
+  $('#profile-form-title').textContent = `Edit Profile: ${profile.name}`;
+  $('#profile-name').value = profile.name;
+  $('#azure-endpoint').value = profile.endpoint;
+  $('#azure-api-version').value = profile.api_version;
+  $('#azure-api-key').value = '';
+  $('#azure-deployment').value = profile.deployment;
+  $('#delete-profile-btn').classList.remove('hidden');
+}
+
+function renderProfiles(data) {
+  state.activeProfileId = data.active_profile_id;
+  state.profiles = data.profiles || [];
+
+  const select = $('#profile-select');
+  select.innerHTML = '';
+  if (!state.profiles.length) {
+    const opt = document.createElement('option');
+    opt.textContent = 'No profiles configured';
+    select.append(opt);
+  } else {
+    state.profiles.forEach((p) => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = `${p.name} (${p.deployment || 'No model'})`;
+      opt.selected = p.id === state.activeProfileId;
+      select.append(opt);
+    });
+  }
+
+  const container = $('#profile-list-container');
+  container.innerHTML = '';
+  state.profiles.forEach((p) => {
+    const item = document.createElement('div');
+    item.className = `profile-item ${p.id === state.activeProfileId ? 'active' : ''}`;
+
+    const info = document.createElement('div');
+    info.className = 'profile-info';
+    info.innerHTML = `<strong>${escapeHtml(p.name)}</strong><span class="profile-meta">${escapeHtml(p.deployment)} · ${escapeHtml(p.endpoint)}</span>`;
+
+    const actions = document.createElement('div');
+    actions.className = 'profile-actions';
+
+    if (p.id !== state.activeProfileId) {
+      const useBtn = document.createElement('button');
+      useBtn.className = 'quiet-btn';
+      useBtn.type = 'button';
+      useBtn.textContent = 'Use';
+      useBtn.onclick = () => switchActiveProfile(p.id);
+      actions.append(useBtn);
+    } else {
+      const activeBadge = document.createElement('span');
+      activeBadge.className = 'active-badge';
+      activeBadge.textContent = 'Active';
+      actions.append(activeBadge);
+    }
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'icon-button-sm';
+    editBtn.type = 'button';
+    editBtn.innerHTML = '<i data-lucide="pencil"></i>';
+    editBtn.onclick = () => selectProfileForEditing(p);
+    actions.append(editBtn);
+
+    item.append(info, actions);
+    container.append(item);
+  });
+  refreshIcons();
+}
+
+async function loadProfiles() {
   try {
-    const data = await fetch('/api/settings/azure').then((response) => response.json());
-    populateDeployments(data);
+    const data = await fetch('/api/profiles').then((res) => res.json());
+    renderProfiles(data);
+    health();
   } catch {
-    toast('Could not load Azure OpenAI settings.');
+    toast('Could not load connection profiles.');
+  }
+}
+
+async function switchActiveProfile(profileId) {
+  try {
+    const data = await fetch(`/api/profiles/${profileId}/active`, { method: 'POST' }).then((res) => res.json());
+    renderProfiles(data);
+    health();
+    toast('Active profile updated.');
+  } catch {
+    toast('Could not switch active profile.');
   }
 }
 
@@ -370,7 +461,17 @@ $('#new-chat').onclick = newChat;
 $('#sidebar-toggle').onclick = () => setSidebarCollapsed(!document.body.classList.contains('sidebar-collapsed'));
 $('#refresh-workspace').onclick = loadWorkspace;
 $('#choose-workspace').onclick = () => $('#workspace-dialog').showModal();
-$('#open-settings').onclick = () => $('#settings-dialog').showModal();
+$('#open-settings').onclick = async () => {
+  await loadProfiles();
+  if (state.profiles.length) {
+    const active = state.profiles.find((p) => p.id === state.activeProfileId) || state.profiles[0];
+    selectProfileForEditing(active);
+  } else {
+    resetProfileForm();
+  }
+  $('#settings-dialog').showModal();
+};
+$('#add-profile-btn').onclick = resetProfileForm;
 
 document.querySelectorAll('[data-close-dialog]').forEach((button) => {
   button.onclick = () => $(`#${button.dataset.closeDialog}`).close();
@@ -390,42 +491,74 @@ $('#workspace-form').onsubmit = async (event) => {
   $('#workspace-dialog').close();
   await loadWorkspace();
 };
+
 $('#azure-settings-form').onsubmit = async (event) => {
   event.preventDefault();
-  const deployments = $('#azure-deployments').value.split(',').map((item) => item.trim()).filter(Boolean);
-  const response = await fetch('/api/settings/azure', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      api_key: $('#azure-api-key').value || null,
-      endpoint: $('#azure-endpoint').value || null,
-      api_version: $('#azure-api-version').value || null,
-      deployment: $('#azure-deployment').value,
-      deployments
-    })
-  });
-  if (!response.ok) return toast((await response.json()).detail || 'Could not save Azure OpenAI settings.');
-  $('#azure-api-key').value = '';
-  $('#settings-dialog').close();
-  populateDeployments(await response.json());
-  health();
+  const editingId = $('#editing-profile-id').value;
+  const name = $('#profile-name').value.trim();
+  const endpoint = $('#azure-endpoint').value.trim();
+  const api_version = $('#azure-api-version').value.trim();
+  const api_key = $('#azure-api-key').value.trim();
+  const deployment = $('#azure-deployment').value.trim();
+
+  // Client-side validation with specific feedback
+  if (!name) return toast('Profile name is required.');
+  if (!endpoint) return toast('Azure endpoint is required.');
+  if (!api_version) return toast('API version is required.');
+  if (!editingId && !api_key) return toast('API key is required when creating a new profile.');
+  if (!deployment) return toast('Deployment name is required.');
+
+  const payload = { name, endpoint, api_version, deployment };
+  if (api_key) payload.api_key = api_key;
+
+  const url = editingId ? `/api/profiles/${editingId}` : '/api/profiles';
+  const method = editingId ? 'PUT' : 'POST';
+
+  try {
+    const response = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(Array.isArray(err.detail) ? err.detail[0]?.msg : (err.detail || 'Could not save profile.'));
+    }
+    const data = await response.json();
+    $('#azure-api-key').value = '';
+    renderProfiles(data);
+    health();
+    toast('Connection profile saved.');
+    $('#settings-dialog').close();
+  } catch (err) {
+    toast(err.message);
+  }
 };
-$('#deployment-select').onchange = async (event) => {
-  const response = await fetch('/api/settings/azure', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ deployment: event.target.value })
-  });
-  if (!response.ok) return toast('Could not switch deployment.');
-  populateDeployments(await response.json());
-  health();
+
+$('#delete-profile-btn').onclick = async () => {
+  const editingId = $('#editing-profile-id').value;
+  if (!editingId) return;
+  if (!confirm('Are you sure you want to delete this profile?')) return;
+  try {
+    const response = await fetch(`/api/profiles/${editingId}`, { method: 'DELETE' });
+    if (!response.ok) throw new Error('Could not delete profile.');
+    const data = await response.json();
+    renderProfiles(data);
+    health();
+    resetProfileForm();
+    toast('Profile deleted.');
+  } catch (err) {
+    toast(err.message);
+  }
 };
+
+$('#profile-select').onchange = (event) => switchActiveProfile(event.target.value);
 $('#load-file').onclick = () => {
   if (!state.workspaceFile) {
-    toast('Select a text file in the Workspace panel first.')
+    toast('Select a text file in the Workspace panel first.');
   } else {
-    toast(`Attached for the next message: ${state.workspaceFile}`)
-  };
+    toast(`Attached for the next message: ${state.workspaceFile}`);
+  }
 };
 $('#file-chip button').onclick = () => {
   state.workspaceFile = null;
@@ -447,4 +580,4 @@ refreshIcons();
 health();
 loadWorkspace();
 newChat();
-loadAzureSettings();
+loadProfiles();

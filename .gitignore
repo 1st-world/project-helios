@@ -163,3 +163,4 @@ workspace/
 conversation/
 logs/
 .agents/
+profiles.json

@@ -16,6 +16,7 @@ from config import settings
 from services.ai_service import AIService
 from services.conversation_service import ConversationManager
 from services.memory_service import ConversationMemoryService
+from services.profile_service import ProfileService
 from services.prompt_builder import PromptBuilder
 from services.usage_service import UsageService
 from services.workspace_service import WorkspaceAccessError, WorkspaceService
@@ -27,11 +28,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logging.getLogger("watchfiles").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
+profile_service = ProfileService(settings.profiles_path)
 conversation_manager = ConversationManager(settings.conversations_root)
 workspace_service = WorkspaceService(settings.workspace_root)
 prompt_builder = PromptBuilder()
 usage_service = UsageService(settings.input_price_per_million, settings.output_price_per_million)
-ai_service = AIService(settings, usage_service)
+ai_service = AIService(settings, usage_service, profile_service)
 memory_service = ConversationMemoryService(ai_service, conversation_manager, settings.max_context_messages, settings.keep_recent_messages)
 
 
@@ -55,6 +57,7 @@ class ChatRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=100_000)
     conversation_id: str | None = None
     workspace_file: str | None = None
+    profile_id: str | None = None
     regenerate_message_index: int | None = Field(default=None, ge=0)
 
 
@@ -70,38 +73,74 @@ class WorkspaceRootRequest(BaseModel):
     path: str = Field(min_length=1, max_length=4096)
 
 
-class AzureSettingsRequest(BaseModel):
-    api_key: str | None = Field(default=None, max_length=1024)
+class CreateProfileRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    endpoint: str = Field(min_length=1, max_length=2048)
+    api_version: str = Field(default="2024-02-15-preview", max_length=128)
+    api_key: str = Field(min_length=1, max_length=1024)
+    deployment: str = Field(min_length=1, max_length=256)
+
+
+class UpdateProfileRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=100)
     endpoint: str | None = Field(default=None, max_length=2048)
     api_version: str | None = Field(default=None, max_length=128)
+    api_key: str | None = Field(default=None, max_length=1024)
     deployment: str | None = Field(default=None, max_length=256)
-    deployments: list[str] | None = Field(default=None, max_length=50)
 
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse(request, "index.html", {"model_name": settings.azure_openai_deployment or "Azure OpenAI"})
+    return templates.TemplateResponse(request, "index.html", {"model_name": ai_service.active_deployment})
 
 
 @app.get("/api/health")
 async def health():
-    return {"configured": ai_service.configured, "model": ai_service.deployment or "Not configured"}
+    return {"configured": ai_service.configured, "model": ai_service.active_deployment}
 
 
-@app.get("/api/settings/azure")
-async def azure_settings():
-    # Secrets intentionally never leave the server after the UI submits them.
-    return ai_service.connection_info()
+@app.get("/api/profiles")
+async def list_profiles():
+    return profile_service.get_summary()
 
 
-@app.put("/api/settings/azure")
-async def update_azure_settings(payload: AzureSettingsRequest):
+@app.post("/api/profiles")
+async def create_profile(payload: CreateProfileRequest):
     try:
-        ai_service.configure(payload.api_key, payload.endpoint, payload.api_version, payload.deployment, payload.deployments)
+        profile = profile_service.create_profile(payload.name, payload.endpoint, payload.api_version, payload.api_key, payload.deployment)
     except Exception:
-        logger.exception("Could not update Azure OpenAI settings")
-        raise HTTPException(status_code=400, detail="Could not apply Azure OpenAI settings.")
-    return ai_service.connection_info()
+        logger.exception("Could not create profile")
+        raise HTTPException(status_code=400, detail="Could not create connection profile.")
+    return profile_service.get_summary()
+
+
+@app.put("/api/profiles/{profile_id}")
+async def update_profile(profile_id: str, payload: UpdateProfileRequest):
+    try:
+        profile_service.update_profile(profile_id, payload.name, payload.endpoint, payload.api_version, payload.api_key, payload.deployment)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception:
+        logger.exception("Could not update profile %s", profile_id)
+        raise HTTPException(status_code=400, detail="Could not update connection profile.")
+    return profile_service.get_summary()
+
+
+@app.delete("/api/profiles/{profile_id}")
+async def delete_profile(profile_id: str):
+    deleted = profile_service.delete_profile(profile_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Profile not found.")
+    return profile_service.get_summary()
+
+
+@app.post("/api/profiles/{profile_id}/active")
+async def set_active_profile(profile_id: str):
+    try:
+        profile_service.set_active_profile(profile_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return profile_service.get_summary()
 
 
 @app.get("/api/conversations")
@@ -221,7 +260,7 @@ async def chat(payload: ChatRequest):
         answer = ""
         try:
             yield f"data: {json.dumps({'type': 'start', 'conversation_id': conversation.id})}\n\n"
-            async for event in ai_service.stream(instructions, input_messages):
+            async for event in ai_service.stream(instructions, input_messages, profile_id=payload.profile_id):
                 if event["type"] == "delta":
                     answer += event["text"]
                 yield f"data: {json.dumps(event)}\n\n"

@@ -1,0 +1,23 @@
+{
+  "_comment": "Copy this file to profiles.json and fill in your Azure OpenAI connection details.",
+  "_comment2": "profiles.json is listed in .gitignore and will never be committed to version control.",
+  "active_profile_id": "aaaaaaaa-0000-0000-0000-000000000001",
+  "profiles": [
+    {
+      "id": "aaaaaaaa-0000-0000-0000-000000000001",
+      "name": "East US - GPT-5.4",
+      "endpoint": "https://your-resource.cognitiveservices.azure.com/",
+      "api_version": "2024-12-01-preview",
+      "api_key": "YOUR_API_KEY_HERE",
+      "deployment": "gpt-5.4"
+    },
+    {
+      "id": "bbbbbbbb-0000-0000-0000-000000000002",
+      "name": "Korea Central - GPT-5.4 mini",
+      "endpoint": "https://your-resource.cognitiveservices.azure.com/",
+      "api_version": "2024-12-01-preview",
+      "api_key": "YOUR_API_KEY_HERE",
+      "deployment": "gpt-5.4-mini"
+    }
+  ]
+}

@@ -41,7 +41,7 @@
     <header>
       <div class="model-control">
         <i data-lucide="bot"></i>
-        <select id="deployment-select" aria-label="Azure deployment">
+        <select id="profile-select" aria-label="Azure Connection Profile">
           <option>{{ model_name }}</option>
         </select>
         <span class="model-tag">RESPONSES API</span>
@@ -109,23 +109,39 @@
   </dialog>
 
   <dialog id="settings-dialog" class="settings-dialog">
-    <form id="azure-settings-form" method="dialog">
-      <div class="dialog-heading">
-        <div>
-          <i data-lucide="cloud-cog"></i>
-          <h2>Azure OpenAI connection</h2>
-        </div>
-        <button class="dialog-close" type="button" data-close-dialog="settings-dialog" aria-label="Close"><i data-lucide="x"></i></button>
+    <div class="dialog-heading">
+      <div>
+        <i data-lucide="cloud-cog"></i>
+        <h2>Azure OpenAI Connection Profiles</h2>
       </div>
-      <p>Connection details are kept in this running local app only. Your API key is never returned to the browser.</p>
-      <label>Azure endpoint<input id="azure-endpoint" type="url" placeholder="https://your-resource.openai.azure.com/"></label>
-      <label>API version<input id="azure-api-version" placeholder="2025-04-01-preview"></label>
-      <label>API key<input id="azure-api-key" type="password" placeholder="Leave blank to keep the current key"></label>
-      <label>Deployments<input id="azure-deployments" placeholder="gpt-4.1, gpt-4.1-mini"></label>
-      <label>Active deployment<input id="azure-deployment" required placeholder="gpt-4.1-mini"></label>
+      <button class="dialog-close" type="button" data-close-dialog="settings-dialog" aria-label="Close"><i data-lucide="x"></i></button>
+    </div>
+    <p>Connection profiles are saved locally in <code>profiles.json</code> and ignored by version control. API keys are never returned to the browser.</p>
+
+    <div class="profile-manager">
+      <div class="profile-list-header">
+        <span>PROFILES</span>
+        <button id="add-profile-btn" class="quiet-btn" type="button"><i data-lucide="plus"></i> Add Profile</button>
+      </div>
+      <div id="profile-list-container" class="profile-list-container"></div>
+    </div>
+
+    <form id="azure-settings-form">
+      <input type="hidden" id="editing-profile-id" value="">
+      <div class="form-title-row">
+        <h3 id="profile-form-title">Edit Profile</h3>
+      </div>
+      <label>Profile Name<input id="profile-name" required placeholder="e.g. EastUS GPT-4o"></label>
+      <label>Azure Endpoint<input id="azure-endpoint" type="url" required placeholder="https://your-resource.openai.azure.com/"></label>
+      <label>API Version<input id="azure-api-version" required placeholder="2024-02-15-preview"></label>
+      <label>API Key<input id="azure-api-key" type="password" placeholder="Leave blank to keep existing key"></label>
+      <label>Deployment Name<input id="azure-deployment" required placeholder="e.g. gpt-4o"></label>
       <div class="dialog-actions">
-        <button class="quiet" type="button" data-close-dialog="settings-dialog">Cancel</button>
-        <button class="send" type="submit"><i data-lucide="save"></i><span>Save connection</span></button>
+        <button id="delete-profile-btn" class="delete-btn hidden" type="button"><i data-lucide="trash-2"></i> Delete</button>
+        <div class="dialog-actions-right">
+          <button class="quiet" type="button" data-close-dialog="settings-dialog">Cancel</button>
+          <button class="send" type="submit"><i data-lucide="save"></i> <span>Save Profile</span></button>
+        </div>
       </div>
     </form>
   </dialog>

@@ -13,10 +13,6 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 @dataclass(frozen=True)
 class Settings:
-    azure_openai_api_key: str = os.getenv("AZURE_OPENAI_API_KEY", "")
-    azure_openai_endpoint: str = os.getenv("AZURE_OPENAI_ENDPOINT", "")
-    azure_openai_api_version: str = os.getenv("AZURE_OPENAI_API_VERSION", "")
-    azure_openai_deployment: str = os.getenv("AZURE_OPENAI_DEPLOYMENT", "")
     input_price_per_million: float = float(os.getenv("AZURE_OPENAI_INPUT_PRICE_PER_MILLION", "0"))
     output_price_per_million: float = float(os.getenv("AZURE_OPENAI_OUTPUT_PRICE_PER_MILLION", "0"))
     max_context_messages: int = int(os.getenv("HELIOS_MAX_CONTEXT_MESSAGES", "16"))
@@ -24,11 +20,7 @@ class Settings:
     workspace_root: Path = PROJECT_ROOT / "workspace"
     conversations_root: Path = PROJECT_ROOT / "conversation"
     logs_root: Path = PROJECT_ROOT / "logs"
-
-    @property
-    def azure_configured(self) -> bool:
-        return all((self.azure_openai_api_key, self.azure_openai_endpoint,
-                    self.azure_openai_api_version, self.azure_openai_deployment))
+    profiles_path: Path = PROJECT_ROOT / "profiles.json"
 
 
 settings = Settings()
