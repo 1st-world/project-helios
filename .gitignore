@@ -159,8 +159,12 @@ Thumbs.db
 *~
 
 # Project Helios local runtime data
-workspace/
-conversation/
-logs/
-.agents/
+workspace/*
+!workspace/.gitkeep
+conversation/*
+!conversation/.gitkeep
+logs/*
+!logs/.gitkeep
+.agents/*
+!.agents/.gitkeep
 profiles.json
