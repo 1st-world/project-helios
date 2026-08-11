@@ -348,7 +348,7 @@ function resetProfileForm() {
   $('#profile-form-title').textContent = 'Add New Profile';
   $('#profile-name').value = '';
   $('#azure-endpoint').value = '';
-  $('#azure-api-version').value = '2024-02-15-preview';
+  $('#azure-api-version').value = '2025-04-01-preview';
   $('#azure-api-key').value = '';
   $('#azure-deployment').value = '';
   $('#delete-profile-btn').classList.add('hidden');

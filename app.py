@@ -76,7 +76,7 @@ class WorkspaceRootRequest(BaseModel):
 class CreateProfileRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     endpoint: str = Field(min_length=1, max_length=2048)
-    api_version: str = Field(default="2024-02-15-preview", max_length=128)
+    api_version: str = Field(default="2025-04-01-preview", max_length=128)
     api_key: str = Field(min_length=1, max_length=1024)
     deployment: str = Field(min_length=1, max_length=256)
 

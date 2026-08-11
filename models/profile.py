@@ -9,7 +9,7 @@ class ConnectionProfile:
     id: str = field(default_factory=lambda: str(uuid4()))
     name: str = "Default Azure Profile"
     endpoint: str = ""
-    api_version: str = "2024-02-15-preview"
+    api_version: str = "2025-04-01-preview"
     api_key: str = ""
     deployment: str = ""
 
@@ -37,7 +37,7 @@ class ConnectionProfile:
             id=str(data.get("id") or uuid4()),
             name=str(data.get("name") or "Azure Profile").strip(),
             endpoint=str(data.get("endpoint") or "").strip(),
-            api_version=str(data.get("api_version") or "2024-02-15-preview").strip(),
+            api_version=str(data.get("api_version") or "2025-04-01-preview").strip(),
             api_key=str(data.get("api_key") or "").strip(),
             deployment=str(data.get("deployment") or "").strip(),
         )

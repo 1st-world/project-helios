@@ -5,19 +5,23 @@
   "profiles": [
     {
       "id": "aaaaaaaa-0000-0000-0000-000000000001",
-      "name": "East US - GPT-5.4",
+      "name": "East US - GPT-5.6 Sol",
       "endpoint": "https://your-resource.cognitiveservices.azure.com/",
-      "api_version": "2024-12-01-preview",
-      "api_key": "YOUR_API_KEY_HERE",
-      "deployment": "gpt-5.4"
+      "api_version": "2025-04-01-preview",
+      "deployment": "gpt-5.6-sol",
+      "is_configured": true,
+      "has_api_key": true,
+      "api_key": "YOUR_API_KEY_HERE"
     },
     {
       "id": "bbbbbbbb-0000-0000-0000-000000000002",
       "name": "Korea Central - GPT-5.4 mini",
       "endpoint": "https://your-resource.cognitiveservices.azure.com/",
-      "api_version": "2024-12-01-preview",
-      "api_key": "YOUR_API_KEY_HERE",
-      "deployment": "gpt-5.4-mini"
+      "api_version": "2025-04-01-preview",
+      "deployment": "gpt-5.4-mini",
+      "is_configured": true,
+      "has_api_key": true,
+      "api_key": "YOUR_API_KEY_HERE"
     }
   ]
 }

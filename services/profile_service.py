@@ -72,7 +72,7 @@ class ProfileService:
             id=str(uuid4()),
             name=cleaned_name,
             endpoint=endpoint.strip(),
-            api_version=api_version.strip() or "2024-02-15-preview",
+            api_version=api_version.strip() or "2025-04-01-preview",
             api_key=api_key.strip(),
             deployment=deployment.strip(),
         )
