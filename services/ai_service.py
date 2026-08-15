@@ -1,12 +1,11 @@
 """Azure OpenAI integration with dynamic ConnectionProfile resolution."""
 
-import asyncio
 import logging
 import time
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from openai import APIConnectionError, APIError, AzureOpenAI, RateLimitError
+from openai import APIConnectionError, APIError, AsyncOpenAI, RateLimitError
 
 from config import Settings
 from models.message import Message
@@ -22,9 +21,15 @@ class AIService:
         self.settings = settings
         self.usage_service = usage_service
         self.profile_service = profile_service
-        self._clients: dict[str, AzureOpenAI] = {}
+        self._clients: dict[str, dict[str, Any]] = {}
 
-    def _get_client_and_profile(self, profile_id: str | None = None) -> tuple[AzureOpenAI, ConnectionProfile]:
+    async def close(self) -> None:
+        """Closes all cached client connections when the application shuts down."""
+        for cached in self._clients.values():
+            await cached["client"].close()
+        self._clients.clear()
+
+    async def _get_client_and_profile(self, profile_id: str | None = None) -> tuple[AsyncOpenAI, ConnectionProfile]:
         target_profile: ConnectionProfile | None = None
         if self.profile_service:
             if profile_id:
@@ -33,44 +38,56 @@ class AIService:
                     raise RuntimeError("Connection profile not found.")
             else:
                 target_profile = self.profile_service.get_active_profile()
-
         if not target_profile or not target_profile.is_configured:
             raise RuntimeError("No configured Azure OpenAI profile found. Please add connection details in Settings.")
-
-        cache_key = f"{target_profile.endpoint}|{target_profile.api_version}|{target_profile.api_key}"
-        if cache_key not in self._clients:
-            self._clients[cache_key] = AzureOpenAI(
-                api_key=target_profile.api_key,
-                azure_endpoint=target_profile.endpoint,
-                api_version=target_profile.api_version,
-            )
-        return self._clients[cache_key], target_profile
+        raw_endpoint = target_profile.endpoint.strip().rstrip("/")
+        if raw_endpoint.endswith("/openai/v1"):
+            base_url = raw_endpoint + "/"
+        else:
+            base_url = f"{raw_endpoint}/openai/v1/"
+        cached = self._clients.get(target_profile.id)
+        if cached:
+            if cached["endpoint"] == target_profile.endpoint and cached["api_key"] == target_profile.api_key:
+                return cached["client"], target_profile
+            await cached["client"].close()
+        client = AsyncOpenAI(
+            api_key=target_profile.api_key,
+            base_url=base_url,
+        )
+        self._clients[target_profile.id] = {
+            "client": client,
+            "endpoint": target_profile.endpoint,
+            "api_key": target_profile.api_key
+        }
+        return client, target_profile
 
     @property
     def configured(self) -> bool:
-        try:
-            _, profile = self._get_client_and_profile()
-            return profile.is_configured
-        except RuntimeError:
+        if not self.profile_service:
             return False
+        active = self.profile_service.get_active_profile()
+        return active.is_configured if active else False
 
     @property
     def active_deployment(self) -> str:
-        try:
-            _, profile = self._get_client_and_profile()
-            return profile.deployment or "Not configured"
-        except RuntimeError:
+        if not self.profile_service:
             return "Not configured"
+        active = self.profile_service.get_active_profile()
+        return active.deployment if (active and active.is_configured) else "Not configured"
 
     async def stream(self, instructions: str, input_messages: list[dict[str, str]],
                      profile_id: str | None = None) -> AsyncGenerator[dict[str, Any], None]:
-        client, profile = self._get_client_and_profile(profile_id)
+        client, profile = await self._get_client_and_profile(profile_id)
         started = time.perf_counter()
         response_usage = None
         try:
-            stream = await asyncio.to_thread(client.responses.create, model=profile.deployment,
-                                             instructions=instructions, input=input_messages, stream=True)
-            for event in stream:
+            stream = await client.responses.create(
+                model=profile.deployment,
+                instructions=instructions, 
+                input=input_messages, 
+                stream=True
+            )
+            async for event in stream:
                 if event.type == "response.output_text.delta":
                     yield {"type": "delta", "text": event.delta}
                 elif event.type == "response.completed":
@@ -88,17 +105,22 @@ class AIService:
     async def summarize_memory(self, previous_summary: str, messages: list[Message],
                                profile_id: str | None = None) -> str:
         """Create a compact factual memory without modifying the visible transcript."""
-        client, profile = self._get_client_and_profile(profile_id)
+        client, profile = await self._get_client_and_profile(profile_id)
         transcript = "\n".join(f"{message.role.upper()}: {message.content}" for message in messages)
         instructions = (
-            "Summarize the conversation memory for a future assistant turn. Preserve user goals, "
-            "decisions, constraints, important facts, unresolved questions, and relevant code or file names. "
-            "Do not invent facts. Be compact and write Markdown bullet points."
+            "Summarize the conversation memory for a future assistant turn. "
+            "Preserve user goals, decisions, constraints, important facts, "
+            "unresolved questions, and relevant code or file names. "
+            "Do not invent facts or infer missing information. "
+            "Be compact and write Markdown bullet points only."
         )
         request = "Existing memory:\n" + (previous_summary or "(none)") + "\n\nNew transcript to incorporate:\n" + transcript
         try:
-            response = await asyncio.to_thread(client.responses.create, model=profile.deployment,
-                                               instructions=instructions, input=request)
+            response = await client.responses.create(
+                model=profile.deployment,
+                instructions=instructions, 
+                input=request
+            )
             return response.output_text.strip()
         except (APIConnectionError, RateLimitError, APIError) as exc:
             logger.exception("Azure API failure while compacting conversation")

@@ -1,4 +1,4 @@
-"""Helios local AI Workbench application entry point."""
+"""Helios local BYOK AI Client application entry point."""
 
 import json
 import logging
@@ -41,6 +41,7 @@ memory_service = ConversationMemoryService(ai_service, conversation_manager, set
 async def lifespan(_: FastAPI):
     logger.info("Helios started")
     yield
+    await ai_service.close()
     logger.info("Helios stopped")
 
 
@@ -76,7 +77,6 @@ class WorkspaceRootRequest(BaseModel):
 class CreateProfileRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     endpoint: str = Field(min_length=1, max_length=2048)
-    api_version: str = Field(default="2025-04-01-preview", max_length=128)
     api_key: str = Field(min_length=1, max_length=1024)
     deployment: str = Field(min_length=1, max_length=256)
 
@@ -84,7 +84,6 @@ class CreateProfileRequest(BaseModel):
 class UpdateProfileRequest(BaseModel):
     name: str | None = Field(default=None, max_length=100)
     endpoint: str | None = Field(default=None, max_length=2048)
-    api_version: str | None = Field(default=None, max_length=128)
     api_key: str | None = Field(default=None, max_length=1024)
     deployment: str | None = Field(default=None, max_length=256)
 
@@ -107,7 +106,7 @@ async def list_profiles():
 @app.post("/api/profiles")
 async def create_profile(payload: CreateProfileRequest):
     try:
-        profile = profile_service.create_profile(payload.name, payload.endpoint, payload.api_version, payload.api_key, payload.deployment)
+        profile = profile_service.create_profile(payload.name, payload.endpoint, payload.api_key, payload.deployment)
     except Exception:
         logger.exception("Could not create profile")
         raise HTTPException(status_code=400, detail="Could not create connection profile.")
@@ -117,7 +116,7 @@ async def create_profile(payload: CreateProfileRequest):
 @app.put("/api/profiles/{profile_id}")
 async def update_profile(profile_id: str, payload: UpdateProfileRequest):
     try:
-        profile_service.update_profile(profile_id, payload.name, payload.endpoint, payload.api_version, payload.api_key, payload.deployment)
+        profile_service.update_profile(profile_id, payload.name, payload.endpoint, payload.api_key, payload.deployment)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception:

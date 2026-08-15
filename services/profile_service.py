@@ -66,13 +66,12 @@ class ProfileService:
         self._save()
         return self._profiles[profile_id]
 
-    def create_profile(self, name: str, endpoint: str, api_version: str, api_key: str, deployment: str) -> ConnectionProfile:
+    def create_profile(self, name: str, endpoint: str, api_key: str, deployment: str) -> ConnectionProfile:
         cleaned_name = name.strip() or "New Azure Profile"
         profile = ConnectionProfile(
             id=str(uuid4()),
             name=cleaned_name,
             endpoint=endpoint.strip(),
-            api_version=api_version.strip() or "2025-04-01-preview",
             api_key=api_key.strip(),
             deployment=deployment.strip(),
         )
@@ -82,9 +81,7 @@ class ProfileService:
         self._save()
         return profile
 
-    def update_profile(self, profile_id: str, name: str | None = None, endpoint: str | None = None,
-                       api_version: str | None = None, api_key: str | None = None,
-                       deployment: str | None = None) -> ConnectionProfile:
+    def update_profile(self, profile_id: str, name: str | None = None, endpoint: str | None = None, api_key: str | None = None, deployment: str | None = None) -> ConnectionProfile:
         profile = self.get_profile(profile_id)
         if not profile:
             raise ValueError("Profile not found.")
@@ -92,8 +89,6 @@ class ProfileService:
             profile.name = name.strip()
         if endpoint is not None:
             profile.endpoint = endpoint.strip()
-        if api_version is not None and api_version.strip():
-            profile.api_version = api_version.strip()
         if api_key is not None and api_key.strip():
             profile.api_key = api_key.strip()
         if deployment is not None and deployment.strip():

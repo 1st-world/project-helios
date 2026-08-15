@@ -348,7 +348,6 @@ function resetProfileForm() {
   $('#profile-form-title').textContent = 'Add New Profile';
   $('#profile-name').value = '';
   $('#azure-endpoint').value = '';
-  $('#azure-api-version').value = '2025-04-01-preview';
   $('#azure-api-key').value = '';
   $('#azure-deployment').value = '';
   $('#delete-profile-btn').classList.add('hidden');
@@ -359,7 +358,6 @@ function selectProfileForEditing(profile) {
   $('#profile-form-title').textContent = `Edit Profile: ${profile.name}`;
   $('#profile-name').value = profile.name;
   $('#azure-endpoint').value = profile.endpoint;
-  $('#azure-api-version').value = profile.api_version;
   $('#azure-api-key').value = '';
   $('#azure-deployment').value = profile.deployment;
   $('#delete-profile-btn').classList.remove('hidden');
@@ -497,18 +495,16 @@ $('#azure-settings-form').onsubmit = async (event) => {
   const editingId = $('#editing-profile-id').value;
   const name = $('#profile-name').value.trim();
   const endpoint = $('#azure-endpoint').value.trim();
-  const api_version = $('#azure-api-version').value.trim();
   const api_key = $('#azure-api-key').value.trim();
   const deployment = $('#azure-deployment').value.trim();
 
   // Client-side validation with specific feedback
   if (!name) return toast('Profile name is required.');
   if (!endpoint) return toast('Azure endpoint is required.');
-  if (!api_version) return toast('API version is required.');
   if (!editingId && !api_key) return toast('API key is required when creating a new profile.');
   if (!deployment) return toast('Deployment name is required.');
 
-  const payload = { name, endpoint, api_version, deployment };
+  const payload = { name, endpoint, deployment };
   if (api_key) payload.api_key = api_key;
 
   const url = editingId ? `/api/profiles/${editingId}` : '/api/profiles';
