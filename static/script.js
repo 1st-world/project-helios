@@ -5,6 +5,7 @@ const state = {
   workspaceRoot: '',
   generating: false,
   activeProfileId: null,
+  editingProfileId: null,
   profiles: []
 };
 const $ = (selector) => document.querySelector(selector);
@@ -27,20 +28,47 @@ marked.setOptions({
   }
 });
 
-// Helper & Utility Functions
-function toast(message) {
-  const el = $('#toast');
-  el.textContent = message;
-  el.classList.remove('hidden');
-  setTimeout(() => el.classList.add('hidden'), 5000);
-}
-function refreshIcons() {
-  if (window.lucide) window.lucide.createIcons({ attrs: { 'stroke-width': 1.8 } });
-}
 function escapeHtml(value) {
   const div = document.createElement('div');
   div.textContent = value;
   return div.innerHTML;
+}
+function refreshIcons() {
+  if (window.lucide) window.lucide.createIcons({ attrs: { 'stroke-width': 1.8 } });
+}
+
+let toastTimer = null;
+function toast(message, type = 'info') {
+  const el = $('#toast');
+  if (!el) return;
+
+  const icons = {
+    success: 'check-circle-2',
+    error: 'alert-circle',
+    danger: 'alert-circle',
+    warning: 'alert-triangle',
+    info: 'info'
+  };
+  const iconName = icons[type] || 'info';
+
+  el.className = `toast toast-${type}`;
+  el.innerHTML = `<i data-lucide="${iconName}"></i><span>${escapeHtml(String(message))}</span>`;
+
+  const openDialog = document.querySelector('dialog[open]');
+  if (openDialog) {
+    if (el.parentElement !== openDialog) {
+      openDialog.appendChild(el);
+    }
+  } else {
+    if (el.parentElement !== document.body) {
+      document.body.appendChild(el);
+    }
+  }
+
+  refreshIcons();
+  el.classList.remove('hidden');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.add('hidden'), 4500);
 }
 function scrollDown(smooth = true) {
   chat.scrollTo({
@@ -105,9 +133,9 @@ function appendMessage(role, content = '', messageIndex = null, shouldScroll = t
   copy.onclick = async () => {
     try {
       await navigator.clipboard.writeText(textEl.innerText || content);
-      toast('Copied to clipboard!');
+      toast('Copied to clipboard!', 'success');
     } catch {
-      toast('Failed to copy.');
+      toast('Failed to copy.', 'error');
     }
   };
   actions.append(copy);
@@ -156,7 +184,7 @@ function onDelta(event, assistant, answer) {
   scrollDown(true);
 }
 function onFinish() { loadConversations(); }
-function onError(message) { toast(message); }
+function onError(message) { toast(message, 'error'); }
 function onAbort(assistant, answer) { assistant.render(answer.value || '_Generation stopped._'); }
 
 async function loadConversations() {
@@ -203,7 +231,7 @@ async function loadConversations() {
 
 async function openConversation(id) {
   const response = await fetch(`/api/conversations/${id}`);
-  if (!response.ok) return toast('Could not open conversation.');
+  if (!response.ok) return toast('Could not open conversation.', 'error');
   const data = await response.json();
   state.conversationId = data.id;
   chat.innerHTML = '';
@@ -223,20 +251,20 @@ function newChat() {
 async function renameConversation(item) {
   const title = window.prompt('Conversation title', item.title);
   if (title === null || title.trim() === item.title) return;
-  if (!title.trim()) return toast('A conversation title is required.');
+  if (!title.trim()) return toast('A conversation title is required.', 'warning');
   const response = await fetch(`/api/conversations/${item.id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title })
   });
-  if (!response.ok) return toast((await response.json()).detail || 'Could not rename conversation.');
+  if (!response.ok) return toast((await response.json()).detail || 'Could not rename conversation.', 'error');
   loadConversations();
 }
 
 async function deleteConversation(item) {
   if (!window.confirm(`Delete "${item.title}"? This cannot be undone.`)) return;
   const response = await fetch(`/api/conversations/${item.id}`, { method: 'DELETE' });
-  if (!response.ok) return toast((await response.json()).detail || 'Could not delete conversation.');
+  if (!response.ok) return toast((await response.json()).detail || 'Could not delete conversation.', 'error');
   if (state.conversationId === item.id) newChat();
   else loadConversations();
 }
@@ -255,7 +283,7 @@ async function loadWorkspace() {
     refreshIcons();
   }
   catch {
-    toast('Could not load workspace.');
+    toast('Could not load workspace.', 'error');
   }
 }
 
@@ -270,13 +298,13 @@ async function editUserMessage(messageIndex, currentContent) {
   if (state.generating || !state.conversationId) return;
   const content = window.prompt('Edit your message', currentContent);
   if (content === null || content.trim() === currentContent) return;
-  if (!content.trim()) return toast('Message cannot be empty.');
+  if (!content.trim()) return toast('Message cannot be empty.', 'warning');
   const response = await fetch(`/api/conversations/${state.conversationId}/messages/${messageIndex}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content })
   });
-  if (!response.ok) return toast((await response.json()).detail || 'Could not edit message.');
+  if (!response.ok) return toast((await response.json()).detail || 'Could not edit message.', 'error');
   await openConversation(state.conversationId);
   sendMessage({ prompt: content.trim(), regenerateMessageIndex: messageIndex, appendUser: false });
 }
@@ -344,23 +372,49 @@ async function sendMessage(options = {}) {
 }
 
 function resetProfileForm() {
+  state.editingProfileId = null;
   $('#editing-profile-id').value = '';
   $('#profile-form-title').textContent = 'Add New Profile';
+  const saveLabel = $('#save-profile-label');
+  if (saveLabel) saveLabel.textContent = 'Add Profile';
   $('#profile-name').value = '';
   $('#azure-endpoint').value = '';
   $('#azure-api-key').value = '';
+  $('#azure-api-key').type = 'password';
+  $('#azure-api-key').placeholder = 'Enter your Azure OpenAI API key';
+  const hint = $('#api-key-hint');
+  if (hint) hint.textContent = 'API key is required for new connection profiles';
   $('#azure-deployment').value = '';
   $('#delete-profile-btn').classList.add('hidden');
+  const toggleBtn = $('#toggle-api-key-btn');
+  if (toggleBtn) toggleBtn.innerHTML = '<i data-lucide="eye"></i>';
+
+  document.querySelectorAll('.profile-item').forEach((item) => item.classList.remove('editing'));
+  refreshIcons();
 }
 
 function selectProfileForEditing(profile) {
+  state.editingProfileId = profile.id;
   $('#editing-profile-id').value = profile.id;
   $('#profile-form-title').textContent = `Edit Profile: ${profile.name}`;
+  const saveLabel = $('#save-profile-label');
+  if (saveLabel) saveLabel.textContent = 'Save Changes';
   $('#profile-name').value = profile.name;
   $('#azure-endpoint').value = profile.endpoint;
   $('#azure-api-key').value = '';
+  $('#azure-api-key').type = 'password';
+  $('#azure-api-key').placeholder = 'Leave blank to keep existing key';
+  const hint = $('#api-key-hint');
+  if (hint) hint.textContent = 'Leave blank to keep current key, or enter a new key to update';
   $('#azure-deployment').value = profile.deployment;
   $('#delete-profile-btn').classList.remove('hidden');
+  const toggleBtn = $('#toggle-api-key-btn');
+  if (toggleBtn) toggleBtn.innerHTML = '<i data-lucide="eye"></i>';
+
+  document.querySelectorAll('.profile-item').forEach((item) => {
+    item.classList.toggle('editing', item.dataset.profileId === profile.id);
+  });
+  refreshIcons();
 }
 
 function renderProfiles(data) {
@@ -384,42 +438,51 @@ function renderProfiles(data) {
   }
 
   const container = $('#profile-list-container');
+  const emptyState = $('#profile-empty-state');
   container.innerHTML = '';
-  state.profiles.forEach((p) => {
-    const item = document.createElement('div');
-    item.className = `profile-item ${p.id === state.activeProfileId ? 'active' : ''}`;
 
-    const info = document.createElement('div');
-    info.className = 'profile-info';
-    info.innerHTML = `<strong>${escapeHtml(p.name)}</strong><span class="profile-meta">${escapeHtml(p.deployment)} · ${escapeHtml(p.endpoint)}</span>`;
+  if (!state.profiles.length) {
+    if (emptyState) emptyState.classList.remove('hidden');
+  } else {
+    if (emptyState) emptyState.classList.add('hidden');
+    state.profiles.forEach((p) => {
+      const item = document.createElement('div');
+      item.className = `profile-item ${p.id === state.activeProfileId ? 'active' : ''} ${p.id === state.editingProfileId ? 'editing' : ''}`;
+      item.dataset.profileId = p.id;
+      item.title = 'Click to edit profile';
+      item.onclick = (e) => {
+        if (!e.target.closest('button')) selectProfileForEditing(p);
+      };
 
-    const actions = document.createElement('div');
-    actions.className = 'profile-actions';
+      const info = document.createElement('div');
+      info.className = 'profile-info';
+      info.innerHTML = `<strong>${escapeHtml(p.name)}</strong><span class="profile-meta" title="${escapeHtml(p.endpoint)}">${escapeHtml(p.deployment)} · ${escapeHtml(p.endpoint)}</span>`;
 
-    if (p.id !== state.activeProfileId) {
-      const useBtn = document.createElement('button');
-      useBtn.className = 'quiet-btn';
-      useBtn.type = 'button';
-      useBtn.textContent = 'Use';
-      useBtn.onclick = () => switchActiveProfile(p.id);
-      actions.append(useBtn);
-    } else {
-      const activeBadge = document.createElement('span');
-      activeBadge.className = 'active-badge';
-      activeBadge.textContent = 'Active';
-      actions.append(activeBadge);
-    }
+      const actions = document.createElement('div');
+      actions.className = 'profile-actions';
 
-    const editBtn = document.createElement('button');
-    editBtn.className = 'icon-button-sm';
-    editBtn.type = 'button';
-    editBtn.innerHTML = '<i data-lucide="pencil"></i>';
-    editBtn.onclick = () => selectProfileForEditing(p);
-    actions.append(editBtn);
+      if (p.id !== state.activeProfileId) {
+        const useBtn = document.createElement('button');
+        useBtn.className = 'quiet-btn';
+        useBtn.type = 'button';
+        useBtn.textContent = 'Use';
+        useBtn.title = 'Set as active profile';
+        useBtn.onclick = (e) => {
+          e.stopPropagation();
+          switchActiveProfile(p.id);
+        };
+        actions.append(useBtn);
+      } else {
+        const activeBadge = document.createElement('span');
+        activeBadge.className = 'active-badge';
+        activeBadge.textContent = 'Active';
+        actions.append(activeBadge);
+      }
 
-    item.append(info, actions);
-    container.append(item);
-  });
+      item.append(info, actions);
+      container.append(item);
+    });
+  }
   refreshIcons();
 }
 
@@ -429,7 +492,7 @@ async function loadProfiles() {
     renderProfiles(data);
     health();
   } catch {
-    toast('Could not load connection profiles.');
+    toast('Could not load connection profiles.', 'error');
   }
 }
 
@@ -438,9 +501,9 @@ async function switchActiveProfile(profileId) {
     const data = await fetch(`/api/profiles/${profileId}/active`, { method: 'POST' }).then((res) => res.json());
     renderProfiles(data);
     health();
-    toast('Active profile updated.');
+    toast('Active profile updated.', 'success');
   } catch {
-    toast('Could not switch active profile.');
+    toast('Could not switch active profile.', 'error');
   }
 }
 
@@ -471,8 +534,28 @@ $('#open-settings').onclick = async () => {
 };
 $('#add-profile-btn').onclick = resetProfileForm;
 
+const toggleKeyBtn = $('#toggle-api-key-btn');
+if (toggleKeyBtn) {
+  toggleKeyBtn.onclick = () => {
+    const input = $('#azure-api-key');
+    const isPassword = input.type === 'password';
+    input.type = isPassword ? 'text' : 'password';
+    toggleKeyBtn.innerHTML = `<i data-lucide="${isPassword ? 'eye-off' : 'eye'}"></i>`;
+    refreshIcons();
+  };
+}
+
 document.querySelectorAll('[data-close-dialog]').forEach((button) => {
   button.onclick = () => $(`#${button.dataset.closeDialog}`).close();
+});
+
+document.querySelectorAll('dialog').forEach((dlg) => {
+  dlg.addEventListener('close', () => {
+    const el = $('#toast');
+    if (el && el.parentElement === dlg) {
+      document.body.appendChild(el);
+    }
+  });
 });
 
 $('#workspace-form').onsubmit = async (event) => {
@@ -483,11 +566,12 @@ $('#workspace-form').onsubmit = async (event) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path })
   });
-  if (!response.ok) return toast((await response.json()).detail || 'Could not open workspace folder.');
+  if (!response.ok) return toast((await response.json()).detail || 'Could not open workspace folder.', 'error');
   state.workspaceFile = null;
   $('#file-chip').classList.add('hidden');
   $('#workspace-dialog').close();
   await loadWorkspace();
+  toast('Workspace folder updated.', 'success');
 };
 
 $('#azure-settings-form').onsubmit = async (event) => {
@@ -499,10 +583,10 @@ $('#azure-settings-form').onsubmit = async (event) => {
   const deployment = $('#azure-deployment').value.trim();
 
   // Client-side validation with specific feedback
-  if (!name) return toast('Profile name is required.');
-  if (!endpoint) return toast('Azure endpoint is required.');
-  if (!editingId && !api_key) return toast('API key is required when creating a new profile.');
-  if (!deployment) return toast('Deployment name is required.');
+  if (!name) return toast('Profile name is required.', 'warning');
+  if (!endpoint) return toast('Azure endpoint is required.', 'warning');
+  if (!editingId && !api_key) return toast('API key is required when creating a new profile.', 'warning');
+  if (!deployment) return toast('Deployment name is required.', 'warning');
 
   const payload = { name, endpoint, deployment };
   if (api_key) payload.api_key = api_key;
@@ -524,10 +608,17 @@ $('#azure-settings-form').onsubmit = async (event) => {
     $('#azure-api-key').value = '';
     renderProfiles(data);
     health();
-    toast('Connection profile saved.');
-    $('#settings-dialog').close();
+
+    if (!editingId) {
+      resetProfileForm();
+      toast('Connection profile created.', 'success');
+    } else {
+      toast('Connection profile saved.', 'success');
+      const updated = (data.profiles || []).find((p) => p.id === editingId);
+      if (updated) selectProfileForEditing(updated);
+    }
   } catch (err) {
-    toast(err.message);
+    toast(err.message, 'error');
   }
 };
 
@@ -542,18 +633,18 @@ $('#delete-profile-btn').onclick = async () => {
     renderProfiles(data);
     health();
     resetProfileForm();
-    toast('Profile deleted.');
+    toast('Profile deleted.', 'success');
   } catch (err) {
-    toast(err.message);
+    toast(err.message, 'error');
   }
 };
 
 $('#profile-select').onchange = (event) => switchActiveProfile(event.target.value);
 $('#load-file').onclick = () => {
   if (!state.workspaceFile) {
-    toast('Select a text file in the Workspace panel first.');
+    toast('Select a text file in the Workspace panel first.', 'info');
   } else {
-    toast(`Attached for the next message: ${state.workspaceFile}`);
+    toast(`Attached for the next message: ${state.workspaceFile}`, 'info');
   }
 };
 $('#file-chip button').onclick = () => {

@@ -116,12 +116,21 @@
       </div>
       <button class="dialog-close" type="button" data-close-dialog="settings-dialog" aria-label="Close"><i data-lucide="x"></i></button>
     </div>
-    <p>Connection profiles are saved locally in <code>profiles.json</code> and ignored by version control. API keys are never returned to the browser.</p>
+
+    <div class="info-callout">
+      <i data-lucide="shield-check"></i>
+      <p>Connection profiles are saved locally in <code>profiles.json</code> and ignored by version control. API keys are never returned to the browser.</p>
+    </div>
+
+    <div class="section-title-row">
+      <h3>Profiles</h3>
+      <button id="add-profile-btn" class="quiet-btn" type="button"><i data-lucide="plus"></i> New Profile</button>
+    </div>
 
     <div class="profile-manager">
-      <div class="profile-list-header">
-        <span>PROFILES</span>
-        <button id="add-profile-btn" class="quiet-btn" type="button"><i data-lucide="plus"></i> Add Profile</button>
+      <div id="profile-empty-state" class="profile-empty-state hidden">
+        <i data-lucide="inbox"></i>
+        <span>No profiles configured yet. Create one below.</span>
       </div>
       <div id="profile-list-container" class="profile-list-container"></div>
     </div>
@@ -131,15 +140,26 @@
       <div class="form-title-row">
         <h3 id="profile-form-title">Edit Profile</h3>
       </div>
-      <label>Profile Name<input id="profile-name" required placeholder="e.g. EastUS GPT-4o"></label>
-      <label>Azure Endpoint<input id="azure-endpoint" type="url" required placeholder="https://your-resource.openai.azure.com/"></label>
-      <label>API Key<input id="azure-api-key" type="password" placeholder="Leave blank to keep existing key"></label>
-      <label>Deployment Name<input id="azure-deployment" required placeholder="e.g. gpt-4o"></label>
+      <div class="form-grid-2">
+        <label>Profile Name<input id="profile-name" required placeholder="e.g. EastUS GPT-5.6 Sol"></label>
+        <label>Deployment Name<input id="azure-deployment" required placeholder="e.g. gpt-5.6-sol"></label>
+      </div>
+      <label>Azure Endpoint<input id="azure-endpoint" type="url" required placeholder="https://your-resource.cognitiveservices.azure.com/"></label>
+      <label>
+        API Key
+        <div class="input-with-action">
+          <input id="azure-api-key" type="password" placeholder="Leave blank to keep existing key" autocomplete="off">
+          <button id="toggle-api-key-btn" class="input-action-btn" type="button" title="Toggle key visibility" aria-label="Toggle key visibility">
+            <i data-lucide="eye"></i>
+          </button>
+        </div>
+        <span id="api-key-hint" class="field-hint">Leave blank to keep existing key</span>
+      </label>
       <div class="dialog-actions">
         <button id="delete-profile-btn" class="delete-btn hidden" type="button"><i data-lucide="trash-2"></i> Delete</button>
         <div class="dialog-actions-right">
-          <button class="quiet" type="button" data-close-dialog="settings-dialog">Cancel</button>
-          <button class="send" type="submit"><i data-lucide="save"></i> <span>Save Profile</span></button>
+          <button class="quiet" type="button" data-close-dialog="settings-dialog">Close</button>
+          <button class="send" type="submit"><i data-lucide="save"></i> <span id="save-profile-label">Save Profile</span></button>
         </div>
       </div>
     </form>
