@@ -66,7 +66,18 @@ class ProfileService:
         self._save()
         return self._profiles[profile_id]
 
-    def create_profile(self, name: str, endpoint: str, api_key: str, deployment: str) -> ConnectionProfile:
+    def create_profile(
+        self,
+        name: str,
+        endpoint: str,
+        api_key: str,
+        deployment: str,
+        input_price_per_million: float | None = None,
+        output_price_per_million: float | None = None,
+        long_context_threshold: int | None = 128_000,
+        long_input_price_per_million: float | None = None,
+        long_output_price_per_million: float | None = None,
+    ) -> ConnectionProfile:
         cleaned_name = name.strip() or "New Azure Profile"
         profile = ConnectionProfile(
             id=str(uuid4()),
@@ -74,6 +85,11 @@ class ProfileService:
             endpoint=endpoint.strip(),
             api_key=api_key.strip(),
             deployment=deployment.strip(),
+            input_price_per_million=input_price_per_million,
+            output_price_per_million=output_price_per_million,
+            long_context_threshold=long_context_threshold if long_context_threshold is not None else 128_000,
+            long_input_price_per_million=long_input_price_per_million,
+            long_output_price_per_million=long_output_price_per_million,
         )
         self._profiles[profile.id] = profile
         if not self._active_profile_id:
@@ -81,7 +97,23 @@ class ProfileService:
         self._save()
         return profile
 
-    def update_profile(self, profile_id: str, name: str | None = None, endpoint: str | None = None, api_key: str | None = None, deployment: str | None = None) -> ConnectionProfile:
+    def update_profile(
+        self,
+        profile_id: str,
+        name: str | None = None,
+        endpoint: str | None = None,
+        api_key: str | None = None,
+        deployment: str | None = None,
+        input_price_per_million: float | None = None,
+        output_price_per_million: float | None = None,
+        clear_input_price: bool = False,
+        clear_output_price: bool = False,
+        long_context_threshold: int | None = None,
+        long_input_price_per_million: float | None = None,
+        long_output_price_per_million: float | None = None,
+        clear_long_input_price: bool = False,
+        clear_long_output_price: bool = False,
+    ) -> ConnectionProfile:
         profile = self.get_profile(profile_id)
         if not profile:
             raise ValueError("Profile not found.")
@@ -93,6 +125,24 @@ class ProfileService:
             profile.api_key = api_key.strip()
         if deployment is not None and deployment.strip():
             profile.deployment = deployment.strip()
+        if clear_input_price:
+            profile.input_price_per_million = None
+        elif input_price_per_million is not None:
+            profile.input_price_per_million = input_price_per_million
+        if clear_output_price:
+            profile.output_price_per_million = None
+        elif output_price_per_million is not None:
+            profile.output_price_per_million = output_price_per_million
+        if long_context_threshold is not None:
+            profile.long_context_threshold = long_context_threshold
+        if clear_long_input_price:
+            profile.long_input_price_per_million = None
+        elif long_input_price_per_million is not None:
+            profile.long_input_price_per_million = long_input_price_per_million
+        if clear_long_output_price:
+            profile.long_output_price_per_million = None
+        elif long_output_price_per_million is not None:
+            profile.long_output_price_per_million = long_output_price_per_million
 
         self._save()
         return profile

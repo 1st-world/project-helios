@@ -84,9 +84,19 @@ body {
   font-family: Inter, Arial, sans-serif;
 }
 button,
+input,
 textarea,
 select {
   font: inherit;
+}
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 button {
   border: 0;
@@ -601,10 +611,61 @@ body.sidebar-collapsed .sidebar-toggle {
   }
 }
 
+/* Message Footer & Metadata */
+.message-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+  gap: 8px;
+}
+.message-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-tertiary);
+  font:
+    11px "DM Mono",
+    monospace;
+  line-height: 1.4;
+}
+.message-meta-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-element);
+  color: var(--text-sub);
+  font-weight: 500;
+  font-size: 10px;
+}
+.message-meta-tag svg {
+  width: 11px;
+  height: 11px;
+  color: var(--accent);
+}
+.message-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.message-meta-cost {
+  color: var(--accent);
+  font-weight: 600;
+}
+.message-meta-tier {
+  border-color: var(--warning-border);
+  background: var(--warning-subtle);
+  color: var(--warning-text);
+}
+
 /* Message Actions Toolbar */
 .message-actions {
   display: flex;
-  margin-top: 6px;
+  margin-left: auto;
   gap: 4px;
   opacity: 0;
   pointer-events: none;
@@ -737,26 +798,6 @@ textarea::placeholder {
 /* ========================================
    Overlays & Dialogs
    ======================================== */
-.usage-panel {
-  display: flex;
-  position: fixed;
-  right: 24px;
-  bottom: 111px;
-  padding: 7px 10px;
-  gap: 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  backdrop-filter: blur(8px);
-  background: var(--bg-surface-elevated);
-  color: var(--text-muted);
-  font:
-    10px "DM Mono",
-    monospace;
-}
-.usage-panel b {
-  color: var(--text-main);
-  font-weight: 400;
-}
 .hidden {
   display: none !important;
 }
@@ -1012,11 +1053,11 @@ textarea::placeholder {
   margin: 0;
   color: var(--text-main);
   font-weight: 600;
-  font-size: 13px;
+  font-size: 14px;
 }
 .profile-manager {
   margin-bottom: 4px;
-  padding: 8px;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg-app);
@@ -1040,10 +1081,13 @@ textarea::placeholder {
 .profile-list-container {
   display: flex;
   flex-direction: column;
-  max-height: 162px;
-  padding-right: 4px;
+  max-height: 178px;
+  padding: 8px;
   overflow-y: auto;
   gap: 6px;
+}
+.profile-list-container:empty {
+  display: none;
 }
 .profile-item {
   display: flex;
@@ -1146,8 +1190,16 @@ textarea::placeholder {
   background: var(--bg-element-hover);
   color: var(--text-main);
 }
+#azure-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+#azure-settings-form label {
+  margin: 0;
+}
 .form-title-row {
-  margin-top: 20px;
+  margin-top: 16px;
   padding-top: 16px;
   border-top: 1px solid var(--border);
 }
@@ -1196,11 +1248,211 @@ textarea::placeholder {
   font-weight: 400;
   font-size: 11px;
 }
+.pricing-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pricing-accordion {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-surface-elevated);
+  transition: border-color 0.15s ease;
+}
+.pricing-accordion[open] {
+  border-color: var(--border-strong);
+}
+.pricing-accordion-header {
+  display: flex;
+  align-items: center;
+  padding: 9px 12px;
+  gap: 8px;
+  list-style: none;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  user-select: none;
+}
+.pricing-accordion-header::-webkit-details-marker {
+  display: none;
+}
+.pricing-accordion-header:hover {
+  background: var(--bg-element-hover);
+}
+.pricing-accordion-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-sub);
+  font-weight: 500;
+  font-size: 12px;
+}
+.pricing-accordion-title svg {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+}
+.pricing-accordion-status {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  padding: 2px 7px;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-element);
+  color: var(--text-tertiary);
+  font-weight: 500;
+  font-size: 10.5px;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease;
+}
+.pricing-accordion-status svg {
+  flex-shrink: 0;
+  width: 11px;
+  height: 11px;
+  color: var(--text-muted);
+}
+.pricing-accordion-status.configured {
+  border-color: var(--success-border);
+  background: var(--success-subtle);
+  color: var(--success-text);
+}
+.pricing-accordion-status.configured svg {
+  color: var(--success);
+}
+.pricing-chevron {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--text-tertiary);
+  transition: transform 0.2s ease;
+}
+.pricing-accordion[open] .pricing-chevron {
+  transform: rotate(180deg);
+}
+.pricing-accordion-body {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px 14px;
+  gap: 2px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+.pricing-tier-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tier-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+.tier-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+.tier-pill.standard {
+  color: var(--success);
+}
+.tier-pill.long {
+  color: var(--warning);
+}
+.tier-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.tier-range {
+  color: var(--text-tertiary);
+  font:
+    11px "DM Mono",
+    monospace;
+}
+.tier-divider {
+  display: flex;
+  position: relative;
+  align-items: center;
+  margin: 14px 0;
+  gap: 10px;
+}
+.tier-divider-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.tier-threshold-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px 4px 8px;
+  gap: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 20px;
+  background: var(--bg-surface-elevated);
+  box-shadow: var(--shadow-sm);
+}
+.threshold-icon {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  color: var(--accent);
+}
+.threshold-tag {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.threshold-input-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.threshold-input-wrap input {
+  width: 76px;
+  height: 22px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-base);
+  color: var(--accent);
+  font:
+    11px "DM Mono",
+    monospace;
+  font-weight: 600;
+  text-align: center;
+}
+.threshold-input-wrap input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.threshold-unit {
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.pricing-hint {
+  display: block;
+  margin-top: 8px;
+  margin-bottom: 0;
+}
 .dialog-actions-right {
   display: flex;
   align-items: center;
   margin-left: auto;
   gap: 8px;
+}
+#azure-settings-form .dialog-actions {
+  margin-top: 8px;
 }
 
 /* ========================================
@@ -1261,19 +1513,18 @@ button svg,
   .chat {
     padding: 25px 17px;
   }
-  .usage-panel {
-    right: 12px;
-    bottom: 108px;
-    gap: 7px;
-  }
-  .usage-panel span:nth-child(3) {
-    display: none;
-  }
 }
 
 @media (max-width: 520px) {
   .form-grid-2 {
     grid-template-columns: 1fr;
-    gap: 0;
+    gap: 12px;
+  }
+  .tier-divider {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .tier-divider-line {
+    width: 100%;
   }
 }

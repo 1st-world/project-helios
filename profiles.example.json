@@ -8,6 +8,11 @@
       "name": "East US - GPT-5.6 Sol",
       "endpoint": "https://your-resource.cognitiveservices.azure.com/",
       "deployment": "gpt-5.6-sol",
+      "input_price_per_million": 5.00,
+      "output_price_per_million": 30.00,
+      "long_context_threshold": 128000,
+      "long_input_price_per_million": 10.00,
+      "long_output_price_per_million": 45.00,
       "is_configured": true,
       "has_api_key": true,
       "api_key": "YOUR_API_KEY_HERE"
@@ -17,6 +22,11 @@
       "name": "Korea Central - GPT-5.4 mini",
       "endpoint": "https://your-resource.cognitiveservices.azure.com/",
       "deployment": "gpt-5.4-mini",
+      "input_price_per_million": null,
+      "output_price_per_million": null,
+      "long_context_threshold": 128000,
+      "long_input_price_per_million": null,
+      "long_output_price_per_million": null,
       "is_configured": true,
       "has_api_key": true,
       "api_key": "YOUR_API_KEY_HERE"

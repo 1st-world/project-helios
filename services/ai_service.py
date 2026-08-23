@@ -7,7 +7,6 @@ from typing import Any
 
 from openai import APIConnectionError, APIError, AsyncOpenAI, RateLimitError
 
-from config import Settings
 from models.message import Message
 from models.profile import ConnectionProfile
 from services.profile_service import ProfileService
@@ -17,8 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class AIService:
-    def __init__(self, settings: Settings, usage_service: UsageService, profile_service: ProfileService | None = None) -> None:
-        self.settings = settings
+    def __init__(self, usage_service: UsageService, profile_service: ProfileService | None = None) -> None:
         self.usage_service = usage_service
         self.profile_service = profile_service
         self._clients: dict[str, dict[str, Any]] = {}
@@ -93,7 +91,21 @@ class AIService:
                 elif event.type == "response.completed":
                     response_usage = getattr(event.response, "usage", None)
             elapsed = int((time.perf_counter() - started) * 1000)
-            yield {"type": "usage", "usage": self.usage_service.summarize(response_usage, elapsed).to_dict()}
+            usage_summary = self.usage_service.summarize(
+                response_usage,
+                elapsed,
+                input_price_per_million=profile.input_price_per_million,
+                output_price_per_million=profile.output_price_per_million,
+                long_context_threshold=profile.long_context_threshold,
+                long_input_price_per_million=profile.long_input_price_per_million,
+                long_output_price_per_million=profile.long_output_price_per_million,
+            ).to_dict()
+            profile_summary = {
+                "id": profile.id,
+                "name": profile.name,
+                "deployment": profile.deployment,
+            }
+            yield {"type": "usage", "usage": usage_summary, "profile": profile_summary}
             yield {"type": "done"}
         except (APIConnectionError, RateLimitError, APIError) as exc:
             logger.exception("Azure API failure for profile %s (%s)", profile.name, profile.id)

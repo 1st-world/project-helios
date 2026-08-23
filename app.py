@@ -32,8 +32,8 @@ profile_service = ProfileService(settings.profiles_path)
 conversation_manager = ConversationManager(settings.conversations_root)
 workspace_service = WorkspaceService(settings.workspace_root)
 prompt_builder = PromptBuilder()
-usage_service = UsageService(settings.input_price_per_million, settings.output_price_per_million)
-ai_service = AIService(settings, usage_service, profile_service)
+usage_service = UsageService()
+ai_service = AIService(usage_service, profile_service)
 memory_service = ConversationMemoryService(ai_service, conversation_manager, settings.max_context_messages, settings.keep_recent_messages)
 
 
@@ -79,6 +79,11 @@ class CreateProfileRequest(BaseModel):
     endpoint: str = Field(min_length=1, max_length=2048)
     api_key: str = Field(min_length=1, max_length=1024)
     deployment: str = Field(min_length=1, max_length=256)
+    input_price_per_million: float | None = Field(default=None, ge=0)
+    output_price_per_million: float | None = Field(default=None, ge=0)
+    long_context_threshold: int | None = Field(default=128_000, ge=1)
+    long_input_price_per_million: float | None = Field(default=None, ge=0)
+    long_output_price_per_million: float | None = Field(default=None, ge=0)
 
 
 class UpdateProfileRequest(BaseModel):
@@ -86,6 +91,15 @@ class UpdateProfileRequest(BaseModel):
     endpoint: str | None = Field(default=None, max_length=2048)
     api_key: str | None = Field(default=None, max_length=1024)
     deployment: str | None = Field(default=None, max_length=256)
+    input_price_per_million: float | None = Field(default=None, ge=0)
+    output_price_per_million: float | None = Field(default=None, ge=0)
+    clear_input_price: bool = False
+    clear_output_price: bool = False
+    long_context_threshold: int | None = Field(default=None, ge=1)
+    long_input_price_per_million: float | None = Field(default=None, ge=0)
+    long_output_price_per_million: float | None = Field(default=None, ge=0)
+    clear_long_input_price: bool = False
+    clear_long_output_price: bool = False
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -106,7 +120,17 @@ async def list_profiles():
 @app.post("/api/profiles")
 async def create_profile(payload: CreateProfileRequest):
     try:
-        profile = profile_service.create_profile(payload.name, payload.endpoint, payload.api_key, payload.deployment)
+        profile = profile_service.create_profile(
+            payload.name,
+            payload.endpoint,
+            payload.api_key,
+            payload.deployment,
+            payload.input_price_per_million,
+            payload.output_price_per_million,
+            payload.long_context_threshold,
+            payload.long_input_price_per_million,
+            payload.long_output_price_per_million,
+        )
     except Exception:
         logger.exception("Could not create profile")
         raise HTTPException(status_code=400, detail="Could not create connection profile.")
@@ -116,7 +140,22 @@ async def create_profile(payload: CreateProfileRequest):
 @app.put("/api/profiles/{profile_id}")
 async def update_profile(profile_id: str, payload: UpdateProfileRequest):
     try:
-        profile_service.update_profile(profile_id, payload.name, payload.endpoint, payload.api_key, payload.deployment)
+        profile_service.update_profile(
+            profile_id,
+            name=payload.name,
+            endpoint=payload.endpoint,
+            api_key=payload.api_key,
+            deployment=payload.deployment,
+            input_price_per_million=payload.input_price_per_million,
+            output_price_per_million=payload.output_price_per_million,
+            clear_input_price=payload.clear_input_price,
+            clear_output_price=payload.clear_output_price,
+            long_context_threshold=payload.long_context_threshold,
+            long_input_price_per_million=payload.long_input_price_per_million,
+            long_output_price_per_million=payload.long_output_price_per_million,
+            clear_long_input_price=payload.clear_long_input_price,
+            clear_long_output_price=payload.clear_long_output_price,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception:
@@ -257,13 +296,32 @@ async def chat(payload: ChatRequest):
 
     async def events():
         answer = ""
+        usage_data = None
+        profile_data = None
         try:
             yield f"data: {json.dumps({'type': 'start', 'conversation_id': conversation.id})}\n\n"
             async for event in ai_service.stream(instructions, input_messages, profile_id=payload.profile_id):
                 if event["type"] == "delta":
                     answer += event["text"]
+                elif event["type"] == "usage":
+                    usage_data = event.get("usage")
+                    profile_data = event.get("profile")
                 yield f"data: {json.dumps(event)}\n\n"
-            conversation_manager.add_message(conversation, "assistant", answer)
+
+            msg_kwargs = {}
+            if profile_data:
+                msg_kwargs["profile_id"] = profile_data.get("id")
+                msg_kwargs["profile_name"] = profile_data.get("name")
+                msg_kwargs["deployment"] = profile_data.get("deployment")
+            if usage_data:
+                msg_kwargs["input_tokens"] = usage_data.get("input_tokens")
+                msg_kwargs["output_tokens"] = usage_data.get("output_tokens")
+                msg_kwargs["total_tokens"] = usage_data.get("total_tokens")
+                msg_kwargs["response_time_ms"] = usage_data.get("response_time_ms")
+                msg_kwargs["estimated_cost"] = usage_data.get("estimated_cost")
+                msg_kwargs["is_long_context"] = bool(usage_data.get("is_long_context", False))
+
+            conversation_manager.add_message(conversation, "assistant", answer, **msg_kwargs)
             await memory_service.compact_if_needed(conversation)
         except Exception as exc:
             logger.exception("Chat stream failed")

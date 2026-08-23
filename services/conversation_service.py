@@ -109,8 +109,34 @@ class ConversationManager:
         ordered = sorted(self._conversations.values(), key=lambda item: item.updated_at, reverse=True)
         return [item.to_dict(include_messages=False) for item in ordered]
 
-    def add_message(self, conversation: Conversation, role: str, content: str) -> Message:
-        message = Message(role=role, content=content)  # type: ignore[arg-type]
+    def add_message(
+        self,
+        conversation: Conversation,
+        role: str,
+        content: str,
+        profile_id: str | None = None,
+        profile_name: str | None = None,
+        deployment: str | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        total_tokens: int | None = None,
+        response_time_ms: int | None = None,
+        estimated_cost: float | None = None,
+        is_long_context: bool = False,
+    ) -> Message:
+        message = Message(
+            role=role,  # type: ignore[arg-type]
+            content=content,
+            profile_id=profile_id,
+            profile_name=profile_name,
+            deployment=deployment,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            response_time_ms=response_time_ms,
+            estimated_cost=estimated_cost,
+            is_long_context=is_long_context,
+        )
         conversation.messages.append(message)
         conversation.updated_at = datetime.now(timezone.utc)
         if role == "user" and conversation.title == "New conversation":

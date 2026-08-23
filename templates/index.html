@@ -62,14 +62,6 @@
       </div>
     </section>
 
-    <section id="usage-panel" class="usage-panel hidden">
-      <span>IN <b id="input-tokens">0</b></span>
-      <span>OUT <b id="output-tokens">0</b></span>
-      <span>TOTAL <b id="total-tokens">0</b></span>
-      <span><b id="response-time">0</b> ms</span>
-      <span>$<b id="estimated-cost">0.000000</b></span>
-    </section>
-
     <footer>
       <div id="file-chip" class="file-chip hidden">
         <i data-lucide="paperclip"></i>
@@ -155,6 +147,51 @@
         </div>
         <span id="api-key-hint" class="field-hint">Leave blank to keep existing key</span>
       </label>
+      <div class="pricing-field-group">
+        <details id="profile-pricing-accordion" class="pricing-accordion">
+          <summary class="pricing-accordion-header">
+            <span class="pricing-accordion-title"><i data-lucide="calculator"></i>Token Pricing</span>
+            <span class="pricing-accordion-status" id="pricing-accordion-status"><i data-lucide="circle-dashed"></i> Not Configured</span>
+            <i data-lucide="chevron-down" class="pricing-chevron"></i>
+          </summary>
+          <div class="pricing-accordion-body">
+            <div class="pricing-tier-block">
+              <div class="tier-header">
+                <span class="tier-pill standard"><span class="tier-indicator"></span>Standard Context</span>
+                <span class="tier-range" id="standard-range-label">&le; 128K tokens</span>
+              </div>
+              <div class="form-grid-2">
+                <label>Input Price ($ / 1M)<input id="azure-input-price" type="number" step="any" min="0" placeholder="e.g. 5.00"></label>
+                <label>Output Price ($ / 1M)<input id="azure-output-price" type="number" step="any" min="0" placeholder="e.g. 30.00"></label>
+              </div>
+            </div>
+            <div class="tier-divider">
+              <div class="tier-divider-line"></div>
+              <div class="tier-threshold-pill">
+                <i data-lucide="git-commit-vertical" class="threshold-icon"></i>
+                <span class="threshold-tag">Threshold Breakpoint</span>
+                <div class="threshold-input-wrap">
+                  <input id="azure-long-threshold" type="number" step="1000" min="1000" placeholder="128000">
+                  <span class="threshold-unit">tokens</span>
+                </div>
+              </div>
+              <div class="tier-divider-line"></div>
+            </div>
+            <div class="pricing-tier-block">
+              <div class="tier-header">
+                <span class="tier-pill long"><span class="tier-indicator"></span>Long Context</span>
+                <span class="tier-range" id="long-range-label">&gt; 128K tokens</span>
+              </div>
+              <div class="form-grid-2">
+                <label>Long Input Price ($ / 1M)<input id="azure-long-input-price" type="number" step="any" min="0" placeholder="e.g. 10.00"></label>
+                <label>Long Output Price ($ / 1M)<input id="azure-long-output-price" type="number" step="any" min="0" placeholder="e.g. 45.00"></label>
+              </div>
+            </div>
+            <span class="field-hint pricing-hint">Standard rates apply if Long rates are blank or prompt is under threshold.</span>
+          </div>
+        </details>
+        <span class="field-hint">Optional. Configure token rates to calculate estimated conversation costs.</span>
+      </div>
       <div class="dialog-actions">
         <button id="delete-profile-btn" class="delete-btn hidden" type="button"><i data-lucide="trash-2"></i> Delete</button>
         <div class="dialog-actions-right">
