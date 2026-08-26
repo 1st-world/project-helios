@@ -179,6 +179,13 @@ footer {
   background: var(--bg-element-hover);
   color: var(--accent);
 }
+.sidebar-backdrop {
+  display: none;
+}
+.mobile-sidebar-toggle {
+  display: none;
+}
+
 .new-chat {
   display: inline-flex;
   align-items: center;
@@ -1484,34 +1491,86 @@ button svg,
 @media (max-width: 720px) {
   header {
     padding: 0 15px;
-  }
-  footer {
-    left: 0;
-    padding: 20px 12px 15px;
-  }
-  .sidebar {
-    z-index: 2;
-    position: fixed;
-    transform: translateX(-100%);
-  }
-  .sidebar-toggle {
-    display: none;
-  }
-  body.sidebar-collapsed .sidebar {
-    width: 272px;
+    gap: 10px;
   }
   #profile-select,
   #deployment-select {
     max-width: 150px;
   }
-  .header-actions .status {
-    display: none;
-  }
+  .header-actions .status,
   .model-tag {
     display: none;
   }
+  .mobile-sidebar-toggle {
+    display: grid;
+  }
+  .sidebar-backdrop {
+    display: block;
+    z-index: 90;
+    position: fixed;
+    inset: 0;
+    backdrop-filter: blur(4px);
+    background: var(--backdrop);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  body.sidebar-open .sidebar-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .sidebar {
+    z-index: 100;
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 280px;
+    max-width: 85vw;
+    height: 100vh;
+    transform: translateX(-100%);
+    box-shadow: var(--shadow-lg);
+    transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  body.sidebar-open .sidebar {
+    transform: translateX(0);
+  }
+  .sidebar-toggle {
+    display: grid;
+  }
+  body.sidebar-collapsed .sidebar {
+    width: 280px;
+    max-width: 90vw;
+    padding: 20px 12px;
+  }
+  body.sidebar-collapsed .brand-mark,
+  body.sidebar-collapsed .brand-name,
+  body.sidebar-collapsed .side-label,
+  body.sidebar-collapsed .conversation-list,
+  body.sidebar-collapsed .workspace-section,
+  body.sidebar-collapsed .workspace-title,
+  body.sidebar-collapsed .workspace-tree,
+  body.sidebar-collapsed .new-chat span {
+    display: revert;
+  }
+  body.sidebar-collapsed .brand {
+    justify-content: flex-start;
+    padding: 2px 2px 22px 9px;
+  }
+  body.sidebar-collapsed .new-chat {
+    display: inline-flex;
+    justify-content: flex-start;
+    padding: 11px;
+  }
+  body.sidebar-collapsed .sidebar-toggle {
+    margin-left: auto;
+  }
   .chat {
     padding: 25px 17px;
+  }
+  footer {
+    left: 0;
+    padding: 20px 12px 15px;
   }
 }
 

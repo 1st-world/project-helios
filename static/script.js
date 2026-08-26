@@ -91,6 +91,21 @@ function setSidebarCollapsed(collapsed) {
   localStorage.setItem('helios.sidebarCollapsed', String(collapsed));
   refreshIcons();
 }
+function setMobileSidebarOpen(open) {
+  document.body.classList.toggle('sidebar-open', open);
+  const mobileToggle = $('#mobile-sidebar-toggle');
+  if (mobileToggle) {
+    mobileToggle.innerHTML = `<i data-lucide="${open ? 'panel-left-close' : 'panel-left-open'}"></i>`;
+    mobileToggle.title = open ? 'Close sidebar' : 'Open sidebar';
+    mobileToggle.setAttribute('aria-label', mobileToggle.title);
+  }
+  refreshIcons();
+}
+function closeMobileSidebar() {
+  if (window.innerWidth <= 720 && document.body.classList.contains('sidebar-open')) {
+    setMobileSidebarOpen(false);
+  }
+}
 
 // UI Rendering
 function formatMessageMeta(meta) {
@@ -253,6 +268,7 @@ async function loadConversations() {
 }
 
 async function openConversation(id) {
+  closeMobileSidebar();
   const response = await fetch(`/api/conversations/${id}`);
   if (!response.ok) return toast('Could not open conversation.', 'error');
   const data = await response.json();
@@ -265,6 +281,7 @@ async function openConversation(id) {
 }
 
 function newChat() {
+  closeMobileSidebar();
   state.conversationId = null;
   state.workspaceFile = null;
   $('#file-chip').classList.add('hidden');
@@ -313,6 +330,7 @@ async function loadWorkspace() {
 }
 
 function selectFile(path) {
+  closeMobileSidebar();
   state.workspaceFile = path;
   $('#file-chip span').textContent = path;
   $('#file-chip').classList.remove('hidden');
@@ -574,7 +592,36 @@ async function health() {
 
 // Event Listeners & Initialization
 $('#new-chat').onclick = newChat;
-$('#sidebar-toggle').onclick = () => setSidebarCollapsed(!document.body.classList.contains('sidebar-collapsed'));
+$('#sidebar-toggle').onclick = () => {
+  if (window.innerWidth <= 720) {
+    setMobileSidebarOpen(false);
+  } else {
+    setSidebarCollapsed(!document.body.classList.contains('sidebar-collapsed'));
+  }
+};
+
+const mobileSidebarToggle = $('#mobile-sidebar-toggle');
+if (mobileSidebarToggle) {
+  mobileSidebarToggle.onclick = () => setMobileSidebarOpen(!document.body.classList.contains('sidebar-open'));
+}
+
+const sidebarBackdrop = $('#sidebar-backdrop');
+if (sidebarBackdrop) {
+  sidebarBackdrop.onclick = () => setMobileSidebarOpen(false);
+}
+
+window.addEventListener('resize', () => {
+  if (window.innerWidth > 720 && document.body.classList.contains('sidebar-open')) {
+    document.body.classList.remove('sidebar-open');
+  }
+});
+
+window.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && document.body.classList.contains('sidebar-open')) {
+    setMobileSidebarOpen(false);
+  }
+});
+
 $('#refresh-workspace').onclick = loadWorkspace;
 $('#choose-workspace').onclick = () => $('#workspace-dialog').showModal();
 $('#open-settings').onclick = async () => {

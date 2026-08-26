@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+  <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
   <aside class="sidebar">
     <div class="brand">
       <span class="brand-mark"><i data-lucide="sparkles"></i></span>
@@ -40,6 +41,7 @@
   <main>
     <header>
       <div class="model-control">
+        <button id="mobile-sidebar-toggle" class="sidebar-toggle mobile-sidebar-toggle" type="button" aria-label="Open sidebar" title="Open sidebar"><i data-lucide="panel-left-open"></i></button>
         <i data-lucide="bot"></i>
         <select id="profile-select" aria-label="Azure Connection Profile">
           <option>{{ model_name }}</option>
