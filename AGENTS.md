@@ -1,4 +1,4 @@
-﻿# Project Helios - Development & Code Guidelines
+# Project Helios - Development & Code Guidelines
 
 이 문서는 Project Helios 코드베이스의 유지보수성, 시각적 일관성 및 안정성 유지를 위한 기본 개발 지침입니다.
 
@@ -12,8 +12,9 @@
 - 반응형 미디어 쿼리는 CSS Cascade 규칙과 덮어쓰기 순서 보장을 위해 파일 최하단의 `Responsive Media Queries` 영역에 모아 관리합니다.
 
 ### 디자인 토큰 및 서식 일관성
-- 색상, 그림자, 테두리 등은 `:root`에 선언한 표준 디자인 토큰 변수(Scale 기반 네이밍)를 사용하며, 임의의 색상값을 하드코딩하지 않습니다.
-- 규칙(Rule) 블록 및 섹션 간격은 균일하게 1줄 빈 줄(1-blank line)을 유지합니다.
+- 색상, 그림자, 테두리 등은 `:root`에 선언한 **표준 디자인 토큰 변수(Scale 기반 네이밍)를 사용**하며, 임의의 색상값을 하드코딩하지 않습니다.
+- 독립된 컴포넌트 블록 및 섹션 사이에는 **1줄 빈 줄(1-blank line)**을 유지합니다.
+- 동일 컴포넌트 내의 하위 요소(`parent`, `parent child`), 상태(`:hover`, `:disabled`), 세부 변형 등 성격과 맥락이 밀접한 규칙들은 **빈 줄 없이 연속(0-blank line)으로 묶어 그룹화**하여 응집도와 가독성을 유지합니다.
 - 아이콘과 텍스트의 수직 정렬 시, 기하학적 박스 중앙뿐만 아니라 폰트의 시각적 중심(Optical center)을 고려합니다.
 
 ---
