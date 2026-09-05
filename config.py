@@ -19,6 +19,8 @@ class Settings:
     conversations_root: Path = PROJECT_ROOT / "conversation"
     logs_root: Path = PROJECT_ROOT / "logs"
     profiles_path: Path = PROJECT_ROOT / "profiles.json"
+    static_root: Path = PROJECT_ROOT / "static"
+    templates_root: Path = PROJECT_ROOT / "templates"
 
 
 settings = Settings()

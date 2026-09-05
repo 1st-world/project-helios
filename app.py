@@ -46,8 +46,8 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Helios AI Workbench", lifespan=lifespan)
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory=settings.static_root), name="static")
+templates = Jinja2Templates(directory=settings.templates_root)
 
 
 class ReadFileRequest(BaseModel):
