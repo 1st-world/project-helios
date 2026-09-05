@@ -1,5 +1,6 @@
 """Conversation management with local JSON persistence."""
 
+from dataclasses import replace
 from datetime import datetime, timezone
 import json
 import logging
@@ -10,7 +11,16 @@ from models.conversation import Conversation
 from models.message import Message
 
 
+logger = logging.getLogger(__name__)
+
+
+class ConversationUnavailableError(ValueError):
+    """A pending operation holds a deleted or unregistered conversation."""
+
+
 class ConversationManager:
+    """Mutations run synchronously on one event loop in a single server process."""
+
     def __init__(self, storage_root: Path) -> None:
         self._storage_root = storage_root
         self._storage_root.mkdir(parents=True, exist_ok=True)
@@ -34,18 +44,56 @@ class ConversationManager:
                     raise ValueError("Conversation file name does not match its id.")
                 self._conversations[conversation.id] = conversation
             except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
-                logging.getLogger(__name__).exception("Could not load conversation file: %s", path.name)
+                logger.exception("Could not load conversation file: %s", path.name)
+
+    def is_active(self, conversation: Conversation) -> bool:
+        return not conversation.is_deleted and self._conversations.get(conversation.id) is conversation
+
+    def _require_active(self, conversation: Conversation) -> None:
+        if not self.is_active(conversation):
+            raise ConversationUnavailableError("Conversation is no longer available.")
 
     def _save(self, conversation: Conversation) -> None:
+        self._require_active(conversation)
         target = self._path_for(conversation.id)
         temporary = target.with_suffix(".tmp")
-        temporary.write_text(json.dumps(conversation.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
-        temporary.replace(target)
+        try:
+            temporary.write_text(json.dumps(conversation.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+            temporary.replace(target)
+        except Exception:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("Could not remove temporary conversation file: %s", temporary.name, exc_info=True)
+            raise
+
+    def _commit_changes(self, conversation: Conversation, **changes: object) -> None:
+        """Publish one version, restoring the live object if atomic file replacement fails.
+
+        Callers supply new lists/messages rather than mutating shared values. There
+        must be no await between validation, mutation, saving, and rollback.
+        """
+        self._require_active(conversation)
+        changes.update(version=conversation.version + 1, updated_at=datetime.now(timezone.utc))
+        previous = {name: getattr(conversation, name) for name in changes}
+        for name, value in changes.items():
+            setattr(conversation, name, value)
+        try:
+            self._save(conversation)
+        except Exception:
+            for name, value in previous.items():
+                setattr(conversation, name, value)
+            raise
 
     def create(self) -> Conversation:
         conversation = Conversation()
         self._conversations[conversation.id] = conversation
-        self._save(conversation)
+        try:
+            self._save(conversation)
+        except Exception:
+            self._conversations.pop(conversation.id)
+            conversation.is_deleted = True
+            raise
         return conversation
 
     def get(self, conversation_id: str) -> Conversation | None:
@@ -61,19 +109,22 @@ class ConversationManager:
         cleaned_title = title.strip()
         if not cleaned_title:
             raise ValueError("Conversation title cannot be empty.")
-        conversation.title = cleaned_title[:100]
-        conversation.updated_at = datetime.now(timezone.utc)
-        self._save(conversation)
+        self._commit_changes(conversation, title=cleaned_title[:100])
         return conversation
 
     def delete(self, conversation_id: str) -> bool:
         conversation = self._conversations.pop(conversation_id, None)
         if not conversation:
             return False
+        previous_version = conversation.version
+        conversation.is_deleted = True
+        conversation.version += 1
         try:
             self._path_for(conversation_id).unlink(missing_ok=True)
         except OSError:
             # Keep the conversation in memory if the disk deletion did not succeed.
+            conversation.is_deleted = False
+            conversation.version = previous_version
             self._conversations[conversation_id] = conversation
             raise
         return True
@@ -90,20 +141,23 @@ class ConversationManager:
         cleaned_content = content.strip()
         if not cleaned_content:
             raise ValueError("Message cannot be empty.")
-        message.content = cleaned_content
-        conversation.messages = conversation.messages[:message_index + 1]
         # An edit invalidates all later replies and any memory that may include them.
-        conversation.memory_summary = ""
-        conversation.summarized_message_count = 0
-        conversation.updated_at = datetime.now(timezone.utc)
-        self._save(conversation)
+        messages = conversation.messages[:message_index] + [replace(message, content=cleaned_content)]
+        self._commit_changes(conversation, messages=messages, memory_summary="", summarized_message_count=0)
         return conversation
 
-    def update_memory(self, conversation: Conversation, summary: str, summarized_message_count: int) -> None:
-        conversation.memory_summary = summary
-        conversation.summarized_message_count = summarized_message_count
-        conversation.updated_at = datetime.now(timezone.utc)
-        self._save(conversation)
+    def update_memory_if_version_matches(self, conversation: Conversation, summary: str,
+                                         summarized_message_count: int, *, expected_version: int) -> bool:
+        if not self.is_active(conversation) or conversation.version != expected_version:
+            return False
+        if (type(summarized_message_count) is not int
+                or not conversation.summarized_message_count < summarized_message_count <= len(conversation.messages)):
+            raise ValueError("Invalid summarized message count.")
+        if not isinstance(summary, str) or not summary.strip():
+            raise ValueError("Conversation memory cannot be empty.")
+        self._commit_changes(conversation, memory_summary=summary.strip(),
+                             summarized_message_count=summarized_message_count)
+        return True
 
     def list(self) -> list[dict]:
         ordered = sorted(self._conversations.values(), key=lambda item: item.updated_at, reverse=True)
@@ -137,9 +191,8 @@ class ConversationManager:
             estimated_cost=estimated_cost,
             is_long_context=is_long_context,
         )
-        conversation.messages.append(message)
-        conversation.updated_at = datetime.now(timezone.utc)
+        title = conversation.title
         if role == "user" and conversation.title == "New conversation":
-            conversation.title = content.strip().replace("\n", " ")[:60] or conversation.title
-        self._save(conversation)
+            title = content.strip().replace("\n", " ")[:60] or title
+        self._commit_changes(conversation, messages=[*conversation.messages, message], title=title)
         return message

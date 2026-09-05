@@ -133,6 +133,9 @@ class AIService:
                 instructions=instructions, 
                 input=request
             )
+            if response.status != "completed":
+                logger.warning("Conversation memory response was not completed (status=%s)", response.status)
+                return ""
             return response.output_text.strip()
         except (APIConnectionError, RateLimitError, APIError) as exc:
             logger.exception("Azure API failure while compacting conversation")

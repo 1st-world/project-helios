@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from config import settings
 from services.ai_service import AIService
-from services.conversation_service import ConversationManager
+from services.conversation_service import ConversationManager, ConversationUnavailableError
 from services.memory_service import ConversationMemoryService
 from services.profile_service import ProfileService
 from services.prompt_builder import PromptBuilder
@@ -323,6 +323,8 @@ async def chat(payload: ChatRequest):
 
             conversation_manager.add_message(conversation, "assistant", answer, **msg_kwargs)
             await memory_service.compact_if_needed(conversation)
+        except ConversationUnavailableError:
+            logger.info("Discarded response for an unavailable conversation: %s", conversation.id)
         except Exception as exc:
             logger.exception("Chat stream failed")
             yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
