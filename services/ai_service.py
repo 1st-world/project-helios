@@ -27,7 +27,7 @@ class AIService:
             await cached["client"].close()
         self._clients.clear()
 
-    async def _get_client_and_profile(self, profile_id: str | None = None) -> tuple[AsyncOpenAI, ConnectionProfile]:
+    def _resolve_profile(self, profile_id: str | None = None) -> ConnectionProfile:
         target_profile: ConnectionProfile | None = None
         if self.profile_service:
             if profile_id:
@@ -38,6 +38,14 @@ class AIService:
                 target_profile = self.profile_service.get_active_profile()
         if not target_profile or not target_profile.is_configured:
             raise RuntimeError("No configured Azure OpenAI profile found. Please add connection details in Settings.")
+        return target_profile
+
+    def resolve_profile_id(self, profile_id: str | None = None) -> str:
+        """Pin the request's profile before streaming or background work starts."""
+        return self._resolve_profile(profile_id).id
+
+    async def _get_client_and_profile(self, profile_id: str | None = None) -> tuple[AsyncOpenAI, ConnectionProfile]:
+        target_profile = self._resolve_profile(profile_id)
         raw_endpoint = target_profile.endpoint.strip().rstrip("/")
         if raw_endpoint.endswith("/openai/v1"):
             base_url = raw_endpoint + "/"
@@ -78,6 +86,7 @@ class AIService:
         client, profile = await self._get_client_and_profile(profile_id)
         started = time.perf_counter()
         response_usage = None
+        completed = False
         try:
             stream = await client.responses.create(
                 model=profile.deployment,
@@ -89,7 +98,12 @@ class AIService:
                 if event.type == "response.output_text.delta":
                     yield {"type": "delta", "text": event.delta}
                 elif event.type == "response.completed":
+                    completed = True
                     response_usage = getattr(event.response, "usage", None)
+                elif event.type in {"response.failed", "response.incomplete"}:
+                    raise RuntimeError("Azure OpenAI response did not complete.")
+            if not completed:
+                raise RuntimeError("Azure OpenAI stream ended before the response completed.")
             elapsed = int((time.perf_counter() - started) * 1000)
             usage_summary = self.usage_service.summarize(
                 response_usage,

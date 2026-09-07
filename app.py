@@ -5,7 +5,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -267,6 +267,11 @@ async def read_file(payload: ReadFileRequest):
 
 @app.post("/api/chat")
 async def chat(payload: ChatRequest):
+    try:
+        profile_id = ai_service.resolve_profile_id(payload.profile_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    background_tasks = BackgroundTasks()
     if payload.regenerate_message_index is None:
         conversation = conversation_manager.get_or_create(payload.conversation_id)
         history = conversation.messages
@@ -298,16 +303,22 @@ async def chat(payload: ChatRequest):
         answer = ""
         usage_data = None
         profile_data = None
+        completed = False
         try:
             yield f"data: {json.dumps({'type': 'start', 'conversation_id': conversation.id})}\n\n"
-            async for event in ai_service.stream(instructions, input_messages, profile_id=payload.profile_id):
+            async for event in ai_service.stream(instructions, input_messages, profile_id=profile_id):
                 if event["type"] == "delta":
                     answer += event["text"]
                 elif event["type"] == "usage":
                     usage_data = event.get("usage")
                     profile_data = event.get("profile")
+                elif event["type"] == "done":
+                    completed = True
+                    continue
                 yield f"data: {json.dumps(event)}\n\n"
 
+            if not completed:
+                raise RuntimeError("Response stream ended before completion.")
             msg_kwargs = {}
             if profile_data:
                 msg_kwargs["profile_id"] = profile_data.get("id")
@@ -322,14 +333,16 @@ async def chat(payload: ChatRequest):
                 msg_kwargs["is_long_context"] = bool(usage_data.get("is_long_context", False))
 
             conversation_manager.add_message(conversation, "assistant", answer, **msg_kwargs)
-            await memory_service.compact_if_needed(conversation)
+            background_tasks.add_task(memory_service.compact_if_needed, conversation, profile_id=profile_id)
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
         except ConversationUnavailableError:
             logger.info("Discarded response for an unavailable conversation: %s", conversation.id)
         except Exception as exc:
             logger.exception("Chat stream failed")
             yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
 
-    return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    return StreamingResponse(events(), media_type="text/event-stream", background=background_tasks,
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 if __name__ == "__main__":
