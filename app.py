@@ -15,9 +15,10 @@ from pydantic import BaseModel, Field
 from config import settings
 from services.ai_service import AIService
 from services.conversation_service import ConversationManager, ConversationUnavailableError
+from services.context_budget import (ContextBudget, ContextBudgetExceeded, ContextChangedError,
+                                     ContextWindowExceeded, SummaryUnavailableError)
 from services.memory_service import ConversationMemoryService
 from services.profile_service import ProfileService
-from services.prompt_builder import PromptBuilder
 from services.usage_service import UsageService
 from services.workspace_service import WorkspaceAccessError, WorkspaceService
 
@@ -31,10 +32,11 @@ logger = logging.getLogger(__name__)
 profile_service = ProfileService(settings.profiles_path)
 conversation_manager = ConversationManager(settings.conversations_root)
 workspace_service = WorkspaceService(settings.workspace_root)
-prompt_builder = PromptBuilder()
 usage_service = UsageService()
 ai_service = AIService(usage_service, profile_service)
-memory_service = ConversationMemoryService(ai_service, conversation_manager, settings.max_context_messages, settings.keep_recent_messages)
+context_budget = ContextBudget(settings.context_token_budget, settings.context_output_reserve, settings.max_summary_calls)
+memory_service = ConversationMemoryService(ai_service, conversation_manager, settings.max_context_messages,
+                                           settings.keep_recent_messages, context_budget)
 
 
 @asynccontextmanager
@@ -274,7 +276,7 @@ async def chat(payload: ChatRequest):
     background_tasks = BackgroundTasks()
     if payload.regenerate_message_index is None:
         conversation = conversation_manager.get_or_create(payload.conversation_id)
-        history = conversation.messages
+        history_end = len(conversation.messages)
         user_prompt = payload.prompt
     else:
         conversation = conversation_manager.get(payload.conversation_id or "")
@@ -285,7 +287,7 @@ async def chat(payload: ChatRequest):
         source_message = conversation.messages[payload.regenerate_message_index]
         if source_message.role != "user":
             raise HTTPException(status_code=400, detail="Only a user message can be regenerated.")
-        history = conversation.messages[:payload.regenerate_message_index]
+        history_end = payload.regenerate_message_index
         user_prompt = source_message.content
     workspace_context = workspace_service.project_context()
     if payload.workspace_file:
@@ -294,28 +296,52 @@ async def chat(payload: ChatRequest):
         except (FileNotFoundError, PermissionError, WorkspaceAccessError) as exc:
             raise HTTPException(status_code=400, detail=f"Cannot load workspace file: {exc}")
 
-    instructions, input_messages = prompt_builder.build(history, user_prompt, workspace_context,
-                                                         conversation.memory_summary, conversation.summarized_message_count)
+    try:
+        instructions, input_messages = await memory_service.prepare_context(
+            conversation, user_prompt, workspace_context, profile_id, history_end=history_end,
+            persist_memory=payload.regenerate_message_index is None)
+    except ContextBudgetExceeded as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except ContextChangedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except SummaryUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     if payload.regenerate_message_index is None:
         conversation_manager.add_message(conversation, "user", user_prompt)
+    turn_version = conversation.version
 
     async def events():
         answer = ""
         usage_data = None
         profile_data = None
         completed = False
+        request_instructions, request_messages = instructions, input_messages
         try:
             yield f"data: {json.dumps({'type': 'start', 'conversation_id': conversation.id})}\n\n"
-            async for event in ai_service.stream(instructions, input_messages, profile_id=profile_id):
-                if event["type"] == "delta":
-                    answer += event["text"]
-                elif event["type"] == "usage":
-                    usage_data = event.get("usage")
-                    profile_data = event.get("profile")
-                elif event["type"] == "done":
-                    completed = True
-                    continue
-                yield f"data: {json.dumps(event)}\n\n"
+            for attempt in range(2):
+                try:
+                    async for event in ai_service.stream(request_instructions, request_messages, profile_id=profile_id):
+                        if event["type"] == "delta":
+                            answer += event["text"]
+                        elif event["type"] == "usage":
+                            usage_data = event.get("usage")
+                            profile_data = event.get("profile")
+                        elif event["type"] == "done":
+                            completed = True
+                            continue
+                        yield f"data: {json.dumps(event)}\n\n"
+                    break
+                except ContextWindowExceeded:
+                    # Retry only a provider-confirmed length error, before any
+                    # text has reached the client, and only with a smaller input.
+                    if attempt or answer or usage_data is not None or completed:
+                        raise
+                    if conversation.version != turn_version:
+                        raise ContextChangedError("Conversation changed before context recovery. Please retry.")
+                    reduced_limit = context_budget.estimate(request_instructions, request_messages) * 3 // 4
+                    request_instructions, request_messages = await memory_service.prepare_context(
+                        conversation, user_prompt, workspace_context, profile_id, history_end=history_end,
+                        persist_memory=payload.regenerate_message_index is None, input_limit=reduced_limit)
 
             if not completed:
                 raise RuntimeError("Response stream ended before completion.")

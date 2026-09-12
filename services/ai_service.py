@@ -10,6 +10,8 @@ from openai import APIConnectionError, APIError, AsyncOpenAI, RateLimitError
 from models.message import Message
 from models.profile import ConnectionProfile
 from services.profile_service import ProfileService
+from services.context_budget import ContextWindowExceeded
+from services.prompt_builder import PromptBuilder
 from services.usage_service import UsageService
 
 logger = logging.getLogger(__name__)
@@ -101,7 +103,14 @@ class AIService:
                     completed = True
                     response_usage = getattr(event.response, "usage", None)
                 elif event.type in {"response.failed", "response.incomplete"}:
+                    error = getattr(getattr(event, "response", None), "error", None)
+                    if getattr(error, "code", None) == "context_length_exceeded":
+                        raise ContextWindowExceeded("The model's input context limit was exceeded.")
                     raise RuntimeError("Azure OpenAI response did not complete.")
+                elif event.type == "error":
+                    if getattr(event, "code", None) == "context_length_exceeded":
+                        raise ContextWindowExceeded("The model's input context limit was exceeded.")
+                    raise RuntimeError("Azure OpenAI returned a streaming error.")
             if not completed:
                 raise RuntimeError("Azure OpenAI stream ended before the response completed.")
             elapsed = int((time.perf_counter() - started) * 1000)
@@ -122,8 +131,12 @@ class AIService:
             yield {"type": "usage", "usage": usage_summary, "profile": profile_summary}
             yield {"type": "done"}
         except (APIConnectionError, RateLimitError, APIError) as exc:
+            if exc.code == "context_length_exceeded":
+                raise ContextWindowExceeded("The model's input context limit was exceeded.") from exc
             logger.exception("Azure API failure for profile %s (%s)", profile.name, profile.id)
             raise RuntimeError(f"Azure OpenAI request failed for '{profile.name}'. Check credentials and deployment.") from exc
+        except ContextWindowExceeded:
+            raise
         except Exception:
             logger.exception("Unexpected streaming interruption")
             raise
@@ -132,15 +145,7 @@ class AIService:
                                profile_id: str | None = None) -> str:
         """Create a compact factual memory without modifying the visible transcript."""
         client, profile = await self._get_client_and_profile(profile_id)
-        transcript = "\n".join(f"{message.role.upper()}: {message.content}" for message in messages)
-        instructions = (
-            "Summarize the conversation memory for a future assistant turn. "
-            "Preserve user goals, decisions, constraints, important facts, "
-            "unresolved questions, and relevant code or file names. "
-            "Do not invent facts or infer missing information. "
-            "Be compact and write Markdown bullet points only."
-        )
-        request = "Existing memory:\n" + (previous_summary or "(none)") + "\n\nNew transcript to incorporate:\n" + transcript
+        instructions, request = PromptBuilder.build_memory(previous_summary, messages)
         try:
             response = await client.responses.create(
                 model=profile.deployment,
@@ -148,9 +153,13 @@ class AIService:
                 input=request
             )
             if response.status != "completed":
+                if getattr(getattr(response, "error", None), "code", None) == "context_length_exceeded":
+                    raise ContextWindowExceeded("The summary input context limit was exceeded.")
                 logger.warning("Conversation memory response was not completed (status=%s)", response.status)
                 return ""
             return response.output_text.strip()
         except (APIConnectionError, RateLimitError, APIError) as exc:
+            if exc.code == "context_length_exceeded":
+                raise ContextWindowExceeded("The summary input context limit was exceeded.") from exc
             logger.exception("Azure API failure while compacting conversation")
             raise RuntimeError("Could not compact conversation memory.") from exc
