@@ -143,7 +143,10 @@ class ConversationManager:
             raise ValueError("Message cannot be empty.")
         # An edit invalidates all later replies and any memory that may include them.
         messages = conversation.messages[:message_index] + [replace(message, content=cleaned_content)]
-        self._commit_changes(conversation, messages=messages, memory_summary="", summarized_message_count=0)
+        changes = {"messages": messages}
+        if conversation.summarized_message_count > message_index:
+            changes.update(memory_summary="", summarized_message_count=0)
+        self._commit_changes(conversation, **changes)
         return conversation
 
     def update_memory_if_version_matches(self, conversation: Conversation, summary: str,
@@ -162,6 +165,22 @@ class ConversationManager:
     def list(self) -> list[dict]:
         ordered = sorted(self._conversations.values(), key=lambda item: item.updated_at, reverse=True)
         return [item.to_dict(include_messages=False) for item in ordered]
+
+    def replace_reply(self, conversation: Conversation, user_index: int, content: str,
+                      *, expected_messages: "list[Message]", **metadata: object) -> Message:
+        """Replace a branch only after a successful response against the same transcript."""
+        self._require_active(conversation)
+        if conversation.messages is not expected_messages:
+            raise ValueError("Conversation changed during regeneration. Please retry.")
+        if not 0 <= user_index < len(expected_messages) or expected_messages[user_index].role != "user":
+            raise ValueError("Regeneration requires a user message.")
+        message = Message(role="assistant", content=content, **metadata)
+        changes = {"messages": [*expected_messages[:user_index + 1], message]}
+        # Summaries may have advanced in the background while the reply streamed.
+        if conversation.summarized_message_count > user_index:
+            changes.update(memory_summary="", summarized_message_count=0)
+        self._commit_changes(conversation, **changes)
+        return message
 
     def add_message(
         self,

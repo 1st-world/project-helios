@@ -62,6 +62,7 @@ class ChatRequest(BaseModel):
     workspace_file: str | None = None
     profile_id: str | None = None
     regenerate_message_index: int | None = Field(default=None, ge=0)
+    expected_conversation_version: int | None = Field(default=None, ge=0)
 
 
 class RenameConversationRequest(BaseModel):
@@ -282,6 +283,9 @@ async def chat(payload: ChatRequest):
         conversation = conversation_manager.get(payload.conversation_id or "")
         if not conversation:
             raise HTTPException(status_code=404, detail="Conversation not found.")
+        if (payload.expected_conversation_version is not None
+                and payload.expected_conversation_version != conversation.version):
+            raise HTTPException(status_code=409, detail="Conversation changed. Reload and retry regeneration.")
         if payload.regenerate_message_index >= len(conversation.messages):
             raise HTTPException(status_code=400, detail="Message not found.")
         source_message = conversation.messages[payload.regenerate_message_index]
@@ -309,6 +313,7 @@ async def chat(payload: ChatRequest):
     if payload.regenerate_message_index is None:
         conversation_manager.add_message(conversation, "user", user_prompt)
     turn_version = conversation.version
+    turn_messages = conversation.messages
 
     async def events():
         answer = ""
@@ -358,7 +363,14 @@ async def chat(payload: ChatRequest):
                 msg_kwargs["estimated_cost"] = usage_data.get("estimated_cost")
                 msg_kwargs["is_long_context"] = bool(usage_data.get("is_long_context", False))
 
-            conversation_manager.add_message(conversation, "assistant", answer, **msg_kwargs)
+            if payload.regenerate_message_index is None:
+                if conversation.messages is not turn_messages:
+                    raise ContextChangedError("Conversation changed during generation. Please retry.")
+                conversation_manager.add_message(conversation, "assistant", answer, **msg_kwargs)
+            else:
+                conversation_manager.replace_reply(
+                    conversation, payload.regenerate_message_index, answer,
+                    expected_messages=turn_messages, **msg_kwargs)
             background_tasks.add_task(memory_service.compact_if_needed, conversation, profile_id=profile_id)
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
         except ConversationUnavailableError:
