@@ -678,7 +678,8 @@ body.sidebar-collapsed .sidebar-toggle {
   pointer-events: none;
   transition: opacity 0.15s ease;
 }
-.message:hover .message-actions {
+.message:hover .message-actions,
+.message:focus-within .message-actions {
   opacity: 1;
   pointer-events: auto;
 }
@@ -694,10 +695,14 @@ body.sidebar-collapsed .sidebar-toggle {
   background: var(--bg-surface-elevated);
   color: var(--text-muted);
 }
-.message-action-btn:hover {
+.message-action-btn:hover:not(:disabled) {
   border-color: var(--accent);
   background: var(--bg-element-hover);
   color: var(--accent);
+}
+.message-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ========================================
@@ -1585,5 +1590,12 @@ button svg,
   }
   .tier-divider-line {
     width: 100%;
+  }
+}
+
+@media (hover: none) {
+  .message-actions {
+    opacity: 1;
+    pointer-events: auto;
   }
 }

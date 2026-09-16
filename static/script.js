@@ -1,5 +1,6 @@
 const state = {
   conversationId: null,
+  conversationVersion: null,
   controller: null,
   workspaceFile: null,
   workspaceRoot: '',
@@ -81,6 +82,7 @@ function setGenerating(value) {
   send.disabled = value;
   stop.classList.toggle('hidden', !value);
   $('#load-file').disabled = value;
+  chat.querySelectorAll('[data-mutates-conversation]').forEach((button) => { button.disabled = value; });
 }
 function setSidebarCollapsed(collapsed) {
   document.body.classList.toggle('sidebar-collapsed', collapsed);
@@ -134,7 +136,7 @@ function formatMessageMeta(meta) {
   return parts.join(' ');
 }
 
-function appendMessage(role, content = '', messageIndex = null, shouldScroll = true, smooth = false, meta = null) {
+function appendMessage(role, content = '', messageIndex = null, shouldScroll = true, smooth = false, meta = null, regeneration = null) {
   chat.querySelector('.empty-state')?.remove();
   const el = document.createElement('article');
   el.className = `message ${role}`;
@@ -165,11 +167,25 @@ function appendMessage(role, content = '', messageIndex = null, shouldScroll = t
     const edit = document.createElement('button');
     edit.className = 'message-action-btn';
     edit.type = 'button';
+    edit.dataset.mutatesConversation = '';
+    edit.disabled = state.generating;
     edit.innerHTML = '<i data-lucide="pencil"></i>';
     edit.setAttribute('title', 'Edit message');
     edit.setAttribute('aria-label', 'Edit message');
     edit.onclick = () => editUserMessage(messageIndex, textEl.innerText || content);
     actionsEl.append(edit);
+  }
+  if (role === 'assistant' && regeneration) {
+    const regenerate = document.createElement('button');
+    regenerate.className = 'message-action-btn';
+    regenerate.type = 'button';
+    regenerate.dataset.mutatesConversation = '';
+    regenerate.disabled = state.generating;
+    regenerate.innerHTML = '<i data-lucide="rotate-cw"></i>';
+    regenerate.setAttribute('title', 'Regenerate response');
+    regenerate.setAttribute('aria-label', 'Regenerate response');
+    regenerate.onclick = () => regenerateResponse(regeneration);
+    actionsEl.append(regenerate);
   }
   const copy = document.createElement('button');
   copy.className = 'message-action-btn';
@@ -273,10 +289,15 @@ async function openConversation(id) {
   if (!response.ok) return toast('Could not open conversation.', 'error');
   const data = await response.json();
   state.conversationId = data.id;
+  state.conversationVersion = data.version;
   chat.innerHTML = '';
-  data.messages.forEach((message, index) =>
-    appendMessage(message.role, message.content, index, index === data.messages.length - 1, false, message)
-  );
+  data.messages.forEach((message, index) => {
+    const source = data.messages[index - 1];
+    const regeneration = message.role === 'assistant' && source?.role === 'user'
+      ? { userIndex: index - 1, content: source.content, hasFollowing: index < data.messages.length - 1 }
+      : null;
+    appendMessage(message.role, message.content, index, index === data.messages.length - 1, false, message, regeneration);
+  });
   loadConversations();
 }
 
@@ -356,8 +377,11 @@ async function sendMessage(options = {}) {
   const text = options.prompt ?? prompt.value.trim();
   if (!text || state.generating) return;
   if (options.appendUser !== false) appendMessage('user', text);
-  prompt.value = '';
-  autoResize();
+  if (!options.preserveDraft) {
+    prompt.value = '';
+    autoResize();
+  }
+  const requestConversationId = state.conversationId;
   setGenerating(true);
   const assistant = appendMessage('assistant', '');
   assistant.el.querySelector('.message-text').innerHTML = '<span class="typing">Thinking</span>';
@@ -372,7 +396,8 @@ async function sendMessage(options = {}) {
         conversation_id: state.conversationId,
         workspace_file: state.workspaceFile,
         profile_id: state.activeProfileId,
-        regenerate_message_index: options.regenerateMessageIndex
+        regenerate_message_index: options.regenerateMessageIndex,
+        expected_conversation_version: options.expectedConversationVersion
       }),
       signal: state.controller.signal
     });
@@ -389,7 +414,7 @@ async function sendMessage(options = {}) {
       for (const frame of frames) {
         if (!frame.startsWith('data: ')) continue;
         const event = JSON.parse(frame.slice(6));
-        if (event.type === 'start') onStart(event);
+        if (event.type === 'start' && (!options.preserveDraft || state.conversationId === requestConversationId)) onStart(event);
         if (event.type === 'delta') onDelta(event, assistant, answer);
         if (event.type === 'usage') {
           if (assistant.setMeta) {
@@ -419,13 +444,25 @@ async function sendMessage(options = {}) {
     }
   } finally {
     state.controller = null;
-    setGenerating(false);
-    if (state.conversationId) {
-      await openConversation(state.conversationId);
-    } else {
-      loadConversations();
+    try {
+      if (state.conversationId && (!options.preserveDraft || state.conversationId === requestConversationId)) {
+        await openConversation(state.conversationId);
+      } else {
+        loadConversations();
+      }
+    } finally {
+      setGenerating(false);
     }
   }
+}
+
+function regenerateResponse({ userIndex, content, hasFollowing }) {
+  if (state.generating || !state.conversationId) return;
+  if (hasFollowing && !window.confirm('Regenerate this response? Once successful, this will replace the response and remove all following messages.')) return;
+  // The server keeps the original branch until regeneration completes successfully.
+  [...chat.querySelectorAll('.message')].slice(userIndex + 1).forEach((message) => message.remove());
+  sendMessage({ prompt: content, regenerateMessageIndex: userIndex, appendUser: false,
+    preserveDraft: true, expectedConversationVersion: state.conversationVersion });
 }
 
 function updatePricingStatus(hasPricing) {
