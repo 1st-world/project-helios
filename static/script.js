@@ -67,6 +67,9 @@ function toast(message, type = 'info') {
   if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.add('hidden'), 4500);
 }
+function isNearBottom(threshold = 80) {
+  return chat.scrollHeight - chat.scrollTop - chat.clientHeight <= threshold;
+}
 function scrollDown(smooth = true) {
   chat.scrollTo({
     top: chat.scrollHeight,
@@ -233,9 +236,10 @@ function renderTree(entries, parent) {
 // API & Event Handlers
 function onStart(event) { state.conversationId = event.conversation_id; }
 function onDelta(event, assistant, answer) {
+  const wasNearBottom = isNearBottom();
   answer.value += event.text;
   assistant.render(answer.value);
-  scrollDown(true);
+  if (wasNearBottom) { scrollDown(false); }
 }
 function onFinish() { loadConversations(); }
 function onError(message) { toast(message, 'error'); }
@@ -283,21 +287,25 @@ async function loadConversations() {
   refreshIcons();
 }
 
-async function openConversation(id) {
+async function openConversation(id, preserveScroll = false) {
   closeMobileSidebar();
   const response = await fetch(`/api/conversations/${id}`);
   if (!response.ok) return toast('Could not open conversation.', 'error');
   const data = await response.json();
   state.conversationId = data.id;
   state.conversationVersion = data.version;
+  const savedScrollTop = chat.scrollTop;
+  const wasNearBottom = isNearBottom();
   chat.innerHTML = '';
   data.messages.forEach((message, index) => {
     const source = data.messages[index - 1];
     const regeneration = message.role === 'assistant' && source?.role === 'user'
       ? { userIndex: index - 1, content: source.content, hasFollowing: index < data.messages.length - 1 }
       : null;
-    appendMessage(message.role, message.content, index, index === data.messages.length - 1, false, message, regeneration);
+    const shouldScroll = preserveScroll && !wasNearBottom ? false : index === data.messages.length - 1;
+    appendMessage(message.role, message.content, index, shouldScroll, false, message, regeneration);
   });
+  if (preserveScroll && !wasNearBottom) { chat.scrollTop = savedScrollTop; }
   loadConversations();
 }
 
@@ -369,7 +377,7 @@ async function editUserMessage(messageIndex, currentContent) {
     body: JSON.stringify({ content })
   });
   if (!response.ok) return toast((await response.json()).detail || 'Could not edit message.', 'error');
-  await openConversation(state.conversationId);
+  await openConversation(state.conversationId, true);
   sendMessage({ prompt: content.trim(), regenerateMessageIndex: messageIndex, appendUser: false });
 }
 
@@ -446,7 +454,7 @@ async function sendMessage(options = {}) {
     state.controller = null;
     try {
       if (state.conversationId && (!options.preserveDraft || state.conversationId === requestConversationId)) {
-        await openConversation(state.conversationId);
+        await openConversation(state.conversationId, true);
       } else {
         loadConversations();
       }
