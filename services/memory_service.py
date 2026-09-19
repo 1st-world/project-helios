@@ -106,7 +106,8 @@ class ConversationMemoryService:
             chunk, next_start, next_offset = self._summary_chunk(history, start, end, offset, previous, limit)
             work[0] += 1
             try:
-                summary = await self.ai_service.summarize_memory(previous, chunk, profile_id=profile_id)
+                summary = await self.ai_service.summarize_memory(
+                    previous, chunk, profile_id=profile_id, conversation_id=conversation.id)
             except ContextWindowExceeded:
                 limit //= 2
                 continue

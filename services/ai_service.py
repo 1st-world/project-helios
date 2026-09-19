@@ -2,6 +2,7 @@
 
 import logging
 import time
+from dataclasses import replace
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -13,12 +14,15 @@ from services.profile_service import ProfileService
 from services.context_budget import ContextWindowExceeded
 from services.prompt_builder import PromptBuilder
 from services.usage_service import UsageService
+from services.summary_usage_store import SummaryUsageStore
 
 logger = logging.getLogger(__name__)
 
 
 class AIService:
-    def __init__(self, usage_service: UsageService, profile_service: ProfileService | None = None) -> None:
+    def __init__(self, usage_service: UsageService, profile_service: ProfileService | None = None,
+                 *, summary_usage_store: SummaryUsageStore | None = None) -> None:
+        self.summary_usage_store = summary_usage_store or SummaryUsageStore()
         self.usage_service = usage_service
         self.profile_service = profile_service
         self._clients: dict[str, dict[str, Any]] = {}
@@ -28,6 +32,7 @@ class AIService:
         for cached in self._clients.values():
             await cached["client"].close()
         self._clients.clear()
+        self.summary_usage_store.close()
 
     def _resolve_profile(self, profile_id: str | None = None) -> ConnectionProfile:
         target_profile: ConnectionProfile | None = None
@@ -142,20 +147,51 @@ class AIService:
             raise
 
     async def summarize_memory(self, previous_summary: str, messages: list[Message],
-                               profile_id: str | None = None) -> str:
+                               profile_id: str | None = None, *, conversation_id: str | None = None) -> str:
         """Create a compact factual memory without modifying the visible transcript."""
         client, profile = await self._get_client_and_profile(profile_id)
+        profile = replace(profile)
         instructions, request = PromptBuilder.build_memory(previous_summary, messages)
+        started = time.perf_counter()
         try:
             response = await client.responses.create(
                 model=profile.deployment,
                 instructions=instructions, 
-                input=request
+                input=request,
             )
+            # Account before validation or memory adoption, even if the caller is stale.
+            raw_usage = getattr(response, "usage", None)
+            usage = None
+            if raw_usage is not None:
+                usage = self.usage_service.summarize(
+                    raw_usage, int((time.perf_counter() - started) * 1000),
+                    input_price_per_million=profile.input_price_per_million,
+                    output_price_per_million=profile.output_price_per_million,
+                    long_context_threshold=profile.long_context_threshold,
+                    long_input_price_per_million=profile.long_input_price_per_million,
+                    long_output_price_per_million=profile.long_output_price_per_million).to_dict()
+                # Missing rates are unknown, not free tokens.
+                long_tier = usage["is_long_context"]
+                in_rate = profile.long_input_price_per_million if long_tier and profile.long_input_price_per_million is not None else profile.input_price_per_million
+                out_rate = profile.long_output_price_per_million if long_tier and profile.long_output_price_per_million is not None else profile.output_price_per_million
+                if ((usage["input_tokens"] and in_rate is None)
+                        or (usage["output_tokens"] and out_rate is None)):
+                    usage["estimated_cost"] = None
+            try:
+                self.summary_usage_store.record(
+                    conversation_id=conversation_id, response_id=getattr(response, "id", None),
+                    profile_id=profile.id, deployment=profile.deployment, status=response.status,
+                    incomplete_reason=getattr(getattr(response, "incomplete_details", None), "reason", None),
+                    max_output_tokens=getattr(response, "max_output_tokens", None), usage=usage)
+            except Exception:
+                self.summary_usage_store.recording_errors += 1
+                logger.exception("Could not record summary usage")
             if response.status != "completed":
                 if getattr(getattr(response, "error", None), "code", None) == "context_length_exceeded":
                     raise ContextWindowExceeded("The summary input context limit was exceeded.")
-                logger.warning("Conversation memory response was not completed (status=%s)", response.status)
+                logger.warning("Conversation memory response was not completed (status=%s, reason=%s, max_output_tokens=%s)",
+                               response.status, getattr(getattr(response, "incomplete_details", None), "reason", None),
+                               getattr(response, "max_output_tokens", None))
                 return ""
             return response.output_text.strip()
         except (APIConnectionError, RateLimitError, APIError) as exc:

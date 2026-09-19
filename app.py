@@ -20,6 +20,7 @@ from services.context_budget import (ContextBudget, ContextBudgetExceeded, Conte
 from services.memory_service import ConversationMemoryService
 from services.profile_service import ProfileService
 from services.usage_service import UsageService
+from services.summary_usage_store import SummaryUsageStore
 from services.workspace_service import WorkspaceAccessError, WorkspaceService
 
 
@@ -33,7 +34,9 @@ profile_service = ProfileService(settings.profiles_path)
 conversation_manager = ConversationManager(settings.conversations_root)
 workspace_service = WorkspaceService(settings.workspace_root)
 usage_service = UsageService()
-ai_service = AIService(usage_service, profile_service)
+summary_usage_store = SummaryUsageStore(settings.logs_root / "summary_usage.sqlite3")
+ai_service = AIService(usage_service, profile_service,
+                       summary_usage_store=summary_usage_store)
 context_budget = ContextBudget(settings.context_token_budget, settings.context_output_reserve, settings.max_summary_calls)
 memory_service = ConversationMemoryService(ai_service, conversation_manager, settings.max_context_messages,
                                            settings.keep_recent_messages, context_budget)
@@ -50,6 +53,11 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Helios AI Workbench", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=settings.static_root), name="static")
 templates = Jinja2Templates(directory=settings.templates_root)
+
+
+@app.get("/api/usage/summaries")
+async def summary_usage(conversation_id: str | None = None):
+    return summary_usage_store.totals(conversation_id)
 
 
 class ReadFileRequest(BaseModel):
