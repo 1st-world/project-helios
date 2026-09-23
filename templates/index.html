@@ -13,48 +13,46 @@
 </head>
 <body>
   <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
-  <aside class="sidebar">
-    <div class="brand">
-      <span class="brand-mark"><i data-lucide="sparkles"></i></span>
-      <span class="brand-name">HELIOS</span>
-      <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Collapse sidebar" title="Collapse sidebar"><i data-lucide="panel-left-close"></i></button>
-    </div>
-    <button id="new-chat" class="new-chat" type="button"><i data-lucide="plus"></i><span>New chat</span></button>
-
-    <div class="side-label">CONVERSATIONS</div>
-    <nav id="conversation-list" class="conversation-list" aria-label="Conversations"></nav>
-
-    <section class="workspace-section" aria-labelledby="workspace-heading">
-      <div class="workspace-title">
-        <span id="workspace-heading">WORKSPACE</span>
-        <div>
-          <button id="choose-workspace" type="button" title="Open workspace folder" aria-label="Open workspace folder"><i data-lucide="folder-open"></i></button>
-          <button id="refresh-workspace" type="button" title="Refresh workspace" aria-label="Refresh workspace"><i data-lucide="refresh-cw"></i></button>
-        </div>
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="brand">
+        <span class="brand-mark"><i data-lucide="sparkles"></i></span>
+        <span class="brand-name">HELIOS</span>
       </div>
-      <p id="workspace-path" class="workspace-path">Loading workspace...</p>
-      <p class="workspace-help">This folder is your project context. Select a file to include its contents in the next message.</p>
-      <div id="workspace-tree" class="workspace-tree"></div>
-    </section>
+      <button id="sidebar-toggle" aria-controls="sidebar-navigation" aria-expanded="true" class="sidebar-toggle" type="button" aria-label="Collapse sidebar" title="Collapse sidebar"><i data-lucide="panel-left-close"></i></button>
+    </div>
+
+    <button id="new-chat" class="new-chat" type="button" title="New chat"><i data-lucide="plus"></i><span>New chat</span></button>
+
+    <div class="sidebar-nav" id="sidebar-navigation">
+      <div class="side-label">CONVERSATIONS</div>
+      <nav id="conversation-list" class="conversation-list" aria-label="Conversations"></nav>
+    </div>
+
+    <div class="sidebar-footer">
+      <button id="workspace-card" class="workspace-card" type="button" title="Manage workspace">
+        <span class="workspace-card-top">
+          <span class="workspace-card-icon"><i data-lucide="folder"></i></span>
+          <span class="workspace-card-info">
+            <span class="workspace-card-label">WORKSPACE</span>
+            <span id="workspace-folder-name" class="workspace-folder-name">Loading...</span>
+          </span>
+          <i data-lucide="chevron-right" class="workspace-card-action"></i>
+        </span>
+        <span class="workspace-card-meta" id="workspace-file-count">Loading folder...</span>
+      </button>
+
+      <div class="sidebar-dock">
+        <button id="open-settings" class="sidebar-dock-btn" type="button" title="Azure OpenAI settings" aria-label="Azure OpenAI settings">
+          <i data-lucide="settings-2"></i>
+          <span>Settings</span>
+        </button>
+      </div>
+    </div>
   </aside>
 
   <main>
-    <header>
-      <div class="model-control">
-        <button id="mobile-sidebar-toggle" class="sidebar-toggle mobile-sidebar-toggle" type="button" aria-label="Open sidebar" title="Open sidebar"><i data-lucide="panel-left-open"></i></button>
-        <i data-lucide="bot"></i>
-        <select id="profile-select" aria-label="Azure Connection Profile">
-          <option>{{ model_name }}</option>
-        </select>
-        <span class="model-tag">RESPONSES API</span>
-      </div>
-      <div class="header-actions">
-        <div id="connection-status" class="status">
-          <i></i> Checking connection
-        </div>
-        <button id="open-settings" class="icon-button" type="button" title="Azure OpenAI settings" aria-label="Azure OpenAI settings"><i data-lucide="settings-2"></i></button>
-      </div>
-    </header>
+    <button id="mobile-sidebar-toggle" class="sidebar-toggle mobile-sidebar-toggle" type="button" aria-label="Open sidebar" title="Open sidebar"><i data-lucide="panel-left-open"></i></button>
 
     <section id="chat" class="chat" aria-live="polite">
       <div class="empty-state">
@@ -65,48 +63,113 @@
     </section>
 
     <footer>
-      <div id="file-chip" class="file-chip hidden">
-        <i data-lucide="paperclip"></i>
-        <span></span>
-        <button type="button" title="Remove file" aria-label="Remove file"><i data-lucide="x"></i></button>
+      <div class="context-bar">
+        <button id="workspace-context-chip" class="context-chip workspace" type="button" title="Manage workspace context">
+          <i data-lucide="folder"></i>
+          <span id="composer-workspace-name">Workspace</span>
+          <span class="chip-sub" id="composer-workspace-sub">Folder context</span>
+        </button>
+        <div id="file-chip" class="context-chip file hidden" title="File contents are included with each message until removed">
+          <i data-lucide="file-code"></i>
+          <span class="file-chip-name"></span>
+          <button type="button" id="remove-focus-file" title="Remove attachment" aria-label="Remove attachment"><i data-lucide="x"></i></button>
+        </div>
       </div>
       <div class="composer">
         <textarea id="prompt" rows="1" placeholder="Message Helios..." aria-label="Message"></textarea>
         <div class="composer-actions">
-          <button id="load-file" class="quiet" type="button"><i data-lucide="paperclip"></i><span>Workspace file</span></button>
-          <span class="hint">Enter to send | Shift+Enter newline</span>
-          <button id="stop" class="stop hidden" type="button"><i data-lucide="square"></i><span>Stop</span></button>
-          <button id="send" class="send" type="button"><span>Send</span><i data-lucide="arrow-up"></i></button>
+          <button id="load-file" class="quiet composer-control" type="button" aria-label="Attach a file" title="Attach a workspace file"><i data-lucide="paperclip"></i><span>Attach</span></button>
+          <details id="work-tools" class="work-tools">
+            <summary class="quiet composer-control" aria-label="Work tools"><i data-lucide="sliders-horizontal"></i><span>Tools</span></summary>
+            <div class="tools-popover">
+              <strong>Work tools</strong>
+              <p>Coming to your local workspace.</p>
+              <button type="button" disabled><i data-lucide="folder-search"></i><span><strong>Explore project</strong><small>Find and read relevant files</small></span><span class="planned-badge">Planned</span></button>
+              <button type="button" disabled><i data-lucide="git-compare-arrows"></i><span><strong>Propose changes</strong><small>Review changes across files</small></span><span class="planned-badge">Planned</span></button>
+              <button type="button" disabled><i data-lucide="file-check"></i><span><strong>Apply changes</strong><small>Apply edits after your review</small></span><span class="planned-badge">Planned</span></button>
+              <button type="button" disabled><i data-lucide="terminal"></i><span><strong>Run commands</strong><small>Run tests and builds locally</small></span><span class="planned-badge">Planned</span></button>
+            </div>
+          </details>
+          <details id="model-picker" class="model-picker">
+            <summary class="quiet composer-control model-trigger" id="model-trigger" aria-label="Select model profile" title="Model for the next response">
+              <i data-lucide="bot"></i>
+              <span id="model-name-label" class="model-name-label">{{ model_name }}</span>
+              <i data-lucide="chevron-up" class="model-chevron"></i>
+            </summary>
+            <div class="model-popover">
+              <div class="model-popover-header">
+                <strong>Model profile</strong>
+                <button type="button" id="model-popover-settings" class="model-popover-link">Settings</button>
+              </div>
+              <div id="model-profile-list" class="model-profile-list" role="listbox" aria-label="Available models"></div>
+            </div>
+          </details>
+          <select id="profile-select" class="sr-only" aria-hidden="true" tabindex="-1"><option>{{ model_name }}</option></select>
+          <div class="composer-submit">
+            <button id="stop" class="stop hidden" type="button" aria-label="Stop response"><i data-lucide="square"></i></button>
+            <button id="send" class="send" type="button" aria-label="Send message" title="Send message"><i data-lucide="arrow-up"></i></button>
+          </div>
         </div>
+      </div>
+      <div class="composer-caption">
+        <span id="connection-status" class="status" role="status">Checking configuration...</span>
+        <span class="hint">Enter to send · Shift+Enter for a new line</span>
       </div>
     </footer>
   </main>
 
   <div id="toast" class="toast hidden"></div>
 
-  <dialog id="workspace-dialog" class="settings-dialog">
-    <form id="workspace-form" method="dialog">
-      <div class="dialog-heading">
-        <div>
-          <i data-lucide="folder-open"></i>
-          <h2>Open workspace folder</h2>
-        </div>
-        <button class="dialog-close" type="button" data-close-dialog="workspace-dialog" aria-label="Close"><i data-lucide="x"></i></button>
+  <dialog id="workspace-dialog" class="settings-dialog workspace-modal" aria-labelledby="workspace-title">
+    <div class="dialog-heading">
+      <div><i data-lucide="folder"></i><h2 id="workspace-title">Workspace</h2></div>
+      <button class="dialog-close" type="button" data-close-dialog="workspace-dialog" aria-label="Close"><i data-lucide="x"></i></button>
+    </div>
+    <div class="info-callout">
+      <i data-lucide="info"></i>
+      <p>A list of file and folder paths in your workspace (up to 300 entries) is included with your messages. File contents are included only when you explicitly attach a file.</p>
+    </div>
+    <form id="workspace-form" class="workspace-folder-bar">
+      <label for="workspace-path-input">Folder path</label>
+      <div class="path-input-group">
+        <input id="workspace-path-input" required placeholder="C:\Projects\my-project" aria-describedby="workspace-path-help">
+        <button id="browse-workspace-btn" class="quiet sm-btn" type="button"><i data-lucide="folder-open"></i><span>Browse</span></button>
       </div>
-      <p>Helios will access files inside this local folder only. Paste the absolute folder path from your computer.</p>
-      <label>Folder path<input id="workspace-path-input" required placeholder="C:\\Projects\\my-project"></label>
+      <span id="workspace-path-help" class="field-hint" role="status">Choose a folder on the computer running Helios, then apply. This folder is shared across conversations.</span>
+      <p class="field-hint workspace-roadmap">Chatting without a workspace folder is planned.</p>
       <div class="dialog-actions">
         <button class="quiet" type="button" data-close-dialog="workspace-dialog">Cancel</button>
-        <button class="send" type="submit"><i data-lucide="folder-open"></i><span>Open folder</span></button>
+        <button id="apply-workspace" class="primary-btn" type="submit">Apply folder</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="file-dialog" class="settings-dialog workspace-modal" aria-labelledby="file-dialog-title">
+    <div class="dialog-heading">
+      <div><i data-lucide="paperclip"></i><h2 id="file-dialog-title">Attach a file</h2></div>
+      <button class="dialog-close" type="button" data-close-dialog="file-dialog" aria-label="Close"><i data-lucide="x"></i></button>
+    </div>
+    <div class="file-source-row"><i data-lucide="folder"></i><span id="file-source-name">Workspace</span></div>
+    <label class="sr-only" for="file-search">Search workspace files</label>
+    <div class="file-search-row">
+      <input id="file-search" type="search" placeholder="Search files by name or path" autocomplete="off">
+      <button id="refresh-workspace" class="quiet sm-btn" type="button" aria-label="Refresh files" title="Refresh files"><i data-lucide="refresh-cw"></i><span>Refresh</span></button>
+    </div>
+    <div id="workspace-tree" class="workspace-tree modal-tree" aria-label="Workspace files"></div>
+    <p class="field-hint attachment-help">One UTF-8 text file at a time, included with each message until removed.</p>
+    <p class="field-hint attachment-roadmap">Computer uploads and multiple attachments are planned.</p>
+    <div class="dialog-actions file-dialog-actions">
+      <span id="selected-file-label" role="status">No file selected</span>
+      <button class="quiet" type="button" data-close-dialog="file-dialog">Cancel</button>
+      <button id="attach-selected-file" class="primary-btn" type="button" disabled>Attach file</button>
+    </div>
   </dialog>
 
   <dialog id="settings-dialog" class="settings-dialog">
     <div class="dialog-heading">
       <div>
         <i data-lucide="cloud-cog"></i>
-        <h2>Azure OpenAI Connection Profiles</h2>
+        <h2>Azure OpenAI connection profiles</h2>
       </div>
       <button class="dialog-close" type="button" data-close-dialog="settings-dialog" aria-label="Close"><i data-lucide="x"></i></button>
     </div>
@@ -118,7 +181,7 @@
 
     <div class="section-title-row">
       <h3>Profiles</h3>
-      <button id="add-profile-btn" class="quiet-btn" type="button"><i data-lucide="plus"></i> New Profile</button>
+      <button id="add-profile-btn" class="quiet-btn" type="button"><i data-lucide="plus"></i> New profile</button>
     </div>
 
     <div class="profile-manager">
@@ -132,15 +195,15 @@
     <form id="azure-settings-form">
       <input type="hidden" id="editing-profile-id" value="">
       <div class="form-title-row">
-        <h3 id="profile-form-title">Edit Profile</h3>
+        <h3 id="profile-form-title">Edit profile</h3>
       </div>
       <div class="form-grid-2">
-        <label>Profile Name<input id="profile-name" required placeholder="e.g. EastUS GPT-5.6 Sol"></label>
-        <label>Deployment Name<input id="azure-deployment" required placeholder="e.g. gpt-5.6-sol"></label>
+        <label>Profile name<input id="profile-name" required placeholder="e.g. EastUS GPT-5.6 Sol"></label>
+        <label>Deployment name<input id="azure-deployment" required placeholder="e.g. gpt-5.6-sol"></label>
       </div>
-      <label>Azure Endpoint<input id="azure-endpoint" type="url" required placeholder="https://your-resource.cognitiveservices.azure.com/"></label>
+      <label>Azure endpoint<input id="azure-endpoint" type="url" required placeholder="https://your-resource.cognitiveservices.azure.com/"></label>
       <label>
-        API Key
+        API key
         <div class="input-with-action">
           <input id="azure-api-key" type="password" placeholder="Leave blank to keep existing key" autocomplete="off">
           <button id="toggle-api-key-btn" class="input-action-btn" type="button" title="Toggle key visibility" aria-label="Toggle key visibility">
@@ -152,26 +215,26 @@
       <div class="pricing-field-group">
         <details id="profile-pricing-accordion" class="pricing-accordion">
           <summary class="pricing-accordion-header">
-            <span class="pricing-accordion-title"><i data-lucide="calculator"></i>Token Pricing</span>
-            <span class="pricing-accordion-status" id="pricing-accordion-status"><i data-lucide="circle-dashed"></i> Not Configured</span>
+            <span class="pricing-accordion-title"><i data-lucide="calculator"></i>Token pricing</span>
+            <span class="pricing-accordion-status" id="pricing-accordion-status"><i data-lucide="circle-dashed"></i> Not configured</span>
             <i data-lucide="chevron-down" class="pricing-chevron"></i>
           </summary>
           <div class="pricing-accordion-body">
             <div class="pricing-tier-block">
               <div class="tier-header">
-                <span class="tier-pill standard"><span class="tier-indicator"></span>Standard Context</span>
+                <span class="tier-pill standard"><span class="tier-indicator"></span>Standard context</span>
                 <span class="tier-range" id="standard-range-label">&le; 128K tokens</span>
               </div>
               <div class="form-grid-2">
-                <label>Input Price ($ / 1M)<input id="azure-input-price" type="number" step="any" min="0" placeholder="e.g. 5.00"></label>
-                <label>Output Price ($ / 1M)<input id="azure-output-price" type="number" step="any" min="0" placeholder="e.g. 30.00"></label>
+                <label>Input price ($ / 1M)<input id="azure-input-price" type="number" step="any" min="0" placeholder="e.g. 5.00"></label>
+                <label>Output price ($ / 1M)<input id="azure-output-price" type="number" step="any" min="0" placeholder="e.g. 30.00"></label>
               </div>
             </div>
             <div class="tier-divider">
               <div class="tier-divider-line"></div>
               <div class="tier-threshold-pill">
                 <i data-lucide="git-commit-vertical" class="threshold-icon"></i>
-                <span class="threshold-tag">Threshold Breakpoint</span>
+                <span class="threshold-tag">Threshold breakpoint</span>
                 <div class="threshold-input-wrap">
                   <input id="azure-long-threshold" type="number" step="1000" min="1000" placeholder="128000">
                   <span class="threshold-unit">tokens</span>
@@ -181,15 +244,15 @@
             </div>
             <div class="pricing-tier-block">
               <div class="tier-header">
-                <span class="tier-pill long"><span class="tier-indicator"></span>Long Context</span>
+                <span class="tier-pill long"><span class="tier-indicator"></span>Long context</span>
                 <span class="tier-range" id="long-range-label">&gt; 128K tokens</span>
               </div>
               <div class="form-grid-2">
-                <label>Long Input Price ($ / 1M)<input id="azure-long-input-price" type="number" step="any" min="0" placeholder="e.g. 10.00"></label>
-                <label>Long Output Price ($ / 1M)<input id="azure-long-output-price" type="number" step="any" min="0" placeholder="e.g. 45.00"></label>
+                <label>Long input price ($ / 1M)<input id="azure-long-input-price" type="number" step="any" min="0" placeholder="e.g. 10.00"></label>
+                <label>Long output price ($ / 1M)<input id="azure-long-output-price" type="number" step="any" min="0" placeholder="e.g. 45.00"></label>
               </div>
             </div>
-            <span class="field-hint pricing-hint">Standard rates apply if Long rates are blank or prompt is under threshold.</span>
+            <span class="field-hint pricing-hint">Standard rates apply if long rates are blank or prompt is under threshold.</span>
           </div>
         </details>
         <span class="field-hint">Optional. Configure token rates to calculate estimated conversation costs.</span>
@@ -198,7 +261,7 @@
         <button id="delete-profile-btn" class="delete-btn hidden" type="button"><i data-lucide="trash-2"></i> Delete</button>
         <div class="dialog-actions-right">
           <button class="quiet" type="button" data-close-dialog="settings-dialog">Close</button>
-          <button class="send" type="submit"><i data-lucide="save"></i> <span id="save-profile-label">Save Profile</span></button>
+          <button class="primary-btn" type="submit"><i data-lucide="save"></i> <span id="save-profile-label">Save profile</span></button>
         </div>
       </div>
     </form>

@@ -1,5 +1,6 @@
 """Helios local BYOK AI Client application entry point."""
 
+import asyncio
 import json
 import logging
 from logging.handlers import RotatingFileHandler
@@ -257,6 +258,41 @@ async def update_workspace_root(payload: WorkspaceRootRequest):
         raise HTTPException(status_code=400, detail=str(exc))
     logger.info("Workspace root changed to %s", workspace_service.root)
     return {"root": str(workspace_service.root), "entries": workspace_service.tree()}
+
+
+def _open_folder_picker(initial_dir: str = "") -> tuple[str | None, str | None]:
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except ImportError:
+        return None, "GUI folder picker is not available in this environment. Please enter the folder path manually."
+
+    root = None
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        selected = filedialog.askdirectory(parent=root, title="Select Workspace Folder", initialdir=initial_dir or None)
+        return selected or "", None
+    except Exception as exc:
+        logger.exception("Folder picker dialog failed: %s", exc)
+        return None, "Could not open native folder picker dialog. Please enter the folder path manually."
+    finally:
+        if root is not None:
+            try:
+                root.destroy()
+            except Exception:
+                logger.warning("Could not close folder picker", exc_info=True)
+
+
+@app.post("/api/workspace/pick")
+async def pick_workspace_folder():
+    current_root = str(workspace_service.root)
+    selected_path, error_msg = await asyncio.to_thread(_open_folder_picker, current_root)
+    if error_msg:
+        raise HTTPException(status_code=501, detail=error_msg)
+    # Picking is a draft selection. PUT /api/workspace/root applies it explicitly.
+    return {"cancelled": not bool(selected_path), "path": selected_path or current_root}
 
 
 @app.post("/api/read-file")

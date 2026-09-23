@@ -4,6 +4,12 @@ const state = {
   controller: null,
   workspaceFile: null,
   workspaceRoot: '',
+  workspaceEntries: [],
+  pendingFile: null,
+  attachingFile: false,
+  fileDialogVersion: 0,
+  workspaceRequest: 0,
+  pickingWorkspace: false,
   generating: false,
   activeProfileId: null,
   editingProfileId: null,
@@ -84,20 +90,45 @@ function setGenerating(value) {
   state.generating = value;
   send.disabled = value;
   stop.classList.toggle('hidden', !value);
-  $('#load-file').disabled = value;
+  ['load-file', 'workspace-card', 'workspace-context-chip', 'remove-focus-file', 'profile-select'].forEach((id) => {
+    const el = $(`#${id}`);
+    if (el) el.disabled = value;
+  });
+  const modelPicker = $('#model-picker');
+  if (modelPicker) {
+    if (value) modelPicker.open = false;
+    modelPicker.inert = value;
+  }
   chat.querySelectorAll('[data-mutates-conversation]').forEach((button) => { button.disabled = value; });
 }
 function setSidebarCollapsed(collapsed) {
   document.body.classList.toggle('sidebar-collapsed', collapsed);
   const toggle = $('#sidebar-toggle');
-  toggle.innerHTML = `<i data-lucide="${collapsed ? 'panel-left-open' : 'panel-left-close'}"></i>`;
-  toggle.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+  const showExpand = collapsed && window.innerWidth > 720;
+  const iconName = showExpand ? 'panel-left-open' : 'panel-left-close';
+  if (toggle.dataset.icon !== iconName) {
+    toggle.innerHTML = `<i data-lucide="${iconName}"></i>`;
+    toggle.dataset.icon = iconName;
+  }
+  toggle.setAttribute('aria-expanded', String(!showExpand));
+  $('#sidebar-navigation').inert = showExpand;
+  const sidebar = $('#sidebar');
+  if (sidebar) {
+    sidebar.inert = window.innerWidth <= 720 && !document.body.classList.contains('sidebar-open');
+    if (showExpand) {
+      sidebar.title = 'Click to expand sidebar';
+    } else {
+      sidebar.removeAttribute('title');
+    }
+  }
+  toggle.title = window.innerWidth <= 720 ? 'Close sidebar' : (collapsed ? 'Expand sidebar' : 'Collapse sidebar');
   toggle.setAttribute('aria-label', toggle.title);
   localStorage.setItem('helios.sidebarCollapsed', String(collapsed));
   refreshIcons();
 }
 function setMobileSidebarOpen(open) {
   document.body.classList.toggle('sidebar-open', open);
+  $('#sidebar').inert = window.innerWidth <= 720 && !open;
   const mobileToggle = $('#mobile-sidebar-toggle');
   if (mobileToggle) {
     mobileToggle.innerHTML = `<i data-lucide="${open ? 'panel-left-close' : 'panel-left-open'}"></i>`;
@@ -212,25 +243,53 @@ function appendMessage(role, content = '', messageIndex = null, shouldScroll = t
   return { el, render, setMeta };
 }
 
-function renderTree(entries, parent) {
-  entries.forEach((entry) => {
-    const row = document.createElement('div');
-    row.className = `tree-entry ${entry.type === 'file' ? 'file' : 'tree-folder'} ${entry.path === state.workspaceFile ? 'selected' : ''}`;
-    const icon = document.createElement('i');
-    icon.setAttribute('data-lucide', entry.type === 'directory' ? 'folder' : 'file-text');
-    icon.setAttribute('aria-hidden', 'true');
-    const label = document.createElement('span');
-    label.textContent = entry.name;
-    row.append(icon, label);
-    if (entry.type === 'file') { row.onclick = () => selectFile(entry.path); }
-    parent.append(row);
-    if (entry.children?.length) {
+function renderTree(entries, parent, query = '') {
+  for (const entry of entries) {
+    if (entry.type === 'directory') {
+      const group = document.createElement('details');
+      group.open = true;
+      const label = document.createElement('summary');
+      label.className = 'tree-entry tree-folder';
+      label.innerHTML = '<i data-lucide="folder"></i>';
+      const name = document.createElement('span');
+      name.textContent = entry.name;
+      label.append(name);
       const children = document.createElement('div');
       children.className = 'tree-children';
-      parent.append(children);
-      renderTree(entry.children, children);
+      renderTree(entry.children || [], children, query);
+      if (!children.childElementCount) continue;
+      group.append(label, children);
+      parent.append(group);
+    } else if (!query || entry.path.toLowerCase().includes(query)) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'tree-entry file';
+      row.dataset.path = entry.path;
+      row.title = entry.path;
+      row.setAttribute('aria-pressed', String(entry.path === state.pendingFile));
+      row.classList.toggle('selected', entry.path === state.pendingFile);
+      row.innerHTML = '<i data-lucide="file-text"></i>';
+      const name = document.createElement('span');
+      name.textContent = query ? entry.path : entry.name;
+      row.append(name);
+      row.onclick = () => selectFile(entry.path);
+      parent.append(row);
     }
-  });
+  }
+}
+
+function renderFileList() {
+  const tree = $('#workspace-tree');
+  tree.replaceChildren();
+  const query = $('#file-search').value.trim().toLowerCase();
+  renderTree(state.workspaceEntries, tree, query);
+  if (!tree.childElementCount) {
+    const empty = document.createElement('p');
+    empty.className = 'workspace-empty-state';
+    empty.textContent = query ? 'No matching files. Try another name or path.' : 'No files in this folder. Choose another folder in Workspace settings.';
+    tree.append(empty);
+  }
+  refreshIcons();
 }
 
 // API & Event Handlers
@@ -340,30 +399,89 @@ async function deleteConversation(item) {
   else loadConversations();
 }
 
+function countFiles(entries) {
+  return entries.reduce((count, entry) => count + (entry.type === 'file' ? 1 : countFiles(entry.children || [])), 0);
+}
+
+function applyWorkspace(data) {
+  if (state.workspaceRoot && state.workspaceRoot !== data.root) clearFocusFile();
+  state.workspaceRoot = data.root;
+  state.workspaceEntries = data.entries;
+  const folderName = data.root.split(/[/\\]/).filter(Boolean).pop() || data.root;
+  const fileCount = countFiles(data.entries);
+  $('#workspace-folder-name').textContent = folderName;
+  $('#workspace-file-count').textContent = `${fileCount} file${fileCount === 1 ? '' : 's'} · Folder context on`;
+  $('#workspace-card').title = `Manage workspace: ${data.root}`;
+  $('#composer-workspace-name').textContent = folderName;
+  $('#composer-workspace-sub').textContent = 'Folder context';
+  $('#workspace-context-chip').title = `Folder paths included: ${data.root}`;
+  $('#file-source-name').textContent = folderName;
+  $('#file-source-name').title = data.root;
+  const paths = new Set();
+  const collect = (entries) => entries.forEach((entry) => {
+    if (entry.type === 'file') paths.add(entry.path);
+    if (entry.children) collect(entry.children);
+  });
+  collect(data.entries);
+  if (state.workspaceFile && !paths.has(state.workspaceFile)) clearFocusFile();
+  if (state.pendingFile && !paths.has(state.pendingFile)) state.pendingFile = null;
+  selectFile(state.pendingFile);
+  renderFileList();
+}
+
 async function loadWorkspace() {
+  const request = ++state.workspaceRequest;
   try {
-    const data = await fetch('/api/workspace').then((response) => response.json());
-    state.workspaceRoot = data.root;
-    $('#workspace-path').textContent = data.root;
-    $('#workspace-path').title = data.root;
-    $('#workspace-path-input').value = data.root;
-    const tree = $('#workspace-tree');
-    tree.innerHTML = '';
-    renderTree(data.entries, tree);
-    if (!data.entries.length) { tree.innerHTML = '<p class="workspace-empty">This folder is empty. Choose another project folder or add files to it.</p>'; }
-    refreshIcons();
-  }
-  catch {
+    const response = await fetch('/api/workspace');
+    if (!response.ok) throw new Error('Could not load workspace.');
+    const data = await response.json();
+    if (request !== state.workspaceRequest) return;
+    applyWorkspace(data);
+  } catch {
+    if (request !== state.workspaceRequest) return;
+    $('#workspace-file-count').textContent = 'Folder unavailable';
+    $('#composer-workspace-sub').textContent = 'Unavailable';
+    $('#workspace-tree').textContent = 'Could not load files. Use Refresh to try again.';
+    state.workspaceEntries = [];
+    selectFile(null);
     toast('Could not load workspace.', 'error');
   }
 }
 
 function selectFile(path) {
+  state.pendingFile = path;
+  $('#workspace-tree').querySelectorAll('[data-path]').forEach((row) => {
+    const selected = row.dataset.path === path;
+    row.classList.toggle('selected', selected);
+    row.setAttribute('aria-pressed', String(selected));
+  });
+  $('#selected-file-label').textContent = path || 'No file selected';
+  $('#selected-file-label').dataset.hasFile = String(Boolean(path));
+  $('#selected-file-label').title = path || '';
+  $('#attach-selected-file').disabled = !path || state.attachingFile;
+}
+
+function clearFocusFile() {
+  state.workspaceFile = null;
+  $('#file-chip').classList.add('hidden');
+}
+
+function openWorkspaceDialog() {
   closeMobileSidebar();
-  state.workspaceFile = path;
-  $('#file-chip span').textContent = path;
-  $('#file-chip').classList.remove('hidden');
-  loadWorkspace();
+  $('#workspace-path-input').value = state.workspaceRoot;
+  $('#workspace-dialog').showModal();
+}
+
+async function openFileDialog() {
+  ++state.fileDialogVersion;
+  closeMobileSidebar();
+  state.pendingFile = state.workspaceFile;
+  $('#file-search').value = '';
+  selectFile(state.pendingFile);
+  renderFileList();
+  $('#file-dialog').showModal();
+  $('#file-search').focus();
+  await loadWorkspace();
 }
 
 async function editUserMessage(messageIndex, currentContent) {
@@ -479,16 +597,16 @@ function updatePricingStatus(hasPricing) {
   statusEl.classList.toggle('configured', Boolean(hasPricing));
   statusEl.innerHTML = hasPricing
     ? '<i data-lucide="check"></i> Configured'
-    : '<i data-lucide="circle-dashed"></i> Not Configured';
+    : '<i data-lucide="circle-dashed"></i> Not configured';
   refreshIcons();
 }
 
 function resetProfileForm() {
   state.editingProfileId = null;
   $('#editing-profile-id').value = '';
-  $('#profile-form-title').textContent = 'Add New Profile';
+  $('#profile-form-title').textContent = 'Add new profile';
   const saveLabel = $('#save-profile-label');
-  if (saveLabel) saveLabel.textContent = 'Add Profile';
+  if (saveLabel) saveLabel.textContent = 'Add profile';
   $('#profile-name').value = '';
   $('#azure-endpoint').value = '';
   $('#azure-api-key').value = '';
@@ -514,9 +632,9 @@ function resetProfileForm() {
 function selectProfileForEditing(profile) {
   state.editingProfileId = profile.id;
   $('#editing-profile-id').value = profile.id;
-  $('#profile-form-title').textContent = `Edit Profile: ${profile.name}`;
+  $('#profile-form-title').textContent = `Edit profile: ${profile.name}`;
   const saveLabel = $('#save-profile-label');
-  if (saveLabel) saveLabel.textContent = 'Save Changes';
+  if (saveLabel) saveLabel.textContent = 'Save changes';
   $('#profile-name').value = profile.name;
   $('#azure-endpoint').value = profile.endpoint;
   $('#azure-api-key').value = '';
@@ -545,20 +663,73 @@ function selectProfileForEditing(profile) {
 function renderProfiles(data) {
   state.activeProfileId = data.active_profile_id;
   state.profiles = data.profiles || [];
+  const activeProfile = state.profiles.find((p) => p.id === state.activeProfileId);
+
+  // Sync background select
   const select = $('#profile-select');
-  select.innerHTML = '';
-  if (!state.profiles.length) {
-    const opt = document.createElement('option');
-    opt.textContent = 'No profiles configured';
-    select.append(opt);
-  } else {
-    state.profiles.forEach((p) => {
+  if (select) {
+    select.innerHTML = '';
+    if (!state.profiles.length) {
       const opt = document.createElement('option');
-      opt.value = p.id;
-      opt.textContent = `${p.name} (${p.deployment || 'No model'})`;
-      opt.selected = p.id === state.activeProfileId;
+      opt.textContent = 'No profiles configured';
       select.append(opt);
-    });
+    } else {
+      state.profiles.forEach((p) => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = `${p.name} (${p.deployment || 'No model'})`;
+        opt.selected = p.id === state.activeProfileId;
+        select.append(opt);
+      });
+    }
+  }
+
+  // Update model dropup trigger label
+  const labelEl = $('#model-name-label');
+  if (labelEl) {
+    if (activeProfile) {
+      labelEl.textContent = activeProfile.name;
+    } else if (state.profiles.length) {
+      labelEl.textContent = state.profiles[0].name;
+    } else {
+      labelEl.textContent = 'No model';
+    }
+  }
+
+  // Populate model dropup popover list
+  const popoverList = $('#model-profile-list');
+  if (popoverList) {
+    popoverList.innerHTML = '';
+    if (!state.profiles.length) {
+      const empty = document.createElement('div');
+      empty.className = 'model-profile-empty';
+      empty.textContent = 'No profiles configured. Open Settings to add one.';
+      popoverList.append(empty);
+    } else {
+      state.profiles.forEach((p) => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = `model-profile-item ${p.id === state.activeProfileId ? 'active' : ''}`;
+        item.setAttribute('role', 'option');
+        item.setAttribute('aria-selected', String(p.id === state.activeProfileId));
+        item.title = `Switch to ${p.name} (${p.deployment || 'No deployment'})`;
+        item.innerHTML = `
+          <span class="model-item-check"><i data-lucide="check"></i></span>
+          <span class="model-item-info">
+            <span class="model-item-name">${escapeHtml(p.name)}</span>
+            <span class="model-item-deployment">${escapeHtml(p.deployment || 'No deployment')}</span>
+          </span>
+        `;
+        item.onclick = async () => {
+          const picker = $('#model-picker');
+          if (picker) picker.open = false;
+          if (p.id !== state.activeProfileId) {
+            await switchActiveProfile(p.id);
+          }
+        };
+        popoverList.append(item);
+      });
+    }
   }
   const container = $('#profile-list-container');
   const emptyState = $('#profile-empty-state');
@@ -615,6 +786,7 @@ async function loadProfiles() {
 }
 
 async function switchActiveProfile(profileId) {
+  if (state.generating) return;
   try {
     const data = await fetch(`/api/profiles/${profileId}/active`, { method: 'POST' }).then((res) => res.json());
     renderProfiles(data);
@@ -626,18 +798,35 @@ async function switchActiveProfile(profileId) {
 }
 
 async function health() {
+  const el = $('#connection-status');
   try {
-    const data = await fetch('/api/health').then((response) => response.json());
-    const el = $('#connection-status');
-    el.className = `status ${data.configured ? 'connected' : 'error'}`;
-    el.innerHTML = `<i></i>${data.configured ? 'Azure connected' : 'Azure not configured'}`;
+    const response = await fetch('/api/health');
+    if (!response.ok) throw new Error('Unavailable');
+    const data = await response.json();
+    el.className = `status ${data.configured ? 'hidden' : 'error'}`;
+    el.textContent = data.configured ? '' : 'Add a model in Settings to start chatting.';
+    const modelTitle = data.configured ? 'Model for the next response' : 'No configured model. Open Settings in the sidebar.';
+    if ($('#profile-select')) $('#profile-select').title = modelTitle;
+    if ($('#model-trigger')) $('#model-trigger').title = modelTitle;
+  } catch {
+    el.className = 'status error';
+    el.textContent = 'Helios is offline. Check the local server.';
   }
-  catch { $('#connection-status').textContent = 'Offline'; }
 }
 
 // Event Listeners & Initialization
+const sidebarEl = $('#sidebar');
+if (sidebarEl) {
+  sidebarEl.onclick = (event) => {
+    if (!document.body.classList.contains('sidebar-collapsed')) return;
+    if (event.target.closest('button, .workspace-card, .sidebar-dock-btn')) return;
+    setSidebarCollapsed(false);
+  };
+}
+
 $('#new-chat').onclick = newChat;
-$('#sidebar-toggle').onclick = () => {
+$('#sidebar-toggle').onclick = (event) => {
+  event.stopPropagation();
   if (window.innerWidth <= 720) {
     setMobileSidebarOpen(false);
   } else {
@@ -647,7 +836,10 @@ $('#sidebar-toggle').onclick = () => {
 
 const mobileSidebarToggle = $('#mobile-sidebar-toggle');
 if (mobileSidebarToggle) {
-  mobileSidebarToggle.onclick = () => setMobileSidebarOpen(!document.body.classList.contains('sidebar-open'));
+  mobileSidebarToggle.onclick = (event) => {
+    event.stopPropagation();
+    setMobileSidebarOpen(!document.body.classList.contains('sidebar-open'));
+  };
 }
 
 const sidebarBackdrop = $('#sidebar-backdrop');
@@ -655,7 +847,74 @@ if (sidebarBackdrop) {
   sidebarBackdrop.onclick = () => setMobileSidebarOpen(false);
 }
 
+$('#workspace-card').onclick = openWorkspaceDialog;
+$('#workspace-context-chip').onclick = openWorkspaceDialog;
+$('#file-search').oninput = renderFileList;
+$('#attach-selected-file').onclick = async () => {
+  const path = state.pendingFile;
+  const root = state.workspaceRoot;
+  const dialogVersion = state.fileDialogVersion;
+  if (!path || state.attachingFile) return;
+  state.attachingFile = true;
+  const button = $('#attach-selected-file');
+  button.disabled = true;
+  button.textContent = 'Checking...';
+  try {
+    const response = await fetch('/api/read-file', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path })
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Could not attach this file.');
+    }
+    if (!$('#file-dialog').open || dialogVersion !== state.fileDialogVersion || state.pendingFile !== path || state.workspaceRoot !== root) return;
+    state.workspaceFile = path;
+    $('#file-chip .file-chip-name').textContent = path;
+    $('#file-chip .file-chip-name').title = path;
+    $('#file-chip').classList.remove('hidden');
+    $('#file-dialog').close();
+    prompt.focus();
+  } catch (error) {
+    if ($('#file-dialog').open && dialogVersion === state.fileDialogVersion) {
+      toast(error.message || 'Could not attach this file.', 'error');
+    }
+  } finally {
+    state.attachingFile = false;
+    button.textContent = 'Attach file';
+    button.disabled = !state.pendingFile;
+  }
+};
+
+const workTools = $('#work-tools');
+document.addEventListener('click', (event) => {
+  if (!workTools.contains(event.target)) workTools.open = false;
+});
+workTools.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    workTools.open = false;
+    workTools.querySelector('summary').focus();
+    event.stopPropagation();
+  }
+});
+
+const modelPicker = $('#model-picker');
+if (modelPicker) {
+  document.addEventListener('click', (event) => {
+    if (!modelPicker.contains(event.target)) modelPicker.open = false;
+  });
+  modelPicker.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      modelPicker.open = false;
+      const trigger = modelPicker.querySelector('summary');
+      if (trigger) trigger.focus();
+      event.stopPropagation();
+    }
+  });
+}
+
 window.addEventListener('resize', () => {
+  document.body.classList.toggle('mobile-layout', window.innerWidth <= 720);
+  setSidebarCollapsed(document.body.classList.contains('sidebar-collapsed'));
   if (window.innerWidth > 720 && document.body.classList.contains('sidebar-open')) {
     document.body.classList.remove('sidebar-open');
   }
@@ -667,9 +926,8 @@ window.addEventListener('keydown', (event) => {
   }
 });
 
-$('#refresh-workspace').onclick = loadWorkspace;
-$('#choose-workspace').onclick = () => $('#workspace-dialog').showModal();
-$('#open-settings').onclick = async () => {
+async function openSettingsDialog() {
+  closeMobileSidebar();
   await loadProfiles();
   const accordion = $('#profile-pricing-accordion');
   if (accordion) accordion.open = false;
@@ -680,7 +938,17 @@ $('#open-settings').onclick = async () => {
     resetProfileForm();
   }
   $('#settings-dialog').showModal();
-};
+}
+
+$('#refresh-workspace').onclick = loadWorkspace;
+$('#open-settings').onclick = openSettingsDialog;
+const modelSettingsBtn = $('#model-popover-settings');
+if (modelSettingsBtn) {
+  modelSettingsBtn.onclick = () => {
+    if (modelPicker) modelPicker.open = false;
+    openSettingsDialog();
+  };
+}
 $('#add-profile-btn').onclick = resetProfileForm;
 
 const toggleKeyBtn = $('#toggle-api-key-btn');
@@ -695,10 +963,48 @@ if (toggleKeyBtn) {
 }
 
 document.querySelectorAll('[data-close-dialog]').forEach((button) => {
-  button.onclick = () => $(`#${button.dataset.closeDialog}`).close();
+  button.onclick = () => {
+    if (button.dataset.closeDialog === 'workspace-dialog' && state.pickingWorkspace) return;
+    $(`#${button.dataset.closeDialog}`).close();
+  };
 });
 
 document.querySelectorAll('dialog').forEach((dlg) => {
+  let isMouseDownOnBackdrop = false;
+
+  dlg.addEventListener('cancel', (event) => {
+    if (dlg.id === 'workspace-dialog' && state.pickingWorkspace) event.preventDefault();
+  });
+
+  dlg.addEventListener('mousedown', (event) => {
+    if (event.target !== dlg) {
+      isMouseDownOnBackdrop = false;
+      return;
+    }
+    const rect = dlg.getBoundingClientRect();
+    const isInside =
+      event.clientX >= rect.left &&
+      event.clientX <= rect.right &&
+      event.clientY >= rect.top &&
+      event.clientY <= rect.bottom;
+    isMouseDownOnBackdrop = !isInside;
+  });
+
+  dlg.addEventListener('mouseup', (event) => {
+    if (isMouseDownOnBackdrop && event.target === dlg) {
+      const rect = dlg.getBoundingClientRect();
+      const isInside =
+        event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top &&
+        event.clientY <= rect.bottom;
+      if (!isInside && !(dlg.id === 'workspace-dialog' && state.pickingWorkspace)) {
+        dlg.close();
+      }
+    }
+    isMouseDownOnBackdrop = false;
+  });
+
   dlg.addEventListener('close', () => {
     const el = $('#toast');
     if (el && el.parentElement === dlg) {
@@ -713,18 +1019,51 @@ document.querySelectorAll('dialog').forEach((dlg) => {
 
 $('#workspace-form').onsubmit = async (event) => {
   event.preventDefault();
-  const path = $('#workspace-path-input').value.trim();
-  const response = await fetch('/api/workspace/root', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path })
-  });
-  if (!response.ok) return toast((await response.json()).detail || 'Could not open workspace folder.', 'error');
-  state.workspaceFile = null;
-  $('#file-chip').classList.add('hidden');
-  $('#workspace-dialog').close();
-  await loadWorkspace();
-  toast('Workspace folder updated.', 'success');
+  if (state.pickingWorkspace) return;
+  const button = $('#apply-workspace');
+  button.disabled = true;
+  try {
+    const response = await fetch('/api/workspace/root', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: $('#workspace-path-input').value.trim() })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Could not open workspace folder.');
+    ++state.workspaceRequest;
+    clearFocusFile();
+    state.pendingFile = null;
+    applyWorkspace(data);
+    $('#workspace-dialog').close();
+    toast('Workspace folder updated.', 'success');
+  } catch (error) {
+    toast(error.message || 'Could not open workspace folder.', 'error');
+  } finally {
+    button.disabled = false;
+  }
+};
+
+$('#browse-workspace-btn').onclick = async () => {
+  if (state.pickingWorkspace) return;
+  state.pickingWorkspace = true;
+  const controls = $('#workspace-dialog').querySelectorAll('button, input');
+  const previousDisabled = Array.from(controls, (control) => control.disabled);
+  controls.forEach((control) => { control.disabled = true; });
+  const help = $('#workspace-path-help');
+  const previousHelp = help.textContent;
+  help.textContent = 'Select a folder or cancel in the open folder picker to continue.';
+  try {
+    const response = await fetch('/api/workspace/pick', { method: 'POST' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Could not open folder picker.');
+    if (!data.cancelled && $('#workspace-dialog').open) $('#workspace-path-input').value = data.path;
+  } catch (error) {
+    toast(error.message || 'Enter the folder path manually.', 'warning');
+  } finally {
+    state.pickingWorkspace = false;
+    controls.forEach((control, index) => { control.disabled = previousDisabled[index]; });
+    help.textContent = previousHelp;
+    if ($('#workspace-dialog').open) $('#workspace-path-input').focus();
+  }
 };
 
 $('#azure-settings-form').onsubmit = async (event) => {
@@ -820,22 +1159,20 @@ $('#delete-profile-btn').onclick = async () => {
 };
 
 $('#profile-select').onchange = (event) => switchActiveProfile(event.target.value);
-$('#load-file').onclick = () => {
-  if (!state.workspaceFile) {
-    toast('Select a text file in the Workspace panel first.', 'info');
-  } else {
-    toast(`Attached for the next message: ${state.workspaceFile}`, 'info');
-  }
-};
-$('#file-chip button').onclick = () => {
-  state.workspaceFile = null;
-  $('#file-chip').classList.add('hidden');
-};
+$('#load-file').onclick = openFileDialog;
+
+const removeFocusBtn = $('#remove-focus-file');
+if (removeFocusBtn) {
+  removeFocusBtn.onclick = (event) => {
+    event.stopPropagation();
+    clearFocusFile();
+  };
+}
 send.onclick = sendMessage;
 stop.onclick = () => state.controller?.abort();
 prompt.oninput = autoResize;
 prompt.onkeydown = (event) => {
-  if (event.key === 'Enter' && !event.shiftKey) {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     sendMessage();
   }
@@ -907,6 +1244,7 @@ function setupPricingAccordionAnimation() {
 }
 
 // Initial setup
+document.body.classList.toggle('mobile-layout', window.innerWidth <= 720);
 setSidebarCollapsed(localStorage.getItem('helios.sidebarCollapsed') === 'true');
 refreshIcons();
 health();
