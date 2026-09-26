@@ -35,6 +35,23 @@ marked.setOptions({
   }
 });
 
+if (window.DOMPurify) {
+  DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+    if (node.tagName === 'A') {
+      node.setAttribute('target', '_blank');
+      node.setAttribute('rel', 'noopener noreferrer');
+    }
+  });
+}
+
+function renderMarkdown(text) {
+  const parsed = marked.parse(text);
+  if (window.DOMPurify) {
+    return DOMPurify.sanitize(parsed);
+  }
+  return parsed;
+}
+
 function escapeHtml(value) {
   const div = document.createElement('div');
   div.textContent = value;
@@ -184,7 +201,7 @@ function appendMessage(role, content = '', messageIndex = null, shouldScroll = t
   const actionsEl = el.querySelector('.message-actions');
 
   const render = (text) => {
-    textEl.innerHTML = role === 'assistant' ? marked.parse(text) : escapeHtml(text).replace(/\n/g, '<br>');
+    textEl.innerHTML = role === 'assistant' ? renderMarkdown(text) : escapeHtml(text).replace(/\n/g, '<br>');
   };
   render(content);
 
