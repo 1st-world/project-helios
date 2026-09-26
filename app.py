@@ -5,8 +5,10 @@ import json
 import logging
 from logging.handlers import RotatingFileHandler
 from contextlib import asynccontextmanager
+from urllib.parse import urlsplit
+from uuid import UUID
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -15,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from config import settings
 from services.ai_service import AIService
+from services.folder_picker_service import FolderPickerService, PickerReconnectingError
 from services.conversation_service import ConversationManager, ConversationUnavailableError
 from services.context_budget import (ContextBudget, ContextBudgetExceeded, ContextChangedError,
                                      ContextWindowExceeded, SummaryUnavailableError)
@@ -34,6 +37,7 @@ logger = logging.getLogger(__name__)
 profile_service = ProfileService(settings.profiles_path)
 conversation_manager = ConversationManager(settings.conversations_root)
 workspace_service = WorkspaceService(settings.workspace_root)
+folder_picker_service = FolderPickerService()
 usage_service = UsageService()
 summary_usage_store = SummaryUsageStore(settings.logs_root / "summary_usage.sqlite3")
 ai_service = AIService(usage_service, profile_service,
@@ -47,6 +51,7 @@ memory_service = ConversationMemoryService(ai_service, conversation_manager, set
 async def lifespan(_: FastAPI):
     logger.info("Helios started")
     yield
+    await folder_picker_service.close()
     await ai_service.close()
     logger.info("Helios stopped")
 
@@ -260,39 +265,61 @@ async def update_workspace_root(payload: WorkspaceRootRequest):
     return {"root": str(workspace_service.root), "entries": workspace_service.tree()}
 
 
-def _open_folder_picker(initial_dir: str = "") -> tuple[str | None, str | None]:
+@app.websocket("/api/workspace/picker/{token}")
+async def workspace_picker(websocket: WebSocket, token: UUID):
+    # The unguessable token belongs to one tab. Reject cross-origin pages before
+    # they can open native dialogs on the machine running Helios.
+    origin = websocket.headers.get("origin", "")
+    if urlsplit(origin).netloc != websocket.headers.get("host"):
+        await websocket.close(code=1008)
+        return
+    await websocket.accept()
+    session = None
+    key = str(token)
     try:
-        import tkinter as tk
-        from tkinter import filedialog
-    except ImportError:
-        return None, "GUI folder picker is not available in this environment. Please enter the folder path manually."
-
-    root = None
-    try:
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-        selected = filedialog.askdirectory(parent=root, title="Select Workspace Folder", initialdir=initial_dir or None)
-        return selected or "", None
-    except Exception as exc:
-        logger.exception("Folder picker dialog failed: %s", exc)
-        return None, "Could not open native folder picker dialog. Please enter the folder path manually."
-    finally:
-        if root is not None:
+        command = await asyncio.wait_for(websocket.receive_json(), timeout=10)
+        if command.get("action") not in {"start", "resume"}:
+            await websocket.close(code=1008)
+            return
+        session = folder_picker_service.attach(key, str(workspace_service.root),
+                                               start=command["action"] == "start")
+        if session is None:
+            await websocket.send_json({"status": "missing"})
+            return
+        previous = None
+        while True:
+            if session.result != previous:
+                await websocket.send_json(session.result)
+                previous = dict(session.result)
             try:
-                root.destroy()
-            except Exception:
-                logger.warning("Could not close folder picker", exc_info=True)
-
-
-@app.post("/api/workspace/pick")
-async def pick_workspace_folder():
-    current_root = str(workspace_service.root)
-    selected_path, error_msg = await asyncio.to_thread(_open_folder_picker, current_root)
-    if error_msg:
-        raise HTTPException(status_code=501, detail=error_msg)
-    # Picking is a draft selection. PUT /api/workspace/root applies it explicitly.
-    return {"cancelled": not bool(selected_path), "path": selected_path or current_root}
+                command = await asyncio.wait_for(websocket.receive_json(), timeout=1)
+            except asyncio.TimeoutError:
+                continue
+            if command.get("action") == "cancel":
+                try:
+                    await folder_picker_service.cancel(session)
+                except Exception:
+                    logger.exception("Could not cancel folder picker")
+                    await websocket.send_json({"status": "cancel-error", "detail": "Could not close folder picker. Try Cancel again."})
+    except PickerReconnectingError:
+        await websocket.send_json({"status": "reconnecting"})
+    except WebSocketDisconnect:
+        pass
+    except (asyncio.TimeoutError, ValueError):
+        await websocket.close(code=1008)
+    except Exception:
+        logger.exception("Folder picker connection failed")
+        try:
+            await websocket.send_json({"status": "error", "detail": "Could not connect to folder picker. Enter the path manually."})
+        except (RuntimeError, WebSocketDisconnect):
+            pass
+    finally:
+        if session is not None:
+            folder_picker_service.detach(key, session)
+        try:
+            await websocket.close()
+        except (RuntimeError, WebSocketDisconnect):
+            pass
 
 
 @app.post("/api/read-file")

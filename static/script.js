@@ -981,7 +981,10 @@ if (toggleKeyBtn) {
 
 document.querySelectorAll('[data-close-dialog]').forEach((button) => {
   button.onclick = () => {
-    if (button.dataset.closeDialog === 'workspace-dialog' && state.pickingWorkspace) return;
+    if (button.dataset.closeDialog === 'workspace-dialog' && state.pickingWorkspace) {
+      cancelWorkspacePicker();
+      return;
+    }
     $(`#${button.dataset.closeDialog}`).close();
   };
 });
@@ -990,7 +993,10 @@ document.querySelectorAll('dialog').forEach((dlg) => {
   let isMouseDownOnBackdrop = false;
 
   dlg.addEventListener('cancel', (event) => {
-    if (dlg.id === 'workspace-dialog' && state.pickingWorkspace) event.preventDefault();
+    if (dlg.id === 'workspace-dialog' && state.pickingWorkspace) {
+      event.preventDefault();
+      cancelWorkspacePicker();
+    }
   });
 
   dlg.addEventListener('mousedown', (event) => {
@@ -1015,8 +1021,9 @@ document.querySelectorAll('dialog').forEach((dlg) => {
         event.clientX <= rect.right &&
         event.clientY >= rect.top &&
         event.clientY <= rect.bottom;
-      if (!isInside && !(dlg.id === 'workspace-dialog' && state.pickingWorkspace)) {
-        dlg.close();
+      if (!isInside) {
+        if (dlg.id === 'workspace-dialog' && state.pickingWorkspace) cancelWorkspacePicker();
+        else dlg.close();
       }
     }
     isMouseDownOnBackdrop = false;
@@ -1059,29 +1066,172 @@ $('#workspace-form').onsubmit = async (event) => {
   }
 };
 
-$('#browse-workspace-btn').onclick = async () => {
-  if (state.pickingWorkspace) return;
-  state.pickingWorkspace = true;
-  const controls = $('#workspace-dialog').querySelectorAll('button, input');
-  const previousDisabled = Array.from(controls, (control) => control.disabled);
-  controls.forEach((control) => { control.disabled = true; });
-  const help = $('#workspace-path-help');
-  const previousHelp = help.textContent;
-  help.textContent = 'Select a folder or cancel in the open folder picker to continue.';
-  try {
-    const response = await fetch('/api/workspace/pick', { method: 'POST' });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || 'Could not open folder picker.');
-    if (!data.cancelled && $('#workspace-dialog').open) $('#workspace-path-input').value = data.path;
-  } catch (error) {
-    toast(error.message || 'Enter the folder path manually.', 'warning');
-  } finally {
-    state.pickingWorkspace = false;
-    controls.forEach((control, index) => { control.disabled = previousDisabled[index]; });
-    help.textContent = previousHelp;
-    if ($('#workspace-dialog').open) $('#workspace-path-input').focus();
+const pickerStorageKey = 'helios.workspacePicker';
+let workspacePicker = null;
+let pickerPageLeaving = false;
+
+function disconnectWorkspacePicker(picker) {
+  if (!picker || workspacePicker !== picker) return;
+  picker.cancelRequested = true;
+  picker.restartAfterCancel = false;
+  sessionStorage.setItem(pickerStorageKey + '.cancel', picker.token);
+  finishWorkspacePicker(picker, { status: 'disconnected' });
+  toast('Connection lost. The picker could not be confirmed closed. Its status will be checked before the next Browse.', 'warning');
+}
+
+function waitForPickerConnection(picker) {
+  if (!picker.connectionTimer) {
+    // Bound connection recovery only; an active folder selection has no timeout.
+    picker.connectionTimer = setTimeout(() => disconnectWorkspacePicker(picker), 10000);
   }
-};
+}
+
+function finishWorkspacePicker(picker, result) {
+  if (workspacePicker !== picker) return;
+  workspacePicker = null;
+  state.pickingWorkspace = false;
+  clearTimeout(picker.retry);
+  clearTimeout(picker.connectionTimer);
+  clearTimeout(picker.cancelTimer);
+  if (result.status !== 'disconnected') {
+    sessionStorage.removeItem(pickerStorageKey);
+    sessionStorage.removeItem(pickerStorageKey + '.cancel');
+    sessionStorage.removeItem(pickerStorageKey + '.path');
+  }
+  picker.socket?.close();
+  picker.controls.forEach((control, index) => { control.disabled = picker.disabled[index]; });
+  $('#workspace-path-help').textContent = picker.help;
+  if (picker.closeOnCancel) {
+    $('#workspace-dialog').close();
+  } else if (result.status === 'selected' && $('#workspace-dialog').open) {
+    $('#workspace-path-input').value = result.path;
+  } else if (result.status === 'error' || result.status === 'missing') {
+    toast(result.detail || 'The previous folder picker has closed. Browse again to choose a folder.', 'warning');
+  }
+  if ($('#workspace-dialog').open) $('#workspace-path-input').focus();
+  if (picker.restartAfterCancel && ['cancelled', 'missing'].includes(result.status)) beginWorkspacePicker();
+}
+
+function connectWorkspacePicker(picker, start = false) {
+  if (workspacePicker !== picker || pickerPageLeaving) return;
+  waitForPickerConnection(picker);
+  const url = new URL('/api/workspace/picker/' + picker.token, location.href);
+  url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const socket = new WebSocket(url);
+  picker.socket = socket;
+  socket.onopen = () => {
+    if (workspacePicker !== picker || picker.socket !== socket || pickerPageLeaving) { socket.close(); return; }
+    socket.send(JSON.stringify({ action: start ? 'start' : 'resume' }));
+    if (picker.cancelRequested) socket.send(JSON.stringify({ action: 'cancel' }));
+  };
+  socket.onmessage = (event) => {
+    if (workspacePicker !== picker || picker.socket !== socket || pickerPageLeaving) return;
+    const result = JSON.parse(event.data);
+    if (result.status === 'reconnecting') {
+      $('#workspace-path-help').textContent = 'Waiting for the previous picker connection to close…';
+    } else if (result.status === 'pending') {
+      clearTimeout(picker.connectionTimer);
+      picker.connectionTimer = null;
+      $('#workspace-path-help').textContent = picker.cancelRequested
+        ? 'Closing folder picker…'
+        : 'Choose a folder in the picker, or use Cancel here to close it.';
+    } else if (result.status === 'cancel-error') {
+      $('#workspace-path-help').textContent = result.detail;
+      toast(result.detail, 'warning');
+    } else if (picker.cancelRequested && !['cancelled', 'missing'].includes(result.status)) {
+      // A selected result can race with Cancel. Wait for cancellation acknowledgement.
+      socket.send(JSON.stringify({ action: 'cancel' }));
+    } else {
+      finishWorkspacePicker(picker, result);
+    }
+  };
+  socket.onclose = () => {
+    if (workspacePicker !== picker || picker.socket !== socket || pickerPageLeaving) return;
+    waitForPickerConnection(picker);
+    $('#workspace-path-help').textContent = 'Reconnecting to folder picker… You can use Cancel to leave this dialog.';
+    picker.retry = setTimeout(() => connectWorkspacePicker(picker), 1000);
+  };
+}
+
+function beginWorkspacePicker(token = null, resume = false) {
+  if (state.pickingWorkspace) return;
+  const savedToken = sessionStorage.getItem(pickerStorageKey);
+  token = token || savedToken || crypto.randomUUID();
+  const pendingCancel = sessionStorage.getItem(pickerStorageKey + '.cancel') === token;
+  const restartAfterCancel = !resume && pendingCancel;
+  resume = resume || token === savedToken;
+  sessionStorage.setItem(pickerStorageKey, token);
+  sessionStorage.setItem(pickerStorageKey + '.path', $('#workspace-path-input').value);
+  state.pickingWorkspace = true;
+  const controls = Array.from($('#workspace-dialog').querySelectorAll('#browse-workspace-btn, #apply-workspace, input'));
+  const picker = {
+    token, controls, disabled: controls.map((control) => control.disabled),
+    help: $('#workspace-path-help').textContent,
+    cancelRequested: pendingCancel, closeOnCancel: pendingCancel && !restartAfterCancel,
+    restartAfterCancel, socket: null, retry: null, connectionTimer: null, cancelTimer: null
+  };
+  workspacePicker = picker;
+  controls.forEach((control) => { control.disabled = true; });
+  $('#workspace-path-help').textContent = resume ? 'Reconnecting to folder picker…' : 'Opening folder picker…';
+  connectWorkspacePicker(picker, !resume);
+  if (pendingCancel) picker.cancelTimer = setTimeout(() => disconnectWorkspacePicker(picker), 5000);
+}
+
+function cancelWorkspacePicker() {
+  const picker = workspacePicker;
+  if (!picker) return;
+  picker.cancelRequested = true;
+  picker.closeOnCancel = true;
+  picker.restartAfterCancel = false;
+  sessionStorage.setItem(pickerStorageKey + '.cancel', picker.token);
+  $('#workspace-path-help').textContent = 'Closing folder picker…';
+  if (picker.socket?.readyState === WebSocket.OPEN) {
+    picker.socket.send(JSON.stringify({ action: 'cancel' }));
+    if (!picker.cancelTimer) picker.cancelTimer = setTimeout(() => disconnectWorkspacePicker(picker), 5000);
+  } else {
+    disconnectWorkspacePicker(picker);
+  }
+}
+
+$('#browse-workspace-btn').onclick = () => beginWorkspacePicker();
+window.addEventListener('pagehide', () => {
+  pickerPageLeaving = true;
+  if (workspacePicker) {
+    clearTimeout(workspacePicker.retry);
+    clearTimeout(workspacePicker.connectionTimer);
+    workspacePicker.connectionTimer = null;
+    clearTimeout(workspacePicker.cancelTimer);
+    workspacePicker.cancelTimer = null;
+    workspacePicker.socket?.close();
+  }
+});
+window.addEventListener('pageshow', () => {
+  if (!pickerPageLeaving) return;
+  pickerPageLeaving = false;
+  if (workspacePicker) {
+    connectWorkspacePicker(workspacePicker);
+    if (workspacePicker.cancelRequested) workspacePicker.cancelTimer = setTimeout(() => disconnectWorkspacePicker(workspacePicker), 5000);
+  }
+});
+
+function restoreWorkspacePicker(workspaceReady) {
+  const token = sessionStorage.getItem(pickerStorageKey);
+  if (!token) return;
+  openWorkspaceDialog();
+  const input = $('#workspace-path-input');
+  const savedPath = sessionStorage.getItem(pickerStorageKey + '.path');
+  if (savedPath !== null) input.value = savedPath;
+  const initialPath = input.value;
+  let edited = false;
+  const markEdited = () => { edited = true; };
+  input.addEventListener('input', markEdited);
+  beginWorkspacePicker(token, true);
+  workspaceReady.then(() => {
+    input.removeEventListener('input', markEdited);
+    // Fill only missing initial data, never a selected path or a user's draft.
+    if (savedPath === null && !edited && input.value === initialPath && !initialPath) input.value = state.workspaceRoot;
+  });
+}
 
 $('#azure-settings-form').onsubmit = async (event) => {
   event.preventDefault();
@@ -1265,7 +1415,9 @@ document.body.classList.toggle('mobile-layout', window.innerWidth <= 720);
 setSidebarCollapsed(localStorage.getItem('helios.sidebarCollapsed') === 'true');
 refreshIcons();
 health();
-loadWorkspace();
+const workspaceReady = loadWorkspace();
 newChat();
 loadProfiles();
 setupPricingAccordionAnimation();
+
+restoreWorkspacePicker(workspaceReady);
