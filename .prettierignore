@@ -1,0 +1,4 @@
+# Format only CSS files; traverse directories to find nested stylesheets.
+**/*
+!**/
+!**/*.css

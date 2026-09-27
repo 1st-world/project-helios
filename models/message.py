@@ -1,3 +1,5 @@
+"""Represent chat messages and serialize their timestamps, provider metadata, and usage."""
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal
@@ -5,9 +7,13 @@ from typing import Literal
 
 @dataclass
 class Message:
+    """Hold message content, creation time, and optional provider and usage metadata."""
+
     role: Literal["user", "assistant", "system"]
     content: str
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
     profile_id: str | None = None
     profile_name: str | None = None
     deployment: str | None = None
@@ -19,6 +25,7 @@ class Message:
     is_long_context: bool = False
 
     def to_dict(self) -> dict:
+        """Serialize a message, omitting metadata that was not recorded."""
         data: dict[str, object] = {
             "role": self.role,
             "content": self.content,
@@ -46,6 +53,7 @@ class Message:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Message":
+        """Validate stored role and content, then restore timestamps and usage metadata."""
         role = data.get("role")
         if role not in {"user", "assistant", "system"}:
             raise ValueError("Invalid message role.")

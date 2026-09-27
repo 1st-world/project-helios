@@ -1,6 +1,8 @@
+"""Represent persisted conversations, including message history and summary memory."""
+
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-import logging
 from uuid import uuid4
 
 from models.message import Message
@@ -8,10 +10,16 @@ from models.message import Message
 
 @dataclass
 class Conversation:
+    """Hold a transcript, summary coverage, and version used to reject stale updates."""
+
     id: str = field(default_factory=lambda: str(uuid4()))
     title: str = "New conversation"
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
     messages: list[Message] = field(default_factory=list)
     memory_summary: str = ""
     summarized_message_count: int = 0
@@ -19,6 +27,7 @@ class Conversation:
     is_deleted: bool = field(default=False, repr=False, compare=False)
 
     def to_dict(self, include_messages: bool = True) -> dict:
+        """Serialize conversation metadata and optionally include the message transcript."""
         data = {
             "id": self.id,
             "title": self.title,
@@ -26,7 +35,7 @@ class Conversation:
             "updated_at": self.updated_at.isoformat(),
             "memory_summary": self.memory_summary,
             "summarized_message_count": self.summarized_message_count,
-            "version": self.version
+            "version": self.version,
         }
         if include_messages:
             data["messages"] = [message.to_dict() for message in self.messages]
@@ -34,6 +43,7 @@ class Conversation:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Conversation":
+        """Restore persisted state, resetting inconsistent summary coverage."""
         conversation_id = data.get("id")
         title = data.get("title")
         if not isinstance(conversation_id, str) or not isinstance(title, str):
@@ -43,17 +53,24 @@ class Conversation:
             raise ValueError("Invalid conversation messages.")
         memory_summary = data.get("memory_summary", "")
         summarized_message_count = data.get("summarized_message_count", 0)
-        if not isinstance(memory_summary, str) or type(summarized_message_count) is not int:
+        if (
+            not isinstance(memory_summary, str)
+            or type(summarized_message_count) is not int
+        ):
             raise ValueError("Invalid conversation memory.")
         version = data.get("version", 0)
         if type(version) is not int or version < 0:
             raise ValueError("Invalid conversation version.")
         messages = [Message.from_dict(message) for message in messages_data]
-        if (summarized_message_count < 0 or summarized_message_count > len(messages)
-                or bool(memory_summary.strip()) != (summarized_message_count > 0)):
-            # An inconsistent summary may describe deleted or edited messages. Preserve
-            # the original transcript rather than hiding it behind a clamped count.
-            logging.getLogger(__name__).warning("Reset inconsistent conversation memory: %s", conversation_id)
+        if (
+            summarized_message_count < 0
+            or summarized_message_count > len(messages)
+            or bool(memory_summary.strip()) != (summarized_message_count > 0)
+        ):
+            # Reset inconsistent memory so it cannot hide edited or deleted transcript content.
+            logging.getLogger(__name__).warning(
+                "Reset inconsistent conversation memory: %s", conversation_id
+            )
             memory_summary = ""
             summarized_message_count = 0
         return cls(

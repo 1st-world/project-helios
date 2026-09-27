@@ -1,3 +1,5 @@
+/* Define the Helios design tokens, component styles, and responsive layouts. */
+
 /* ========================================
    Variables & Global Reset
    ======================================== */
@@ -64,11 +66,13 @@
   --shadow-md: 0 8px 32px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 22px 80px rgba(0, 0, 0, 0.65);
 }
+
 * {
   box-sizing: border-box;
   scrollbar-color: var(--border-strong) transparent;
   scrollbar-width: thin;
 }
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -83,6 +87,7 @@
 ::-webkit-scrollbar-thumb:hover {
   background: var(--border-focus);
 }
+
 body {
   display: flex;
   height: 100dvh;
@@ -94,12 +99,14 @@ body {
   font-size: 14px;
   font-family: var(--font-sans);
 }
+
 button,
 input,
 textarea,
 select {
   font: inherit;
 }
+
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button {
   -webkit-appearance: none;
@@ -109,12 +116,12 @@ input[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+
 button {
   border: 0;
   color: inherit;
   cursor: pointer;
 }
-
 button:focus-visible,
 summary:focus-visible,
 select:focus-visible {
@@ -124,6 +131,7 @@ select:focus-visible {
 button:disabled {
   cursor: not-allowed;
 }
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -183,6 +191,7 @@ footer {
   height: 36px;
   margin-bottom: 14px;
 }
+
 .brand {
   display: flex;
   flex: none;
@@ -200,6 +209,7 @@ footer {
   color: var(--accent);
   font-size: 20px;
 }
+
 .sidebar-toggle {
   display: grid;
   position: absolute;
@@ -217,6 +227,7 @@ footer {
   background: var(--bg-element-hover);
   color: var(--accent);
 }
+
 .mobile-sidebar-toggle {
   display: none;
 }
@@ -263,6 +274,7 @@ footer {
   overflow-x: hidden;
   overflow-y: auto;
 }
+
 .side-label {
   display: flex;
   justify-content: space-between;
@@ -272,6 +284,7 @@ footer {
   font-family: var(--font-mono);
   letter-spacing: 0.11em;
 }
+
 .conversation-list {
   display: grid;
   gap: 3px;
@@ -354,6 +367,7 @@ footer {
   gap: 8px;
   border-top: 1px solid var(--border);
 }
+
 .workspace-card {
   position: relative;
   flex: none;
@@ -521,6 +535,7 @@ details[open] > .tree-folder::before {
 .tree-children {
   padding-left: 13px;
 }
+
 .workspace-empty-state {
   display: flex;
   flex-direction: column;
@@ -616,6 +631,7 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:hover {
 .empty-state p {
   margin: 0;
 }
+
 .message {
   display: flex;
   width: 100%;
@@ -695,6 +711,7 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:hover {
   border: 1px solid var(--border);
   text-align: left;
 }
+
 .typing {
   color: var(--text-muted);
   font-size: 12px;
@@ -810,6 +827,7 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:hover {
 .composer:focus-within {
   border-color: var(--border-focus);
 }
+
 textarea {
   display: block;
   width: 100%;
@@ -824,6 +842,7 @@ textarea {
 textarea::placeholder {
   color: var(--text-tertiary);
 }
+
 .composer-actions {
   display: flex;
   position: relative;
@@ -831,6 +850,7 @@ textarea::placeholder {
   margin-top: 8px;
   gap: 9px;
 }
+
 .quiet {
   display: inline-flex;
   align-items: center;
@@ -841,11 +861,13 @@ textarea::placeholder {
   color: var(--text-sub);
   font-size: 12px;
 }
+
 .hint {
   margin-left: auto;
   color: var(--text-tertiary);
   font-size: 11px;
 }
+
 .send,
 .stop {
   display: inline-flex;
@@ -889,6 +911,7 @@ textarea::placeholder {
   background: var(--bg-element);
   color: var(--text-main);
 }
+
 .composer-submit {
   display: flex;
   flex: none;
@@ -902,6 +925,7 @@ textarea::placeholder {
   padding: 0;
   border-radius: 8px;
 }
+
 .composer-caption {
   display: flex;
   flex-wrap: wrap;
@@ -909,6 +933,7 @@ textarea::placeholder {
   margin-top: 9px;
   gap: 6px 12px;
 }
+
 .status {
   color: var(--text-muted);
   font-size: 11px;
@@ -916,6 +941,7 @@ textarea::placeholder {
 .status.error {
   color: var(--warning);
 }
+
 .work-tools {
   position: relative;
   flex: none;
@@ -1119,6 +1145,7 @@ textarea::placeholder {
   font-size: 12px;
   text-align: center;
 }
+
 .planned-badge {
   flex: none;
   padding: 2px 5px;
@@ -1128,6 +1155,7 @@ textarea::placeholder {
   font-weight: 500;
   font-size: 10px;
 }
+
 .planned-option {
   display: flex;
   align-items: center;
@@ -1202,7 +1230,6 @@ textarea::placeholder {
 .context-chip.file svg {
   color: var(--accent);
 }
-
 .context-chip button {
   display: grid;
   place-items: center;
@@ -1225,6 +1252,7 @@ textarea::placeholder {
 .hidden {
   display: none !important;
 }
+
 .toast {
   display: inline-flex;
   z-index: 2147483647;
@@ -1299,6 +1327,7 @@ textarea::placeholder {
 .toast-info svg {
   color: var(--info);
 }
+
 .settings-dialog {
   width: min(580px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);
@@ -1503,6 +1532,7 @@ textarea::placeholder {
   font-size: 11px;
   font-family: var(--font-mono);
 }
+
 .section-title-row,
 .form-title-row {
   display: flex;
@@ -1517,6 +1547,7 @@ textarea::placeholder {
   font-weight: 600;
   font-size: 14px;
 }
+
 .profile-manager {
   margin-bottom: 4px;
   overflow: hidden;
@@ -1619,6 +1650,7 @@ textarea::placeholder {
   font-size: 11px;
   line-height: 1;
 }
+
 .quiet-btn {
   box-sizing: border-box;
   display: inline-flex;
@@ -1645,6 +1677,7 @@ textarea::placeholder {
   background: var(--bg-element-hover);
   color: var(--text-main);
 }
+
 .icon-button-sm {
   display: grid;
   place-items: center;
@@ -1663,6 +1696,7 @@ textarea::placeholder {
   background: var(--bg-element-hover);
   color: var(--text-main);
 }
+
 #azure-settings-form {
   display: flex;
   flex-direction: column;
@@ -1676,11 +1710,13 @@ textarea::placeholder {
   padding-top: 16px;
   border-top: 1px solid var(--border);
 }
+
 .form-grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
+
 .input-with-action {
   display: flex;
   position: relative;
@@ -1716,6 +1752,7 @@ textarea::placeholder {
   width: 15px;
   height: 15px;
 }
+
 .field-hint,
 .settings-dialog .field-hint {
   color: var(--text-tertiary);
@@ -1723,6 +1760,7 @@ textarea::placeholder {
   font-size: 11px;
   line-height: 1.5;
 }
+
 .pricing-field-group {
   display: flex;
   flex-direction: column;
@@ -1920,6 +1958,7 @@ textarea::placeholder {
   margin-top: 8px;
   margin-bottom: 0;
 }
+
 .dialog-actions-right {
   display: flex;
   align-items: center;
@@ -1935,9 +1974,11 @@ textarea::placeholder {
   width: min(600px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
 }
+
 .workspace-folder-bar {
   padding: 0;
 }
+
 .path-input-group {
   display: flex;
   align-items: center;
@@ -1947,6 +1988,7 @@ textarea::placeholder {
   flex: 1;
   min-width: 0;
 }
+
 .sm-btn {
   display: inline-flex;
   flex: none;
@@ -1958,13 +2000,16 @@ textarea::placeholder {
   font-size: 12px;
   line-height: 1;
 }
+
 #workspace-path-help {
   display: block;
   margin-top: 8px;
 }
+
 .settings-dialog .workspace-roadmap {
   margin: 4px 0 0;
 }
+
 .file-source-row {
   display: flex;
   align-items: center;
@@ -1979,6 +2024,7 @@ textarea::placeholder {
   height: 15px;
   color: var(--accent);
 }
+
 .file-search-row {
   display: flex;
   align-items: center;
@@ -1988,11 +2034,13 @@ textarea::placeholder {
   flex: 1;
   min-width: 0;
 }
+
 #file-source-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .workspace-tree.modal-tree {
   height: clamp(140px, 32vh, 320px);
   max-height: none;
@@ -2002,12 +2050,15 @@ textarea::placeholder {
   border-radius: 6px;
   background: var(--bg-app);
 }
+
 .settings-dialog .attachment-roadmap {
   margin: 4px 0 0;
 }
+
 .settings-dialog .attachment-help {
   margin: 0;
 }
+
 #selected-file-label {
   flex: 1;
   min-width: 0;
@@ -2017,6 +2068,7 @@ textarea::placeholder {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .file-dialog-actions button {
   flex: none;
 }
@@ -2053,9 +2105,11 @@ button svg,
 .sidebar-dock-btn > svg {
   color: var(--accent);
 }
+
 .model-trigger .model-chevron {
   color: var(--text-tertiary);
 }
+
 .quiet:disabled > svg,
 .composer-control:disabled > svg {
   color: var(--text-muted);

@@ -1,27 +1,35 @@
-"""Azure OpenAI integration with dynamic ConnectionProfile resolution."""
+"""Manage Azure OpenAI clients, stream replies, and account for conversation summaries."""
 
 import logging
 import time
-from dataclasses import replace
 from collections.abc import AsyncGenerator
+from dataclasses import replace
 from typing import Any
 
 from openai import APIConnectionError, APIError, AsyncOpenAI, RateLimitError
 
 from models.message import Message
 from models.profile import ConnectionProfile
-from services.profile_service import ProfileService
 from services.context_budget import ContextWindowExceeded
+from services.profile_service import ProfileService
 from services.prompt_builder import PromptBuilder
-from services.usage_service import UsageService
 from services.summary_usage_store import SummaryUsageStore
+from services.usage_service import UsageService
 
 logger = logging.getLogger(__name__)
 
 
 class AIService:
-    def __init__(self, usage_service: UsageService, profile_service: ProfileService | None = None,
-                 *, summary_usage_store: SummaryUsageStore | None = None) -> None:
+    """Cache profile-specific clients and coordinate reply streams and summary usage."""
+
+    def __init__(
+        self,
+        usage_service: UsageService,
+        profile_service: ProfileService | None = None,
+        *,
+        summary_usage_store: SummaryUsageStore | None = None,
+    ) -> None:
+        """Bind profile and usage services and initialize the client cache."""
         self.summary_usage_store = summary_usage_store or SummaryUsageStore()
         self.usage_service = usage_service
         self.profile_service = profile_service
@@ -34,7 +42,10 @@ class AIService:
         self._clients.clear()
         self.summary_usage_store.close()
 
-    def _resolve_profile(self, profile_id: str | None = None) -> ConnectionProfile:
+    def _resolve_profile(
+        self, profile_id: str | None = None
+    ) -> ConnectionProfile:
+        """Resolve a requested or active profile and reject missing connection details."""
         target_profile: ConnectionProfile | None = None
         if self.profile_service:
             if profile_id:
@@ -44,14 +55,19 @@ class AIService:
             else:
                 target_profile = self.profile_service.get_active_profile()
         if not target_profile or not target_profile.is_configured:
-            raise RuntimeError("No configured Azure OpenAI profile found. Please add connection details in Settings.")
+            raise RuntimeError(
+                "No configured Azure OpenAI profile found. Please add connection details in Settings."
+            )
         return target_profile
 
     def resolve_profile_id(self, profile_id: str | None = None) -> str:
         """Pin the request's profile before streaming or background work starts."""
         return self._resolve_profile(profile_id).id
 
-    async def _get_client_and_profile(self, profile_id: str | None = None) -> tuple[AsyncOpenAI, ConnectionProfile]:
+    async def _get_client_and_profile(
+        self, profile_id: str | None = None
+    ) -> tuple[AsyncOpenAI, ConnectionProfile]:
+        """Reuse a matching client or replace it when endpoint or credentials change."""
         target_profile = self._resolve_profile(profile_id)
         raw_endpoint = target_profile.endpoint.strip().rstrip("/")
         if raw_endpoint.endswith("/openai/v1"):
@@ -60,7 +76,10 @@ class AIService:
             base_url = f"{raw_endpoint}/openai/v1/"
         cached = self._clients.get(target_profile.id)
         if cached:
-            if cached["endpoint"] == target_profile.endpoint and cached["api_key"] == target_profile.api_key:
+            if (
+                cached["endpoint"] == target_profile.endpoint
+                and cached["api_key"] == target_profile.api_key
+            ):
                 return cached["client"], target_profile
             await cached["client"].close()
         client = AsyncOpenAI(
@@ -70,12 +89,13 @@ class AIService:
         self._clients[target_profile.id] = {
             "client": client,
             "endpoint": target_profile.endpoint,
-            "api_key": target_profile.api_key
+            "api_key": target_profile.api_key,
         }
         return client, target_profile
 
     @property
     def configured(self) -> bool:
+        """Return whether the active profile has all required connection details."""
         if not self.profile_service:
             return False
         active = self.profile_service.get_active_profile()
@@ -83,13 +103,23 @@ class AIService:
 
     @property
     def active_deployment(self) -> str:
+        """Return the active deployment name or its unconfigured display label."""
         if not self.profile_service:
             return "Not configured"
         active = self.profile_service.get_active_profile()
-        return active.deployment if (active and active.is_configured) else "Not configured"
+        return (
+            active.deployment
+            if (active and active.is_configured)
+            else "Not configured"
+        )
 
-    async def stream(self, instructions: str, input_messages: list[dict[str, str]],
-                     profile_id: str | None = None) -> AsyncGenerator[dict[str, Any], None]:
+    async def stream(
+        self,
+        instructions: str,
+        input_messages: list[dict[str, str]],
+        profile_id: str | None = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Yield reply deltas, usage, and completion events, surfacing provider failures."""
         client, profile = await self._get_client_and_profile(profile_id)
         started = time.perf_counter()
         response_usage = None
@@ -97,9 +127,9 @@ class AIService:
         try:
             stream = await client.responses.create(
                 model=profile.deployment,
-                instructions=instructions, 
-                input=input_messages, 
-                stream=True
+                instructions=instructions,
+                input=input_messages,
+                stream=True,
             )
             async for event in stream:
                 if event.type == "response.output_text.delta":
@@ -108,16 +138,34 @@ class AIService:
                     completed = True
                     response_usage = getattr(event.response, "usage", None)
                 elif event.type in {"response.failed", "response.incomplete"}:
-                    error = getattr(getattr(event, "response", None), "error", None)
-                    if getattr(error, "code", None) == "context_length_exceeded":
-                        raise ContextWindowExceeded("The model's input context limit was exceeded.")
-                    raise RuntimeError("Azure OpenAI response did not complete.")
+                    error = getattr(
+                        getattr(event, "response", None), "error", None
+                    )
+                    if (
+                        getattr(error, "code", None)
+                        == "context_length_exceeded"
+                    ):
+                        raise ContextWindowExceeded(
+                            "The model's input context limit was exceeded."
+                        )
+                    raise RuntimeError(
+                        "Azure OpenAI response did not complete."
+                    )
                 elif event.type == "error":
-                    if getattr(event, "code", None) == "context_length_exceeded":
-                        raise ContextWindowExceeded("The model's input context limit was exceeded.")
-                    raise RuntimeError("Azure OpenAI returned a streaming error.")
+                    if (
+                        getattr(event, "code", None)
+                        == "context_length_exceeded"
+                    ):
+                        raise ContextWindowExceeded(
+                            "The model's input context limit was exceeded."
+                        )
+                    raise RuntimeError(
+                        "Azure OpenAI returned a streaming error."
+                    )
             if not completed:
-                raise RuntimeError("Azure OpenAI stream ended before the response completed.")
+                raise RuntimeError(
+                    "Azure OpenAI stream ended before the response completed."
+                )
             elapsed = int((time.perf_counter() - started) * 1000)
             usage_summary = self.usage_service.summarize(
                 response_usage,
@@ -133,30 +181,50 @@ class AIService:
                 "name": profile.name,
                 "deployment": profile.deployment,
             }
-            yield {"type": "usage", "usage": usage_summary, "profile": profile_summary}
+            yield {
+                "type": "usage",
+                "usage": usage_summary,
+                "profile": profile_summary,
+            }
             yield {"type": "done"}
         except (APIConnectionError, RateLimitError, APIError) as exc:
             if exc.code == "context_length_exceeded":
-                raise ContextWindowExceeded("The model's input context limit was exceeded.") from exc
-            logger.exception("Azure API failure for profile %s (%s)", profile.name, profile.id)
-            raise RuntimeError(f"Azure OpenAI request failed for '{profile.name}'. Check credentials and deployment.") from exc
+                raise ContextWindowExceeded(
+                    "The model's input context limit was exceeded."
+                ) from exc
+            logger.exception(
+                "Azure API failure for profile %s (%s)",
+                profile.name,
+                profile.id,
+            )
+            raise RuntimeError(
+                f"Azure OpenAI request failed for '{profile.name}'. Check credentials and deployment."
+            ) from exc
         except ContextWindowExceeded:
             raise
         except Exception:
             logger.exception("Unexpected streaming interruption")
             raise
 
-    async def summarize_memory(self, previous_summary: str, messages: list[Message],
-                               profile_id: str | None = None, *, conversation_id: str | None = None) -> str:
+    async def summarize_memory(
+        self,
+        previous_summary: str,
+        messages: list[Message],
+        profile_id: str | None = None,
+        *,
+        conversation_id: str | None = None,
+    ) -> str:
         """Create a compact factual memory without modifying the visible transcript."""
         client, profile = await self._get_client_and_profile(profile_id)
         profile = replace(profile)
-        instructions, request = PromptBuilder.build_memory(previous_summary, messages)
+        instructions, request = PromptBuilder.build_memory(
+            previous_summary, messages
+        )
         started = time.perf_counter()
         try:
             response = await client.responses.create(
                 model=profile.deployment,
-                instructions=instructions, 
+                instructions=instructions,
                 input=request,
             )
             # Account before validation or memory adoption, even if the caller is stale.
@@ -164,38 +232,78 @@ class AIService:
             usage = None
             if raw_usage is not None:
                 usage = self.usage_service.summarize(
-                    raw_usage, int((time.perf_counter() - started) * 1000),
+                    raw_usage,
+                    int((time.perf_counter() - started) * 1000),
                     input_price_per_million=profile.input_price_per_million,
                     output_price_per_million=profile.output_price_per_million,
                     long_context_threshold=profile.long_context_threshold,
                     long_input_price_per_million=profile.long_input_price_per_million,
-                    long_output_price_per_million=profile.long_output_price_per_million).to_dict()
+                    long_output_price_per_million=profile.long_output_price_per_million,
+                ).to_dict()
                 # Missing rates are unknown, not free tokens.
                 long_tier = usage["is_long_context"]
-                in_rate = profile.long_input_price_per_million if long_tier and profile.long_input_price_per_million is not None else profile.input_price_per_million
-                out_rate = profile.long_output_price_per_million if long_tier and profile.long_output_price_per_million is not None else profile.output_price_per_million
-                if ((usage["input_tokens"] and in_rate is None)
-                        or (usage["output_tokens"] and out_rate is None)):
+                in_rate = (
+                    profile.long_input_price_per_million
+                    if long_tier
+                    and profile.long_input_price_per_million is not None
+                    else profile.input_price_per_million
+                )
+                out_rate = (
+                    profile.long_output_price_per_million
+                    if long_tier
+                    and profile.long_output_price_per_million is not None
+                    else profile.output_price_per_million
+                )
+                if (usage["input_tokens"] and in_rate is None) or (
+                    usage["output_tokens"] and out_rate is None
+                ):
                     usage["estimated_cost"] = None
             try:
                 self.summary_usage_store.record(
-                    conversation_id=conversation_id, response_id=getattr(response, "id", None),
-                    profile_id=profile.id, deployment=profile.deployment, status=response.status,
-                    incomplete_reason=getattr(getattr(response, "incomplete_details", None), "reason", None),
-                    max_output_tokens=getattr(response, "max_output_tokens", None), usage=usage)
+                    conversation_id=conversation_id,
+                    response_id=getattr(response, "id", None),
+                    profile_id=profile.id,
+                    deployment=profile.deployment,
+                    status=response.status,
+                    incomplete_reason=getattr(
+                        getattr(response, "incomplete_details", None),
+                        "reason",
+                        None,
+                    ),
+                    max_output_tokens=getattr(
+                        response, "max_output_tokens", None
+                    ),
+                    usage=usage,
+                )
             except Exception:
                 self.summary_usage_store.recording_errors += 1
                 logger.exception("Could not record summary usage")
             if response.status != "completed":
-                if getattr(getattr(response, "error", None), "code", None) == "context_length_exceeded":
-                    raise ContextWindowExceeded("The summary input context limit was exceeded.")
-                logger.warning("Conversation memory response was not completed (status=%s, reason=%s, max_output_tokens=%s)",
-                               response.status, getattr(getattr(response, "incomplete_details", None), "reason", None),
-                               getattr(response, "max_output_tokens", None))
+                if (
+                    getattr(getattr(response, "error", None), "code", None)
+                    == "context_length_exceeded"
+                ):
+                    raise ContextWindowExceeded(
+                        "The summary input context limit was exceeded."
+                    )
+                logger.warning(
+                    "Conversation memory response was not completed (status=%s, reason=%s, max_output_tokens=%s)",
+                    response.status,
+                    getattr(
+                        getattr(response, "incomplete_details", None),
+                        "reason",
+                        None,
+                    ),
+                    getattr(response, "max_output_tokens", None),
+                )
                 return ""
             return response.output_text.strip()
         except (APIConnectionError, RateLimitError, APIError) as exc:
             if exc.code == "context_length_exceeded":
-                raise ContextWindowExceeded("The summary input context limit was exceeded.") from exc
+                raise ContextWindowExceeded(
+                    "The summary input context limit was exceeded."
+                ) from exc
             logger.exception("Azure API failure while compacting conversation")
-            raise RuntimeError("Could not compact conversation memory.") from exc
+            raise RuntimeError(
+                "Could not compact conversation memory."
+            ) from exc

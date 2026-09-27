@@ -1,14 +1,13 @@
-"""Own picker processes independently of HTTP requests and browser reloads."""
+"""Own native folder picker processes across browser disconnects, reconnects, and cancellation."""
 
 import asyncio
 import json
 import logging
 import os
-from pathlib import Path
 import subprocess
 import sys
 from dataclasses import dataclass, field
-
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +18,8 @@ class PickerReconnectingError(RuntimeError):
 
 @dataclass
 class PickerSession:
+    """Track one picker process, its tab connection, result, and cleanup tasks."""
+
     process: subprocess.Popen
     result: dict = field(default_factory=lambda: {"status": "pending"})
     connected: bool = True
@@ -30,22 +31,31 @@ class PickerSession:
 
 
 class FolderPickerService:
-    # This is a reconnect grace period, not a timeout on folder selection.
+    """Manage tab-owned picker sessions with a grace period for browser reconnection."""
+
     RECONNECT_GRACE = 5
 
     def __init__(self):
+        """Initialize the session registry and shutdown state."""
         self.sessions: dict[str, PickerSession] = {}
         self.closing = False
 
-    def attach(self, token: str, initial_dir: str, *, start: bool) -> PickerSession | None:
+    def attach(
+        self, token: str, initial_dir: str, *, start: bool
+    ) -> PickerSession | None:
+        """Resume a disconnected session or start a worker when explicitly requested."""
         if self.closing:
             raise RuntimeError("Folder picker service is stopping.")
         session = self.sessions.get(token)
         if session is not None:
             if session.retiring:
-                raise PickerReconnectingError("Folder picker cleanup is still in progress.")
+                raise PickerReconnectingError(
+                    "Folder picker cleanup is still in progress."
+                )
             if session.connected:
-                raise PickerReconnectingError("The previous picker connection is still open.")
+                raise PickerReconnectingError(
+                    "The previous picker connection is still open."
+                )
             session.connected = True
             if session.cleanup:
                 session.cleanup.cancel()
@@ -56,9 +66,14 @@ class FolderPickerService:
         worker = Path(__file__).with_name("folder_picker_worker.py")
         process = subprocess.Popen(
             [sys.executable, str(worker), initial_dir],
-            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            text=True, encoding="utf-8",
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            creationflags=(
+                subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+            ),
         )
         session = PickerSession(process)
         self.sessions[token] = session
@@ -66,19 +81,26 @@ class FolderPickerService:
         return session
 
     async def _read_result(self, session: PickerSession) -> None:
+        """Validate worker output without overwriting a cancellation in progress."""
         try:
             output, _ = await asyncio.to_thread(session.process.communicate)
             result = json.loads(output)
             if result.get("status") not in {"selected", "cancelled", "error"}:
                 raise ValueError("Invalid picker result")
-            if result["status"] == "selected" and not isinstance(result.get("path"), str):
+            if result["status"] == "selected" and not isinstance(
+                result.get("path"), str
+            ):
                 raise ValueError("Invalid picker path")
         except Exception:
-            result = {"status": "error", "detail": "Folder picker exited unexpectedly. Try Browse again or enter the path manually."}
+            result = {
+                "status": "error",
+                "detail": "Folder picker exited unexpectedly. Try Browse again or enter the path manually.",
+            }
         if not session.cancelling:
             session.result = result
 
     async def cancel(self, session: PickerSession) -> None:
+        """Stop the owned process and acknowledge cancellation after its reader finishes."""
         async with session.lock:
             session.cancelling = True
             process = session.process
@@ -97,14 +119,17 @@ class FolderPickerService:
             session.result = {"status": "cancelled"}
 
     def detach(self, token: str, session: PickerSession) -> None:
+        """Mark the tab disconnected and schedule cleanup after the reconnect grace period."""
         session.connected = False
         if not self.closing:
-            session.cleanup = asyncio.create_task(self._cleanup(token, session))
+            session.cleanup = asyncio.create_task(
+                self._cleanup(token, session)
+            )
 
     async def _cleanup(self, token: str, session: PickerSession) -> None:
+        """Retire and stop a session that remains disconnected after the grace period."""
         await asyncio.sleep(self.RECONNECT_GRACE)
-        # Mark retirement before awaiting termination; a late reconnect cannot
-        # revive a process that is already being cleaned up.
+        # Mark retirement before awaiting termination so late reconnects cannot revive the process.
         if session.connected or self.sessions.get(token) is not session:
             return
         session.retiring = True
@@ -115,13 +140,19 @@ class FolderPickerService:
             logger.exception("Could not stop disconnected folder picker")
 
     async def close(self) -> None:
+        """Stop all registered picker processes and clear the session registry."""
         self.closing = True
         sessions = list(self.sessions.values())
         for session in sessions:
             if session.cleanup and not session.retiring:
                 session.cleanup.cancel()
-        results = await asyncio.gather(*(self.cancel(session) for session in sessions), return_exceptions=True)
+        results = await asyncio.gather(
+            *(self.cancel(session) for session in sessions),
+            return_exceptions=True
+        )
         for result in results:
             if isinstance(result, Exception):
-                logger.error("Could not stop folder picker during shutdown: %s", result)
+                logger.error(
+                    "Could not stop folder picker during shutdown: %s", result
+                )
         self.sessions.clear()

@@ -1,10 +1,12 @@
-"""Usage and cost calculations isolated from provider code."""
+"""Normalize provider token usage and estimate costs from profile-specific pricing."""
 
 from dataclasses import dataclass
 
 
 @dataclass
 class UsageSummary:
+    """Hold normalized token counts, response duration, and optional estimated cost."""
+
     input_tokens: int = 0
     output_tokens: int = 0
     response_time_ms: int = 0
@@ -12,6 +14,7 @@ class UsageSummary:
     is_long_context: bool = False
 
     def to_dict(self) -> dict:
+        """Serialize usage metadata and derive the combined token count."""
         return {
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
@@ -23,6 +26,8 @@ class UsageSummary:
 
 
 class UsageService:
+    """Calculate response usage and cost using configured standard or long-context rates."""
+
     def summarize(
         self,
         usage: object | None,
@@ -33,16 +38,32 @@ class UsageService:
         long_input_price_per_million: float | None = None,
         long_output_price_per_million: float | None = None,
     ) -> UsageSummary:
+        """Apply profile rates to usage, treating an unpriced side as zero when another is priced."""
         input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
         output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
 
-        threshold = long_context_threshold if long_context_threshold is not None else 128_000
-        has_long_rates = long_input_price_per_million is not None or long_output_price_per_million is not None
+        threshold = (
+            long_context_threshold
+            if long_context_threshold is not None
+            else 128_000
+        )
+        has_long_rates = (
+            long_input_price_per_million is not None
+            or long_output_price_per_million is not None
+        )
         is_long_tier = bool(has_long_rates and input_tokens >= threshold)
 
         if is_long_tier:
-            in_price = long_input_price_per_million if long_input_price_per_million is not None else input_price_per_million
-            out_price = long_output_price_per_million if long_output_price_per_million is not None else output_price_per_million
+            in_price = (
+                long_input_price_per_million
+                if long_input_price_per_million is not None
+                else input_price_per_million
+            )
+            out_price = (
+                long_output_price_per_million
+                if long_output_price_per_million is not None
+                else output_price_per_million
+            )
         else:
             in_price = input_price_per_million
             out_price = output_price_per_million
@@ -50,7 +71,9 @@ class UsageService:
         if in_price is not None or out_price is not None:
             actual_in = in_price if in_price is not None else 0.0
             actual_out = out_price if out_price is not None else 0.0
-            cost = (input_tokens / 1_000_000 * actual_in) + (output_tokens / 1_000_000 * actual_out)
+            cost = (input_tokens / 1_000_000 * actual_in) + (
+                output_tokens / 1_000_000 * actual_out
+            )
             estimated_cost = round(cost, 8)
         else:
             estimated_cost = None

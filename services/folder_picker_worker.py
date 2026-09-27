@@ -1,10 +1,11 @@
-"""Run the native folder dialog in an independently terminable process."""
+"""Run a native folder dialog in a separate process and report its result as JSON."""
 
 import json
 import sys
 
 
 def main() -> None:
+    """Open the native folder dialog, release Tk resources, and print one JSON result."""
     root = None
     try:
         import tkinter as tk
@@ -13,11 +14,21 @@ def main() -> None:
         root = tk.Tk()
         root.withdraw()
         root.attributes("-topmost", True)
-        path = filedialog.askdirectory(parent=root, title="Select Workspace Folder",
-                                       initialdir=sys.argv[1] or None)
-        result = {"status": "selected", "path": path} if path else {"status": "cancelled"}
+        path = filedialog.askdirectory(
+            parent=root,
+            title="Select Workspace Folder",
+            initialdir=sys.argv[1] or None,
+        )
+        result = (
+            {"status": "selected", "path": path}
+            if path
+            else {"status": "cancelled"}
+        )
     except Exception:
-        result = {"status": "error", "detail": "Could not open folder picker. Enter the folder path manually."}
+        result = {
+            "status": "error",
+            "detail": "Could not open folder picker. Enter the folder path manually.",
+        }
     finally:
         if root is not None:
             try:

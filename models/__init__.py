@@ -1,4 +1,4 @@
-"""Domain models for the workbench."""
+"""Expose public domain models for the Helios assistant."""
 
 from models.profile import ConnectionProfile
 

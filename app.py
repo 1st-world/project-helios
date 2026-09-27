@@ -1,36 +1,61 @@
-"""Helios local BYOK AI Client application entry point."""
+"""Serve the Helios web client and API, connecting application services and managing their lifecycle."""
 
 import asyncio
 import json
 import logging
-from logging.handlers import RotatingFileHandler
 from contextlib import asynccontextmanager
+from logging.handlers import RotatingFileHandler
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import (
+    BackgroundTasks,
+    FastAPI,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi import Request
 from pydantic import BaseModel, Field
 
 from config import settings
 from services.ai_service import AIService
-from services.folder_picker_service import FolderPickerService, PickerReconnectingError
-from services.conversation_service import ConversationManager, ConversationUnavailableError
-from services.context_budget import (ContextBudget, ContextBudgetExceeded, ContextChangedError,
-                                     ContextWindowExceeded, SummaryUnavailableError)
+from services.context_budget import (
+    ContextBudget,
+    ContextBudgetExceeded,
+    ContextChangedError,
+    ContextWindowExceeded,
+    SummaryUnavailableError,
+)
+from services.conversation_service import (
+    ConversationManager,
+    ConversationUnavailableError,
+)
+from services.folder_picker_service import (
+    FolderPickerService,
+    PickerReconnectingError,
+)
 from services.memory_service import ConversationMemoryService
 from services.profile_service import ProfileService
-from services.usage_service import UsageService
 from services.summary_usage_store import SummaryUsageStore
+from services.usage_service import UsageService
 from services.workspace_service import WorkspaceAccessError, WorkspaceService
 
-
 settings.logs_root.mkdir(parents=True, exist_ok=True)
-file_handler = RotatingFileHandler(settings.logs_root / "helios.log", maxBytes=5 * 1024 * 1024, backupCount=10, encoding="utf-8")
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", handlers=[file_handler, logging.StreamHandler()])
+file_handler = RotatingFileHandler(
+    settings.logs_root / "helios.log",
+    maxBytes=5 * 1024 * 1024,
+    backupCount=10,
+    encoding="utf-8",
+)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    handlers=[file_handler, logging.StreamHandler()],
+)
 logging.getLogger("watchfiles").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
@@ -39,16 +64,29 @@ conversation_manager = ConversationManager(settings.conversations_root)
 workspace_service = WorkspaceService(settings.workspace_root)
 folder_picker_service = FolderPickerService()
 usage_service = UsageService()
-summary_usage_store = SummaryUsageStore(settings.logs_root / "summary_usage.sqlite3")
-ai_service = AIService(usage_service, profile_service,
-                       summary_usage_store=summary_usage_store)
-context_budget = ContextBudget(settings.context_token_budget, settings.context_output_reserve, settings.max_summary_calls)
-memory_service = ConversationMemoryService(ai_service, conversation_manager, settings.max_context_messages,
-                                           settings.keep_recent_messages, context_budget)
+summary_usage_store = SummaryUsageStore(
+    settings.logs_root / "summary_usage.sqlite3"
+)
+ai_service = AIService(
+    usage_service, profile_service, summary_usage_store=summary_usage_store
+)
+context_budget = ContextBudget(
+    settings.context_token_budget,
+    settings.context_output_reserve,
+    settings.max_summary_calls,
+)
+memory_service = ConversationMemoryService(
+    ai_service,
+    conversation_manager,
+    settings.max_context_messages,
+    settings.keep_recent_messages,
+    context_budget,
+)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    """Log application startup and close picker and AI resources on shutdown."""
     logger.info("Helios started")
     yield
     await folder_picker_service.close()
@@ -56,21 +94,28 @@ async def lifespan(_: FastAPI):
     logger.info("Helios stopped")
 
 
-app = FastAPI(title="Helios AI Workbench", lifespan=lifespan)
-app.mount("/static", StaticFiles(directory=settings.static_root), name="static")
+app = FastAPI(title="Helios BYOK AI Assistant", lifespan=lifespan)
+app.mount(
+    "/static", StaticFiles(directory=settings.static_root), name="static"
+)
 templates = Jinja2Templates(directory=settings.templates_root)
 
 
 @app.get("/api/usage/summaries")
 async def summary_usage(conversation_id: str | None = None):
+    """Return recorded summary usage for one conversation or all conversations."""
     return summary_usage_store.totals(conversation_id)
 
 
 class ReadFileRequest(BaseModel):
+    """Validate the relative workspace path requested for reading."""
+
     path: str = Field(min_length=1, max_length=4096)
 
 
 class ChatRequest(BaseModel):
+    """Validate a new chat turn or regeneration request and its context selection."""
+
     prompt: str = Field(min_length=1, max_length=100_000)
     conversation_id: str | None = None
     workspace_file: str | None = None
@@ -80,18 +125,26 @@ class ChatRequest(BaseModel):
 
 
 class RenameConversationRequest(BaseModel):
+    """Validate the requested conversation title."""
+
     title: str = Field(min_length=1, max_length=100)
 
 
 class EditMessageRequest(BaseModel):
+    """Validate replacement content for a user message."""
+
     content: str = Field(min_length=1, max_length=100_000)
 
 
 class WorkspaceRootRequest(BaseModel):
+    """Validate the submitted workspace folder path."""
+
     path: str = Field(min_length=1, max_length=4096)
 
 
 class CreateProfileRequest(BaseModel):
+    """Validate connection credentials, deployment, and optional pricing for a profile."""
+
     name: str = Field(min_length=1, max_length=100)
     endpoint: str = Field(min_length=1, max_length=2048)
     api_key: str = Field(min_length=1, max_length=1024)
@@ -104,6 +157,8 @@ class CreateProfileRequest(BaseModel):
 
 
 class UpdateProfileRequest(BaseModel):
+    """Validate partial profile changes and explicit requests to clear pricing."""
+
     name: str | None = Field(default=None, max_length=100)
     endpoint: str | None = Field(default=None, max_length=2048)
     api_key: str | None = Field(default=None, max_length=1024)
@@ -121,21 +176,30 @@ class UpdateProfileRequest(BaseModel):
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse(request, "index.html", {"model_name": ai_service.active_deployment})
+    """Render the main assistant page with the active deployment name."""
+    return templates.TemplateResponse(
+        request, "index.html", {"model_name": ai_service.active_deployment}
+    )
 
 
 @app.get("/api/health")
 async def health():
-    return {"configured": ai_service.configured, "model": ai_service.active_deployment}
+    """Report whether the active AI connection is configured and name its deployment."""
+    return {
+        "configured": ai_service.configured,
+        "model": ai_service.active_deployment,
+    }
 
 
 @app.get("/api/profiles")
 async def list_profiles():
+    """Return connection profiles and the active selection without API keys."""
     return profile_service.get_summary()
 
 
 @app.post("/api/profiles")
 async def create_profile(payload: CreateProfileRequest):
+    """Create a connection profile and return the refreshed profile summary."""
     try:
         profile = profile_service.create_profile(
             payload.name,
@@ -150,12 +214,15 @@ async def create_profile(payload: CreateProfileRequest):
         )
     except Exception:
         logger.exception("Could not create profile")
-        raise HTTPException(status_code=400, detail="Could not create connection profile.")
+        raise HTTPException(
+            status_code=400, detail="Could not create connection profile."
+        )
     return profile_service.get_summary()
 
 
 @app.put("/api/profiles/{profile_id}")
 async def update_profile(profile_id: str, payload: UpdateProfileRequest):
+    """Apply profile changes and return the refreshed profile summary."""
     try:
         profile_service.update_profile(
             profile_id,
@@ -177,12 +244,15 @@ async def update_profile(profile_id: str, payload: UpdateProfileRequest):
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception:
         logger.exception("Could not update profile %s", profile_id)
-        raise HTTPException(status_code=400, detail="Could not update connection profile.")
+        raise HTTPException(
+            status_code=400, detail="Could not update connection profile."
+        )
     return profile_service.get_summary()
 
 
 @app.delete("/api/profiles/{profile_id}")
 async def delete_profile(profile_id: str):
+    """Delete a connection profile or report that it does not exist."""
     deleted = profile_service.delete_profile(profile_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Profile not found.")
@@ -191,6 +261,7 @@ async def delete_profile(profile_id: str):
 
 @app.post("/api/profiles/{profile_id}/active")
 async def set_active_profile(profile_id: str):
+    """Select an existing connection profile for subsequent requests."""
     try:
         profile_service.set_active_profile(profile_id)
     except ValueError as exc:
@@ -200,16 +271,19 @@ async def set_active_profile(profile_id: str):
 
 @app.get("/api/conversations")
 async def conversations():
+    """Return conversation summaries ordered by their latest update."""
     return conversation_manager.list()
 
 
 @app.post("/api/conversations")
 async def create_conversation():
+    """Create and persist an empty conversation."""
     return conversation_manager.create().to_dict()
 
 
 @app.get("/api/conversations/{conversation_id}")
 async def get_conversation(conversation_id: str):
+    """Return a conversation with its complete transcript or report it missing."""
     conversation = conversation_manager.get(conversation_id)
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found.")
@@ -217,9 +291,14 @@ async def get_conversation(conversation_id: str):
 
 
 @app.patch("/api/conversations/{conversation_id}")
-async def rename_conversation(conversation_id: str, payload: RenameConversationRequest):
+async def rename_conversation(
+    conversation_id: str, payload: RenameConversationRequest
+):
+    """Save a validated conversation title and return its summary."""
     try:
-        conversation = conversation_manager.rename(conversation_id, payload.title)
+        conversation = conversation_manager.rename(
+            conversation_id, payload.title
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     if not conversation:
@@ -229,20 +308,28 @@ async def rename_conversation(conversation_id: str, payload: RenameConversationR
 
 @app.delete("/api/conversations/{conversation_id}")
 async def delete_conversation(conversation_id: str):
+    """Delete a conversation from memory and disk, reporting storage failures."""
     try:
         deleted = conversation_manager.delete(conversation_id)
     except OSError:
         logger.exception("Could not delete conversation: %s", conversation_id)
-        raise HTTPException(status_code=500, detail="Could not delete conversation from disk.")
+        raise HTTPException(
+            status_code=500, detail="Could not delete conversation from disk."
+        )
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found.")
     return {"deleted": True}
 
 
 @app.patch("/api/conversations/{conversation_id}/messages/{message_index}")
-async def edit_message(conversation_id: str, message_index: int, payload: EditMessageRequest):
+async def edit_message(
+    conversation_id: str, message_index: int, payload: EditMessageRequest
+):
+    """Edit a user message and return the truncated conversation branch."""
     try:
-        conversation = conversation_manager.edit_user_message(conversation_id, message_index, payload.content)
+        conversation = conversation_manager.edit_user_message(
+            conversation_id, message_index, payload.content
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     if not conversation:
@@ -252,23 +339,31 @@ async def edit_message(conversation_id: str, message_index: int, payload: EditMe
 
 @app.get("/api/workspace")
 async def workspace_tree():
-    return {"root": str(workspace_service.root), "entries": workspace_service.tree()}
+    """Return the configured workspace root and its accessible file tree."""
+    return {
+        "root": str(workspace_service.root),
+        "entries": workspace_service.tree(),
+    }
 
 
 @app.put("/api/workspace/root")
 async def update_workspace_root(payload: WorkspaceRootRequest):
+    """Select an existing workspace folder and return its file tree."""
     try:
         workspace_service.set_root(payload.path)
     except WorkspaceAccessError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     logger.info("Workspace root changed to %s", workspace_service.root)
-    return {"root": str(workspace_service.root), "entries": workspace_service.tree()}
+    return {
+        "root": str(workspace_service.root),
+        "entries": workspace_service.tree(),
+    }
 
 
 @app.websocket("/api/workspace/picker/{token}")
 async def workspace_picker(websocket: WebSocket, token: UUID):
-    # The unguessable token belongs to one tab. Reject cross-origin pages before
-    # they can open native dialogs on the machine running Helios.
+    """Relay picker state and commands for a same-origin browser tab."""
+    # Reject cross-origin pages before allowing access to native dialogs.
     origin = websocket.headers.get("origin", "")
     if urlsplit(origin).netloc != websocket.headers.get("host"):
         await websocket.close(code=1008)
@@ -281,8 +376,11 @@ async def workspace_picker(websocket: WebSocket, token: UUID):
         if command.get("action") not in {"start", "resume"}:
             await websocket.close(code=1008)
             return
-        session = folder_picker_service.attach(key, str(workspace_service.root),
-                                               start=command["action"] == "start")
+        session = folder_picker_service.attach(
+            key,
+            str(workspace_service.root),
+            start=command["action"] == "start",
+        )
         if session is None:
             await websocket.send_json({"status": "missing"})
             return
@@ -292,7 +390,9 @@ async def workspace_picker(websocket: WebSocket, token: UUID):
                 await websocket.send_json(session.result)
                 previous = dict(session.result)
             try:
-                command = await asyncio.wait_for(websocket.receive_json(), timeout=1)
+                command = await asyncio.wait_for(
+                    websocket.receive_json(), timeout=1
+                )
             except asyncio.TimeoutError:
                 continue
             if command.get("action") == "cancel":
@@ -300,7 +400,12 @@ async def workspace_picker(websocket: WebSocket, token: UUID):
                     await folder_picker_service.cancel(session)
                 except Exception:
                     logger.exception("Could not cancel folder picker")
-                    await websocket.send_json({"status": "cancel-error", "detail": "Could not close folder picker. Try Cancel again."})
+                    await websocket.send_json(
+                        {
+                            "status": "cancel-error",
+                            "detail": "Could not close folder picker. Try Cancel again.",
+                        }
+                    )
     except PickerReconnectingError:
         await websocket.send_json({"status": "reconnecting"})
     except WebSocketDisconnect:
@@ -310,7 +415,12 @@ async def workspace_picker(websocket: WebSocket, token: UUID):
     except Exception:
         logger.exception("Folder picker connection failed")
         try:
-            await websocket.send_json({"status": "error", "detail": "Could not connect to folder picker. Enter the path manually."})
+            await websocket.send_json(
+                {
+                    "status": "error",
+                    "detail": "Could not connect to folder picker. Enter the path manually.",
+                }
+            )
         except (RuntimeError, WebSocketDisconnect):
             pass
     finally:
@@ -324,12 +434,18 @@ async def workspace_picker(websocket: WebSocket, token: UUID):
 
 @app.post("/api/read-file")
 async def read_file(payload: ReadFileRequest):
+    """Read a workspace text file and translate access failures into HTTP errors."""
     try:
-        return {"path": payload.path, "content": workspace_service.read_text(payload.path)}
+        return {
+            "path": payload.path,
+            "content": workspace_service.read_text(payload.path),
+        }
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="File not found.")
     except PermissionError:
-        logger.warning("Permission denied reading workspace file: %s", payload.path)
+        logger.warning(
+            "Permission denied reading workspace file: %s", payload.path
+        )
         raise HTTPException(status_code=403, detail="Permission denied.")
     except WorkspaceAccessError as exc:
         logger.warning("Workspace access rejected: %s", payload.path)
@@ -341,40 +457,66 @@ async def read_file(payload: ReadFileRequest):
 
 @app.post("/api/chat")
 async def chat(payload: ChatRequest):
+    """Prepare a versioned conversation turn and return its server-sent response stream."""
     try:
         profile_id = ai_service.resolve_profile_id(payload.profile_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     background_tasks = BackgroundTasks()
     if payload.regenerate_message_index is None:
-        conversation = conversation_manager.get_or_create(payload.conversation_id)
+        conversation = conversation_manager.get_or_create(
+            payload.conversation_id
+        )
         history_end = len(conversation.messages)
         user_prompt = payload.prompt
     else:
         conversation = conversation_manager.get(payload.conversation_id or "")
         if not conversation:
-            raise HTTPException(status_code=404, detail="Conversation not found.")
-        if (payload.expected_conversation_version is not None
-                and payload.expected_conversation_version != conversation.version):
-            raise HTTPException(status_code=409, detail="Conversation changed. Reload and retry regeneration.")
+            raise HTTPException(
+                status_code=404, detail="Conversation not found."
+            )
+        if (
+            payload.expected_conversation_version is not None
+            and payload.expected_conversation_version != conversation.version
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Conversation changed. Reload and retry regeneration.",
+            )
         if payload.regenerate_message_index >= len(conversation.messages):
             raise HTTPException(status_code=400, detail="Message not found.")
-        source_message = conversation.messages[payload.regenerate_message_index]
+        source_message = conversation.messages[
+            payload.regenerate_message_index
+        ]
         if source_message.role != "user":
-            raise HTTPException(status_code=400, detail="Only a user message can be regenerated.")
+            raise HTTPException(
+                status_code=400,
+                detail="Only a user message can be regenerated.",
+            )
         history_end = payload.regenerate_message_index
         user_prompt = source_message.content
     workspace_context = workspace_service.project_context()
     if payload.workspace_file:
         try:
             workspace_context += f"\n\nSelected file: {payload.workspace_file}\n{workspace_service.read_text(payload.workspace_file)}"
-        except (FileNotFoundError, PermissionError, WorkspaceAccessError) as exc:
-            raise HTTPException(status_code=400, detail=f"Cannot load workspace file: {exc}")
+        except (
+            FileNotFoundError,
+            PermissionError,
+            WorkspaceAccessError,
+        ) as exc:
+            raise HTTPException(
+                status_code=400, detail=f"Cannot load workspace file: {exc}"
+            )
 
     try:
         instructions, input_messages = await memory_service.prepare_context(
-            conversation, user_prompt, workspace_context, profile_id, history_end=history_end,
-            persist_memory=payload.regenerate_message_index is None)
+            conversation,
+            user_prompt,
+            workspace_context,
+            profile_id,
+            history_end=history_end,
+            persist_memory=payload.regenerate_message_index is None,
+        )
     except ContextBudgetExceeded as exc:
         raise HTTPException(status_code=413, detail=str(exc)) from exc
     except ContextChangedError as exc:
@@ -387,6 +529,7 @@ async def chat(payload: ChatRequest):
     turn_messages = conversation.messages
 
     async def events():
+        """Stream reply events, save a completed reply, and schedule memory compaction."""
         answer = ""
         usage_data = None
         profile_data = None
@@ -396,7 +539,11 @@ async def chat(payload: ChatRequest):
             yield f"data: {json.dumps({'type': 'start', 'conversation_id': conversation.id})}\n\n"
             for attempt in range(2):
                 try:
-                    async for event in ai_service.stream(request_instructions, request_messages, profile_id=profile_id):
+                    async for event in ai_service.stream(
+                        request_instructions,
+                        request_messages,
+                        profile_id=profile_id,
+                    ):
                         if event["type"] == "delta":
                             answer += event["text"]
                         elif event["type"] == "usage":
@@ -408,16 +555,37 @@ async def chat(payload: ChatRequest):
                         yield f"data: {json.dumps(event)}\n\n"
                     break
                 except ContextWindowExceeded:
-                    # Retry only a provider-confirmed length error, before any
-                    # text has reached the client, and only with a smaller input.
-                    if attempt or answer or usage_data is not None or completed:
+                    # Retry a confirmed context-limit error only before streaming text, using a smaller input.
+                    if (
+                        attempt
+                        or answer
+                        or usage_data is not None
+                        or completed
+                    ):
                         raise
                     if conversation.version != turn_version:
-                        raise ContextChangedError("Conversation changed before context recovery. Please retry.")
-                    reduced_limit = context_budget.estimate(request_instructions, request_messages) * 3 // 4
-                    request_instructions, request_messages = await memory_service.prepare_context(
-                        conversation, user_prompt, workspace_context, profile_id, history_end=history_end,
-                        persist_memory=payload.regenerate_message_index is None, input_limit=reduced_limit)
+                        raise ContextChangedError(
+                            "Conversation changed before context recovery. Please retry."
+                        )
+                    reduced_limit = (
+                        context_budget.estimate(
+                            request_instructions, request_messages
+                        )
+                        * 3
+                        // 4
+                    )
+                    request_instructions, request_messages = (
+                        await memory_service.prepare_context(
+                            conversation,
+                            user_prompt,
+                            workspace_context,
+                            profile_id,
+                            history_end=history_end,
+                            persist_memory=payload.regenerate_message_index
+                            is None,
+                            input_limit=reduced_limit,
+                        )
+                    )
 
             if not completed:
                 raise RuntimeError("Response stream ended before completion.")
@@ -430,31 +598,60 @@ async def chat(payload: ChatRequest):
                 msg_kwargs["input_tokens"] = usage_data.get("input_tokens")
                 msg_kwargs["output_tokens"] = usage_data.get("output_tokens")
                 msg_kwargs["total_tokens"] = usage_data.get("total_tokens")
-                msg_kwargs["response_time_ms"] = usage_data.get("response_time_ms")
+                msg_kwargs["response_time_ms"] = usage_data.get(
+                    "response_time_ms"
+                )
                 msg_kwargs["estimated_cost"] = usage_data.get("estimated_cost")
-                msg_kwargs["is_long_context"] = bool(usage_data.get("is_long_context", False))
+                msg_kwargs["is_long_context"] = bool(
+                    usage_data.get("is_long_context", False)
+                )
 
             if payload.regenerate_message_index is None:
                 if conversation.messages is not turn_messages:
-                    raise ContextChangedError("Conversation changed during generation. Please retry.")
-                conversation_manager.add_message(conversation, "assistant", answer, **msg_kwargs)
+                    raise ContextChangedError(
+                        "Conversation changed during generation. Please retry."
+                    )
+                conversation_manager.add_message(
+                    conversation, "assistant", answer, **msg_kwargs
+                )
             else:
                 conversation_manager.replace_reply(
-                    conversation, payload.regenerate_message_index, answer,
-                    expected_messages=turn_messages, **msg_kwargs)
-            background_tasks.add_task(memory_service.compact_if_needed, conversation, profile_id=profile_id)
+                    conversation,
+                    payload.regenerate_message_index,
+                    answer,
+                    expected_messages=turn_messages,
+                    **msg_kwargs,
+                )
+            background_tasks.add_task(
+                memory_service.compact_if_needed,
+                conversation,
+                profile_id=profile_id,
+            )
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
         except ConversationUnavailableError:
-            logger.info("Discarded response for an unavailable conversation: %s", conversation.id)
+            logger.info(
+                "Discarded response for an unavailable conversation: %s",
+                conversation.id,
+            )
         except Exception as exc:
             logger.exception("Chat stream failed")
             yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
 
-    return StreamingResponse(events(), media_type="text/event-stream", background=background_tasks,
-                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        background=background_tasks,
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=True, reload_excludes=["logs/*", "conversation/*", "workspace/*"])
+    uvicorn.run(
+        "app:app",
+        host="127.0.0.1",
+        port=8000,
+        reload=True,
+        reload_excludes=["logs/*", "conversation/*", "workspace/*"],
+    )

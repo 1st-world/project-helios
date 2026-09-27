@@ -1,3 +1,5 @@
+/* Manage chat rendering, workspace selection, connection profiles, and browser-to-server communication. */
+
 const state = {
   conversationId: null,
   conversationVersion: null,
@@ -28,7 +30,6 @@ const emptyChatMarkup = `
   </div>
 `;
 
-// Markdown Highlighting Setup
 marked.setOptions({
   highlight(code, language) {
     return language && hljs.getLanguage(language) ? hljs.highlight(code, { language }).value : hljs.highlightAuto(code).value;
@@ -57,11 +58,13 @@ function escapeHtml(value) {
   div.textContent = value;
   return div.innerHTML;
 }
+
 function refreshIcons() {
   if (window.lucide) window.lucide.createIcons({ attrs: { 'stroke-width': 1.8 } });
 }
 
 let toastTimer = null;
+
 function toast(message, type = 'info') {
   const el = $('#toast');
   if (!el) return;
@@ -90,19 +93,23 @@ function toast(message, type = 'info') {
   if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.add('hidden'), 4500);
 }
+
 function isNearBottom(threshold = 80) {
   return chat.scrollHeight - chat.scrollTop - chat.clientHeight <= threshold;
 }
+
 function scrollDown(smooth = true) {
   chat.scrollTo({
     top: chat.scrollHeight,
     behavior: smooth ? 'smooth' : 'auto'
   });
 }
+
 function autoResize() {
   prompt.style.height = 'auto';
   prompt.style.height = `${Math.min(prompt.scrollHeight, 180)}px`;
 }
+
 function setGenerating(value) {
   state.generating = value;
   send.disabled = value;
@@ -118,6 +125,7 @@ function setGenerating(value) {
   }
   chat.querySelectorAll('[data-mutates-conversation]').forEach((button) => { button.disabled = value; });
 }
+
 function setSidebarCollapsed(collapsed) {
   document.body.classList.toggle('sidebar-collapsed', collapsed);
   const toggle = $('#sidebar-toggle');
@@ -143,6 +151,7 @@ function setSidebarCollapsed(collapsed) {
   localStorage.setItem('helios.sidebarCollapsed', String(collapsed));
   refreshIcons();
 }
+
 function setMobileSidebarOpen(open) {
   document.body.classList.toggle('sidebar-open', open);
   $('#sidebar').inert = window.innerWidth <= 720 && !open;
@@ -154,6 +163,7 @@ function setMobileSidebarOpen(open) {
   }
   refreshIcons();
 }
+
 function closeMobileSidebar() {
   if (window.innerWidth <= 720 && document.body.classList.contains('sidebar-open')) {
     setMobileSidebarOpen(false);
@@ -161,6 +171,7 @@ function closeMobileSidebar() {
 }
 
 // UI Rendering
+
 function formatMessageMeta(meta) {
   if (!meta) return '';
   const parts = [];
@@ -310,16 +321,29 @@ function renderFileList() {
 }
 
 // API & Event Handlers
-function onStart(event) { state.conversationId = event.conversation_id; }
+
+function onStart(event) {
+  state.conversationId = event.conversation_id;
+}
+
 function onDelta(event, assistant, answer) {
   const wasNearBottom = isNearBottom();
   answer.value += event.text;
   assistant.render(answer.value);
   if (wasNearBottom) { scrollDown(false); }
 }
-function onFinish() { loadConversations(); }
-function onError(message) { toast(message, 'error'); }
-function onAbort(assistant, answer) { assistant.render(answer.value || '_Generation stopped._'); }
+
+function onFinish() {
+  loadConversations();
+}
+
+function onError(message) {
+  toast(message, 'error');
+}
+
+function onAbort(assistant, answer) {
+  assistant.render(answer.value || '_Generation stopped._');
+}
 
 async function loadConversations() {
   const items = await fetch('/api/conversations').then((response) => response.json());
@@ -682,7 +706,6 @@ function renderProfiles(data) {
   state.profiles = data.profiles || [];
   const activeProfile = state.profiles.find((p) => p.id === state.activeProfileId);
 
-  // Sync background select
   const select = $('#profile-select');
   if (select) {
     select.innerHTML = '';
@@ -701,7 +724,6 @@ function renderProfiles(data) {
     }
   }
 
-  // Update model dropup trigger label
   const labelEl = $('#model-name-label');
   if (labelEl) {
     if (activeProfile) {
@@ -713,7 +735,6 @@ function renderProfiles(data) {
     }
   }
 
-  // Populate model dropup popover list
   const popoverList = $('#model-profile-list');
   if (popoverList) {
     popoverList.innerHTML = '';
@@ -1410,7 +1431,6 @@ function setupPricingAccordionAnimation() {
   });
 }
 
-// Initial setup
 document.body.classList.toggle('mobile-layout', window.innerWidth <= 720);
 setSidebarCollapsed(localStorage.getItem('helios.sidebarCollapsed') === 'true');
 refreshIcons();

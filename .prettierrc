@@ -1,5 +1,12 @@
 {
-  "plugins": ["prettier-plugin-css-order"],
-  "cssDeclarationSorterOrder": "smacss",
-  "printWidth": 100
+  "overrides": [
+    {
+      "files": "**/*.css",
+      "options": {
+        "plugins": ["prettier-plugin-css-order"],
+        "cssDeclarationSorterOrder": "smacss",
+        "printWidth": 1000
+      }
+    }
+  ]
 }

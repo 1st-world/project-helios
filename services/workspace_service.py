@@ -1,4 +1,4 @@
-"""Safe, workspace-scoped filesystem access."""
+"""List and read workspace files while enforcing the configured root boundary."""
 
 from pathlib import Path
 
@@ -8,23 +8,30 @@ class WorkspaceAccessError(Exception):
 
 
 class WorkspaceService:
+    """Expose text files and directory listings confined to the selected workspace root."""
+
     def __init__(self, root: Path) -> None:
+        """Resolve the initial workspace root and create it if missing."""
         self.root = root.resolve()
         self.root.mkdir(parents=True, exist_ok=True)
 
     def set_root(self, root_path: str) -> None:
+        """Select an existing absolute directory as the workspace root."""
         candidate = Path(root_path).expanduser()
         if not candidate.is_absolute():
             raise WorkspaceAccessError("Workspace path must be absolute.")
         try:
             resolved = candidate.resolve(strict=True)
         except OSError as exc:
-            raise WorkspaceAccessError("Workspace folder does not exist.") from exc
+            raise WorkspaceAccessError(
+                "Workspace folder does not exist."
+            ) from exc
         if not resolved.is_dir():
             raise WorkspaceAccessError("Workspace path must be a folder.")
         self.root = resolved
 
     def _resolve(self, relative_path: str) -> Path:
+        """Resolve a relative path and reject absolute paths or escapes from the workspace."""
         candidate = Path(relative_path)
         if candidate.is_absolute():
             raise WorkspaceAccessError("Absolute paths are not allowed.")
@@ -32,32 +39,50 @@ class WorkspaceService:
         try:
             resolved.relative_to(self.root)
         except ValueError as exc:
-            raise WorkspaceAccessError("Path must remain inside the workspace.") from exc
+            raise WorkspaceAccessError(
+                "Path must remain inside the workspace."
+            ) from exc
         return resolved
 
     def tree(self) -> list[dict]:
+        """Return a directory-first file tree, skipping inaccessible folders and escaping links."""
+
         def walk(folder: Path) -> list[dict]:
+            """Collect child entries recursively while enforcing the workspace boundary."""
             entries: list[dict] = []
             try:
-                children = sorted(folder.iterdir(), key=lambda path: (not path.is_dir(), path.name.lower()))
+                children = sorted(
+                    folder.iterdir(),
+                    key=lambda path: (not path.is_dir(), path.name.lower()),
+                )
             except PermissionError:
                 return entries
             for child in children:
-                # A symlink can appear beneath the workspace while resolving outside it.
-                # Do not expose or descend into it.
+                # Skip symlinks that resolve outside the workspace.
                 try:
                     child.resolve().relative_to(self.root)
                 except (ValueError, OSError):
                     continue
                 relative = child.relative_to(self.root).as_posix()
                 if child.is_dir():
-                    entries.append({"name": child.name, "path": relative, "type": "directory", "children": walk(child)})
+                    entries.append(
+                        {
+                            "name": child.name,
+                            "path": relative,
+                            "type": "directory",
+                            "children": walk(child),
+                        }
+                    )
                 else:
-                    entries.append({"name": child.name, "path": relative, "type": "file"})
+                    entries.append(
+                        {"name": child.name, "path": relative, "type": "file"}
+                    )
             return entries
+
         return walk(self.root)
 
     def read_text(self, relative_path: str) -> str:
+        """Read an existing UTF-8 file after validating its workspace-relative path."""
         path = self._resolve(relative_path)
         if not path.exists() or not path.is_file():
             raise FileNotFoundError(relative_path)
@@ -66,7 +91,9 @@ class WorkspaceService:
         except PermissionError:
             raise
         except UnicodeDecodeError as exc:
-            raise WorkspaceAccessError("File is not valid UTF-8 text.") from exc
+            raise WorkspaceAccessError(
+                "File is not valid UTF-8 text."
+            ) from exc
 
     def project_context(self, max_entries: int = 300) -> str:
         """Return a bounded project manifest for every AI request."""
@@ -81,7 +108,10 @@ class WorkspaceService:
                     resolved.relative_to(self.root)
                 except (OSError, ValueError):
                     continue
-                paths.append(path.relative_to(self.root).as_posix() + ("/" if path.is_dir() else ""))
+                paths.append(
+                    path.relative_to(self.root).as_posix()
+                    + ("/" if path.is_dir() else "")
+                )
         except OSError:
             paths.append("... (some workspace paths could not be read)")
         listing = "\n".join(paths) if paths else "(empty workspace)"
