@@ -1356,7 +1356,7 @@ if (removeFocusBtn) {
     clearFocusFile();
   };
 }
-send.onclick = sendMessage;
+send.onclick = () => sendMessage();
 stop.onclick = () => state.controller?.abort();
 prompt.oninput = autoResize;
 prompt.onkeydown = (event) => {
