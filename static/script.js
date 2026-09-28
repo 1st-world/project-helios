@@ -30,11 +30,11 @@ const emptyChatMarkup = `
   </div>
 `;
 
-marked.setOptions({
+marked.use(markedHighlight.markedHighlight({
   highlight(code, language) {
     return language && hljs.getLanguage(language) ? hljs.highlight(code, { language }).value : hljs.highlightAuto(code).value;
   }
-});
+}));
 
 if (window.DOMPurify) {
   DOMPurify.addHook('afterSanitizeAttributes', (node) => {
@@ -843,7 +843,7 @@ async function health() {
     const data = await response.json();
     el.className = `status ${data.configured ? 'hidden' : 'error'}`;
     el.textContent = data.configured ? '' : 'Add a model in Settings to start chatting.';
-    const modelTitle = data.configured ? 'Model for the next response' : 'No configured model. Open Settings in the sidebar.';
+    const modelTitle = data.configured ? 'Model for the next response' : 'No configured model';
     if ($('#profile-select')) $('#profile-select').title = modelTitle;
     if ($('#model-trigger')) $('#model-trigger').title = modelTitle;
   } catch {
