@@ -540,6 +540,32 @@ async function editUserMessage(messageIndex, currentContent) {
   sendMessage({ prompt: content.trim(), regenerateMessageIndex: messageIndex, appendUser: false });
 }
 
+async function readResponseError(response) {
+  const status = `HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`;
+  let detail = '';
+  try {
+    const body = await response.text();
+    try {
+      const error = JSON.parse(body);
+      if (typeof error?.detail === 'string') detail = error.detail.trim();
+      else if (Array.isArray(error?.detail)) {
+        detail = error.detail.map((item) => {
+          const message = typeof item?.msg === 'string' ? item.msg.trim() : '';
+          if (!message) return '';
+          const location = Array.isArray(item.loc)
+            ? item.loc.filter((part) => typeof part === 'string' || typeof part === 'number').join('.') : '';
+          return location ? `${location}: ${message}` : message;
+        }).filter(Boolean).join('; ');
+      }
+    } catch {
+      if (response.headers.get('content-type')?.toLowerCase().startsWith('text/plain')) detail = body.trim();
+    }
+  } catch (error) {
+    if (error.name === 'AbortError') throw error;
+  }
+  return `${detail || 'Request failed.'} (${status})`;
+}
+
 async function sendMessage(options = {}) {
   const text = options.prompt ?? prompt.value.trim();
   if (!text || state.generating) return;
@@ -568,7 +594,7 @@ async function sendMessage(options = {}) {
       }),
       signal: state.controller.signal
     });
-    if (!response.ok) throw new Error((await response.json()).detail || 'Request failed.');
+    if (!response.ok) throw new Error(await readResponseError(response));
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     const buffer = { value: '' };
