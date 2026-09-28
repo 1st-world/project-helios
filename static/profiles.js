@@ -1,0 +1,457 @@
+/* Own connection profiles, model selection, and the settings and pricing controls. */
+
+import { $, closeMobileSidebar, escapeHtml, refreshIcons, toast } from './ui.js';
+
+export function createProfiles({ isGenerating }) {
+  const state = { activeProfileId: null, editingProfileId: null, profiles: [] };
+
+  function updatePricingStatus(hasPricing) {
+    const statusEl = $('#pricing-accordion-status');
+    if (!statusEl) return;
+    statusEl.classList.toggle('configured', Boolean(hasPricing));
+    statusEl.innerHTML = hasPricing
+      ? '<i data-lucide="check"></i> Configured'
+      : '<i data-lucide="circle-dashed"></i> Not configured';
+    refreshIcons();
+  }
+
+  function resetProfileForm() {
+    state.editingProfileId = null;
+    $('#editing-profile-id').value = '';
+    $('#profile-form-title').textContent = 'Add new profile';
+    const saveLabel = $('#save-profile-label');
+    if (saveLabel) saveLabel.textContent = 'Add profile';
+    $('#profile-name').value = '';
+    $('#azure-endpoint').value = '';
+    $('#azure-api-key').value = '';
+    $('#azure-api-key').type = 'password';
+    $('#azure-api-key').placeholder = 'Enter your Azure OpenAI API key';
+    const hint = $('#api-key-hint');
+    if (hint) hint.textContent = 'API key is required for new connection profiles.';
+    $('#azure-deployment').value = '';
+    $('#azure-input-price').value = '';
+    $('#azure-output-price').value = '';
+    $('#azure-long-threshold').value = '';
+    $('#azure-long-input-price').value = '';
+    $('#azure-long-output-price').value = '';
+    updateThresholdLabels();
+    updatePricingStatus(false);
+    $('#delete-profile-btn').classList.add('hidden');
+    const toggleBtn = $('#toggle-api-key-btn');
+    if (toggleBtn) toggleBtn.innerHTML = '<i data-lucide="eye"></i>';
+    document.querySelectorAll('.profile-item').forEach((item) => item.classList.remove('editing'));
+    refreshIcons();
+  }
+
+  function selectProfileForEditing(profile) {
+    state.editingProfileId = profile.id;
+    $('#editing-profile-id').value = profile.id;
+    $('#profile-form-title').textContent = `Edit profile: ${profile.name}`;
+    const saveLabel = $('#save-profile-label');
+    if (saveLabel) saveLabel.textContent = 'Save changes';
+    $('#profile-name').value = profile.name;
+    $('#azure-endpoint').value = profile.endpoint;
+    $('#azure-api-key').value = '';
+    $('#azure-api-key').type = 'password';
+    $('#azure-api-key').placeholder = 'Leave blank to keep existing key';
+    const hint = $('#api-key-hint');
+    if (hint) hint.textContent = 'Optional. Leave blank to keep current key, or enter a new key to update.';
+    $('#azure-deployment').value = profile.deployment;
+    $('#azure-input-price').value = profile.input_price_per_million !== null && profile.input_price_per_million !== undefined ? profile.input_price_per_million : '';
+    $('#azure-output-price').value = profile.output_price_per_million !== null && profile.output_price_per_million !== undefined ? profile.output_price_per_million : '';
+    $('#azure-long-threshold').value = profile.long_context_threshold !== null && profile.long_context_threshold !== undefined ? profile.long_context_threshold : '';
+    $('#azure-long-input-price').value = profile.long_input_price_per_million !== null && profile.long_input_price_per_million !== undefined ? profile.long_input_price_per_million : '';
+    $('#azure-long-output-price').value = profile.long_output_price_per_million !== null && profile.long_output_price_per_million !== undefined ? profile.long_output_price_per_million : '';
+    updateThresholdLabels();
+    const hasPricing = profile.input_price_per_million != null || profile.output_price_per_million != null || profile.long_input_price_per_million != null || profile.long_output_price_per_million != null;
+    updatePricingStatus(hasPricing);
+    $('#delete-profile-btn').classList.remove('hidden');
+    const toggleBtn = $('#toggle-api-key-btn');
+    if (toggleBtn) toggleBtn.innerHTML = '<i data-lucide="eye"></i>';
+    document.querySelectorAll('.profile-item').forEach((item) => {
+      item.classList.toggle('editing', item.dataset.profileId === profile.id);
+    });
+    refreshIcons();
+  }
+
+  function renderProfiles(data) {
+    state.activeProfileId = data.active_profile_id;
+    state.profiles = data.profiles || [];
+    const activeProfile = state.profiles.find((p) => p.id === state.activeProfileId);
+
+    const select = $('#profile-select');
+    if (select) {
+      select.innerHTML = '';
+      if (!state.profiles.length) {
+        const opt = document.createElement('option');
+        opt.textContent = 'No profiles configured';
+        select.append(opt);
+      } else {
+        state.profiles.forEach((p) => {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = `${p.name} (${p.deployment || 'No model'})`;
+          opt.selected = p.id === state.activeProfileId;
+          select.append(opt);
+        });
+      }
+    }
+
+    const labelEl = $('#model-name-label');
+    if (labelEl) {
+      if (activeProfile) {
+        labelEl.textContent = activeProfile.name;
+      } else if (state.profiles.length) {
+        labelEl.textContent = state.profiles[0].name;
+      } else {
+        labelEl.textContent = 'No model';
+      }
+    }
+
+    const popoverList = $('#model-profile-list');
+    if (popoverList) {
+      popoverList.innerHTML = '';
+      if (!state.profiles.length) {
+        const empty = document.createElement('div');
+        empty.className = 'model-profile-empty';
+        empty.textContent = 'No profiles configured. Open Settings to add one.';
+        popoverList.append(empty);
+      } else {
+        state.profiles.forEach((p) => {
+          const item = document.createElement('button');
+          item.type = 'button';
+          item.className = `model-profile-item ${p.id === state.activeProfileId ? 'active' : ''}`;
+          item.setAttribute('role', 'option');
+          item.setAttribute('aria-selected', String(p.id === state.activeProfileId));
+          item.title = `Switch to ${p.name} (${p.deployment || 'No deployment'})`;
+          item.innerHTML = `
+            <span class="model-item-check"><i data-lucide="check"></i></span>
+            <span class="model-item-info">
+              <span class="model-item-name">${escapeHtml(p.name)}</span>
+              <span class="model-item-deployment">${escapeHtml(p.deployment || 'No deployment')}</span>
+            </span>
+          `;
+          item.onclick = async () => {
+            const picker = $('#model-picker');
+            if (picker) picker.open = false;
+            if (p.id !== state.activeProfileId) {
+              await switchActiveProfile(p.id);
+            }
+          };
+          popoverList.append(item);
+        });
+      }
+    }
+    const container = $('#profile-list-container');
+    const emptyState = $('#profile-empty-state');
+    container.innerHTML = '';
+    if (!state.profiles.length) {
+      if (emptyState) emptyState.classList.remove('hidden');
+    } else {
+      if (emptyState) emptyState.classList.add('hidden');
+      state.profiles.forEach((p) => {
+        const item = document.createElement('div');
+        item.className = `profile-item ${p.id === state.activeProfileId ? 'active' : ''} ${p.id === state.editingProfileId ? 'editing' : ''}`;
+        item.dataset.profileId = p.id;
+        item.title = 'Click to edit profile';
+        item.onclick = (e) => {
+          if (!e.target.closest('button')) selectProfileForEditing(p);
+        };
+        const info = document.createElement('div');
+        info.className = 'profile-info';
+        info.innerHTML = `<strong>${escapeHtml(p.name)}</strong><span class="profile-meta" title="${escapeHtml(p.endpoint)}">${escapeHtml(p.deployment)} · ${escapeHtml(p.endpoint)}</span>`;
+        const actions = document.createElement('div');
+        actions.className = 'profile-actions';
+        if (p.id !== state.activeProfileId) {
+          const useBtn = document.createElement('button');
+          useBtn.className = 'quiet-btn';
+          useBtn.type = 'button';
+          useBtn.textContent = 'Use';
+          useBtn.title = 'Set as active profile';
+          useBtn.onclick = (e) => {
+            e.stopPropagation();
+            switchActiveProfile(p.id);
+          };
+          actions.append(useBtn);
+        } else {
+          const activeBadge = document.createElement('span');
+          activeBadge.className = 'active-badge';
+          activeBadge.textContent = 'Active';
+          actions.append(activeBadge);
+        }
+        item.append(info, actions);
+        container.append(item);
+      });
+    }
+    refreshIcons();
+  }
+
+  async function loadProfiles() {
+    try {
+      const data = await fetch('/api/profiles').then((res) => res.json());
+      renderProfiles(data);
+      health();
+    } catch {
+      toast('Could not load connection profiles.', 'error');
+    }
+  }
+
+  async function switchActiveProfile(profileId) {
+    if (isGenerating()) return;
+    try {
+      const data = await fetch(`/api/profiles/${profileId}/active`, { method: 'POST' }).then((res) => res.json());
+      renderProfiles(data);
+      health();
+      toast('Active profile updated.', 'success');
+    } catch {
+      toast('Could not switch active profile.', 'error');
+    }
+  }
+
+  async function health() {
+    const el = $('#connection-status');
+    try {
+      const response = await fetch('/api/health');
+      if (!response.ok) throw new Error('Unavailable');
+      const data = await response.json();
+      el.className = `status ${data.configured ? 'hidden' : 'error'}`;
+      el.textContent = data.configured ? '' : 'Add a model in Settings to start chatting.';
+      const modelTitle = data.configured ? 'Model for the next response' : 'No configured model';
+      if ($('#profile-select')) $('#profile-select').title = modelTitle;
+      if ($('#model-trigger')) $('#model-trigger').title = modelTitle;
+    } catch {
+      el.className = 'status error';
+      el.textContent = 'Helios is offline. Check the local server.';
+    }
+  }
+
+  async function openSettingsDialog() {
+    closeMobileSidebar();
+    await loadProfiles();
+    const accordion = $('#profile-pricing-accordion');
+    if (accordion) accordion.open = false;
+    if (state.profiles.length) {
+      const active = state.profiles.find((p) => p.id === state.activeProfileId) || state.profiles[0];
+      selectProfileForEditing(active);
+    } else {
+      resetProfileForm();
+    }
+    $('#settings-dialog').showModal();
+  }
+
+  function updateThresholdLabels() {
+    const inputEl = $('#azure-long-threshold');
+    if (!inputEl) return;
+    const raw = inputEl.value.trim();
+    const val = parseInt(raw, 10);
+    let display = '128K';
+    if (!isNaN(val) && val > 0) {
+      display = (val >= 1000 && val % 1000 === 0) ? `${val / 1000}K` : val.toLocaleString();
+    }
+    const stdLabel = $('#standard-range-label');
+    const longLabel = $('#long-range-label');
+    if (stdLabel) stdLabel.textContent = `≤ ${display} tokens`;
+    if (longLabel) longLabel.textContent = `> ${display} tokens`;
+  }
+
+  function setupPricingAccordionAnimation() {
+    const el = $('#profile-pricing-accordion');
+    if (!el) return;
+    const summary = el.querySelector('summary');
+    const body = el.querySelector('.pricing-accordion-body');
+    if (!summary || !body) return;
+    const thresholdInput = $('#azure-long-threshold');
+    if (thresholdInput) {
+      thresholdInput.addEventListener('input', updateThresholdLabels);
+    }
+    let isAnimating = false;
+    summary.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (isAnimating) return;
+      if (el.open) {
+        isAnimating = true;
+        const startHeight = `${el.offsetHeight}px`;
+        const endHeight = `${summary.offsetHeight}px`;
+        el.style.overflow = 'hidden';
+        const anim = el.animate(
+          { height: [startHeight, endHeight] },
+          { duration: 200, easing: 'cubic-bezier(0.2, 0, 0, 1)' }
+        );
+        body.animate({ opacity: [1, 0] }, { duration: 150 });
+        anim.onfinish = () => {
+          el.open = false;
+          el.style.height = '';
+          el.style.overflow = '';
+          isAnimating = false;
+        };
+      } else {
+        el.open = true;
+        isAnimating = true;
+        const startHeight = `${summary.offsetHeight}px`;
+        const endHeight = `${el.offsetHeight}px`;
+        el.style.overflow = 'hidden';
+        const anim = el.animate(
+          { height: [startHeight, endHeight] },
+          { duration: 220, easing: 'cubic-bezier(0, 0, 0.2, 1)' }
+        );
+        body.animate({ opacity: [0, 1] }, { duration: 180, delay: 20 });
+        anim.onfinish = () => {
+          el.style.height = '';
+          el.style.overflow = '';
+          isAnimating = false;
+        };
+      }
+    });
+  }
+
+  function setGenerating(value) {
+    const select = $('#profile-select');
+    if (select) select.disabled = value;
+    const modelPicker = $('#model-picker');
+    if (modelPicker) {
+      if (value) modelPicker.open = false;
+      modelPicker.inert = value;
+    }
+  }
+
+  function init() {
+    const modelPicker = $('#model-picker');
+    if (modelPicker) {
+      document.addEventListener('click', (event) => {
+        if (!modelPicker.contains(event.target)) modelPicker.open = false;
+      });
+      modelPicker.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          modelPicker.open = false;
+          const trigger = modelPicker.querySelector('summary');
+          if (trigger) trigger.focus();
+          event.stopPropagation();
+        }
+      });
+    }
+
+    $('#open-settings').onclick = openSettingsDialog;
+    const modelSettingsBtn = $('#model-popover-settings');
+    if (modelSettingsBtn) {
+      modelSettingsBtn.onclick = () => {
+        if (modelPicker) modelPicker.open = false;
+        openSettingsDialog();
+      };
+    }
+    $('#add-profile-btn').onclick = resetProfileForm;
+
+    const toggleKeyBtn = $('#toggle-api-key-btn');
+    if (toggleKeyBtn) {
+      toggleKeyBtn.onclick = () => {
+        const input = $('#azure-api-key');
+        const isPassword = input.type === 'password';
+        input.type = isPassword ? 'text' : 'password';
+        toggleKeyBtn.innerHTML = `<i data-lucide="${isPassword ? 'eye-off' : 'eye'}"></i>`;
+        refreshIcons();
+      };
+    }
+
+    $('#azure-settings-form').onsubmit = async (event) => {
+      event.preventDefault();
+      const editingId = $('#editing-profile-id').value;
+      const name = $('#profile-name').value.trim();
+      const endpoint = $('#azure-endpoint').value.trim();
+      const api_key = $('#azure-api-key').value.trim();
+      const deployment = $('#azure-deployment').value.trim();
+      if (!name) return toast('Profile name is required.', 'warning');
+      if (!endpoint) return toast('Azure endpoint is required.', 'warning');
+      if (!editingId && !api_key) return toast('API key is required when creating a new profile.', 'warning');
+      if (!deployment) return toast('Deployment name is required.', 'warning');
+      const payload = { name, endpoint, deployment };
+      if (api_key) payload.api_key = api_key;
+      const inPriceVal = $('#azure-input-price').value.trim();
+      const outPriceVal = $('#azure-output-price').value.trim();
+      if (inPriceVal !== '') {
+        const parsedIn = parseFloat(inPriceVal);
+        if (!isNaN(parsedIn) && parsedIn >= 0) payload.input_price_per_million = parsedIn;
+      } else if (editingId) {
+        payload.clear_input_price = true;
+      }
+      if (outPriceVal !== '') {
+        const parsedOut = parseFloat(outPriceVal);
+        if (!isNaN(parsedOut) && parsedOut >= 0) payload.output_price_per_million = parsedOut;
+      } else if (editingId) {
+        payload.clear_output_price = true;
+      }
+      const thresholdVal = $('#azure-long-threshold').value.trim();
+      const longInVal = $('#azure-long-input-price').value.trim();
+      const longOutVal = $('#azure-long-output-price').value.trim();
+      if (thresholdVal !== '') {
+        const parsedTh = parseInt(thresholdVal, 10);
+        if (!isNaN(parsedTh) && parsedTh > 0) payload.long_context_threshold = parsedTh;
+      }
+      if (longInVal !== '') {
+        const parsedLongIn = parseFloat(longInVal);
+        if (!isNaN(parsedLongIn) && parsedLongIn >= 0) payload.long_input_price_per_million = parsedLongIn;
+      } else if (editingId) {
+        payload.clear_long_input_price = true;
+      }
+      if (longOutVal !== '') {
+        const parsedLongOut = parseFloat(longOutVal);
+        if (!isNaN(parsedLongOut) && parsedLongOut >= 0) payload.long_output_price_per_million = parsedLongOut;
+      } else if (editingId) {
+        payload.clear_long_output_price = true;
+      }
+      const url = editingId ? `/api/profiles/${editingId}` : '/api/profiles';
+      const method = editingId ? 'PUT' : 'POST';
+      try {
+        const response = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(Array.isArray(err.detail) ? err.detail[0]?.msg : (err.detail || 'Could not save profile.'));
+        }
+        const data = await response.json();
+        $('#azure-api-key').value = '';
+        renderProfiles(data);
+        health();
+        if (!editingId) {
+          resetProfileForm();
+          toast('Connection profile created.', 'success');
+        } else {
+          toast('Connection profile saved.', 'success');
+          const updated = (data.profiles || []).find((p) => p.id === editingId);
+          if (updated) selectProfileForEditing(updated);
+        }
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    };
+
+    $('#delete-profile-btn').onclick = async () => {
+      const editingId = $('#editing-profile-id').value;
+      if (!editingId) return;
+      if (!confirm('Are you sure you want to delete this profile?')) return;
+      try {
+        const response = await fetch(`/api/profiles/${editingId}`, { method: 'DELETE' });
+        if (!response.ok) throw new Error('Could not delete profile.');
+        const data = await response.json();
+        renderProfiles(data);
+        health();
+        resetProfileForm();
+        toast('Profile deleted.', 'success');
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    };
+
+    $('#profile-select').onchange = (event) => switchActiveProfile(event.target.value);
+
+    $('#settings-dialog').addEventListener('close', () => {
+      const accordion = $('#profile-pricing-accordion');
+      if (accordion) accordion.open = false;
+    });
+
+    setupPricingAccordionAnimation();
+  }
+
+  return { init, load: loadProfiles, checkHealth: health, setGenerating, getActiveProfileId: () => state.activeProfileId };
+}
