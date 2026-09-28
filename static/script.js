@@ -234,7 +234,7 @@ function appendMessage(role, content = '', messageIndex = null, shouldScroll = t
     edit.innerHTML = '<i data-lucide="pencil"></i>';
     edit.setAttribute('title', 'Edit message');
     edit.setAttribute('aria-label', 'Edit message');
-    edit.onclick = () => editUserMessage(messageIndex, textEl.innerText || content);
+    edit.onclick = () => editUserMessage(messageIndex, content);
     actionsEl.append(edit);
   }
   if (role === 'assistant' && regeneration) {
@@ -576,7 +576,7 @@ async function sendMessage(options = {}) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer.value += decoder.decode(value, { stream: true });
-      const frames = buffer.value.split('\n\n');
+      const frames = buffer.value.split(/\r?\n\r?\n/);
       buffer.value = frames.pop();
       for (const frame of frames) {
         if (!frame.startsWith('data: ')) continue;
