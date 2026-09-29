@@ -1,9 +1,20 @@
 /* Own connection profiles, model selection, and the settings and pricing controls. */
 
 import { $, closeMobileSidebar, escapeHtml, refreshIcons, toast } from './ui.js';
+import { selectSettingsPanel } from './settings.js';
 
 export function createProfiles({ isGenerating }) {
-  const state = { activeProfileId: null, editingProfileId: null, profiles: [] };
+  const state = { activeProfileId: null, editingProfileId: null, profiles: [], formBaseline: null };
+
+  function snapshotProfileForm() {
+    return JSON.stringify([...$('#azure-settings-form').querySelectorAll('input')]
+      .map((input) => [input.id, input.value, input.validity.badInput]));
+  }
+
+  function beforeDialogClose() {
+    if (state.formBaseline === null || snapshotProfileForm() === state.formBaseline) return true;
+    return window.confirm('Discard unsaved connection profile changes and close Settings?');
+  }
 
   function updatePricingStatus(hasPricing) {
     const statusEl = $('#pricing-accordion-status');
@@ -41,6 +52,7 @@ export function createProfiles({ isGenerating }) {
     if (toggleBtn) toggleBtn.innerHTML = '<i data-lucide="eye"></i>';
     document.querySelectorAll('.profile-item').forEach((item) => item.classList.remove('editing'));
     refreshIcons();
+    state.formBaseline = snapshotProfileForm();
   }
 
   function selectProfileForEditing(profile) {
@@ -72,6 +84,7 @@ export function createProfiles({ isGenerating }) {
       item.classList.toggle('editing', item.dataset.profileId === profile.id);
     });
     refreshIcons();
+    state.formBaseline = snapshotProfileForm();
   }
 
   function renderProfiles(data) {
@@ -225,7 +238,7 @@ export function createProfiles({ isGenerating }) {
     }
   }
 
-  async function openSettingsDialog() {
+  async function openSettingsDialog(panelName = 'general') {
     closeMobileSidebar();
     await loadProfiles();
     const accordion = $('#profile-pricing-accordion');
@@ -237,6 +250,7 @@ export function createProfiles({ isGenerating }) {
       resetProfileForm();
     }
     $('#settings-dialog').showModal();
+    selectSettingsPanel(panelName, true);
   }
 
   function updateThresholdLabels() {
@@ -330,15 +344,16 @@ export function createProfiles({ isGenerating }) {
       });
     }
 
-    $('#open-settings').onclick = openSettingsDialog;
+    $('#open-settings').onclick = () => openSettingsDialog();
     const modelSettingsBtn = $('#model-popover-settings');
     if (modelSettingsBtn) {
       modelSettingsBtn.onclick = () => {
         if (modelPicker) modelPicker.open = false;
-        openSettingsDialog();
+        openSettingsDialog('connections');
       };
     }
     $('#add-profile-btn').onclick = resetProfileForm;
+    $('#cancel-profile-edit').onclick = () => $('#settings-dialog').close();
 
     const toggleKeyBtn = $('#toggle-api-key-btn');
     if (toggleKeyBtn) {
@@ -446,6 +461,7 @@ export function createProfiles({ isGenerating }) {
     $('#profile-select').onchange = (event) => switchActiveProfile(event.target.value);
 
     $('#settings-dialog').addEventListener('close', () => {
+      resetProfileForm();
       const accordion = $('#profile-pricing-accordion');
       if (accordion) accordion.open = false;
     });
@@ -453,5 +469,5 @@ export function createProfiles({ isGenerating }) {
     setupPricingAccordionAnimation();
   }
 
-  return { init, load: loadProfiles, checkHealth: health, setGenerating, getActiveProfileId: () => state.activeProfileId };
+  return { init, load: loadProfiles, checkHealth: health, setGenerating, beforeDialogClose, getActiveProfileId: () => state.activeProfileId };
 }

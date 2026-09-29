@@ -547,21 +547,6 @@ details[open] > .tree-folder::before {
   font-family: var(--font-sans);
   text-align: center;
 }
-.workspace-empty-state svg {
-  width: 22px;
-  height: 22px;
-  margin-bottom: 2px;
-  color: var(--text-tertiary);
-}
-.workspace-empty-state strong {
-  color: var(--text-main);
-  font-weight: 600;
-  font-size: 13px;
-}
-.workspace-empty-state span {
-  color: var(--text-muted);
-  font-size: 11px;
-}
 
 /* Sidebar Collapsed State */
 body.sidebar-collapsed:not(.mobile-layout) .sidebar {
@@ -778,6 +763,56 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:hover {
   color: var(--warning-text);
 }
 
+.conversation-usage {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.conversation-usage[hidden] {
+  display: none;
+}
+.conversation-usage .conversation-usage-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1;
+}
+.conversation-usage .conversation-usage-heading svg {
+  width: 14px;
+  height: 14px;
+}
+.conversation-usage .conversation-usage-heading strong {
+  font-weight: 500;
+  font-size: 12px;
+}
+.conversation-usage .conversation-usage-heading span {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+.conversation-usage .conversation-usage-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 12px 0 0;
+  gap: 8px 18px;
+}
+.conversation-usage .conversation-usage-metrics > div {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.conversation-usage .conversation-usage-metrics dd {
+  margin: 0;
+  color: var(--text-sub);
+  font-family: var(--font-mono);
+}
+.conversation-usage p {
+  margin: 8px 0 0;
+  line-height: 1.5;
+}
+
 /* Message Actions Toolbar */
 .message-actions {
   display: flex;
@@ -959,9 +994,11 @@ textarea::placeholder {
   bottom: calc(100% + 8px);
   left: 0;
   width: min(350px, calc(100vw - 32px));
+  max-width: var(--popover-max-width, none);
   max-height: min(440px, 60vh);
   padding: 16px;
   overflow-y: auto;
+  transform: translateX(var(--popover-offset-x, 0px));
   border: 1px solid var(--border-strong);
   border-radius: 12px;
   background: var(--bg-surface-elevated);
@@ -1046,9 +1083,11 @@ textarea::placeholder {
   bottom: calc(100% + 8px);
   left: 0;
   width: min(300px, 85vw);
+  max-width: var(--popover-max-width, none);
   max-height: min(360px, 50vh);
   padding: 8px;
   overflow-y: auto;
+  transform: translateX(var(--popover-offset-x, 0px));
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   background: var(--bg-surface-elevated);
@@ -1062,8 +1101,7 @@ textarea::placeholder {
   padding: 6px 8px 8px;
   border-bottom: 1px solid var(--border);
 }
-.model-popover-header strong,
-.model-popover-header span {
+.model-popover-header strong {
   color: var(--text-main);
   font-weight: 600;
   font-size: 12px;
@@ -1154,19 +1192,6 @@ textarea::placeholder {
   color: var(--text-muted);
   font-weight: 500;
   font-size: 10px;
-}
-
-.planned-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 8px 0;
-  gap: 10px;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 12px;
-  text-align: left;
 }
 
 /* Context Bar & Focus Chips */
@@ -1370,7 +1395,6 @@ textarea::placeholder {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
 }
 .dialog-heading > div {
   display: flex;
@@ -1442,6 +1466,209 @@ textarea::placeholder {
 }
 .settings-dialog input:focus {
   border-color: var(--border-focus);
+}
+
+.preferences-dialog {
+  width: min(740px, calc(100vw - 32px));
+  height: min(760px, calc(100dvh - 48px));
+  overflow: hidden;
+}
+.preferences-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.preferences-dialog > .dialog-heading {
+  flex: none;
+}
+.preferences-dialog .settings-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  flex: none;
+  margin: 20px 0;
+  padding: 4px;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+.preferences-dialog .settings-tabs button {
+  padding: 10px 6px;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 1;
+}
+.preferences-dialog .settings-tabs button:hover {
+  background: var(--bg-element);
+  color: var(--text-main);
+}
+.preferences-dialog .settings-tabs button[aria-selected="true"] {
+  background: var(--bg-element);
+  color: var(--text-main);
+}
+.preferences-dialog .settings-tabs button:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+.preferences-dialog .settings-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.preferences-dialog .settings-panel[hidden] {
+  display: none;
+}
+.preferences-dialog .settings-panel > * {
+  flex: none;
+}
+.preferences-dialog .settings-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  gap: 12px;
+}
+.preferences-dialog .settings-panel-heading h3,
+.preferences-dialog .settings-panel-heading h4 {
+  margin: 0;
+  font-weight: 600;
+  font-size: 14px;
+}
+.preferences-dialog .settings-preference-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0;
+  gap: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.preferences-dialog .settings-preference-copy {
+  flex: 1;
+  min-width: 0;
+}
+.preferences-dialog .settings-preference-copy label,
+.preferences-dialog .settings-preference-copy strong {
+  display: block;
+  margin: 0;
+  color: var(--text-sub);
+  font-weight: 500;
+  font-size: 12px;
+}
+.preferences-dialog .settings-preference-copy small {
+  display: block;
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.preferences-dialog select,
+.preferences-dialog .settings-preference-row input[type="number"] {
+  flex: none;
+  width: 180px;
+  max-width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-app);
+  color: var(--text-muted);
+  font-weight: 400;
+  font-size: 12px;
+}
+.preferences-dialog .settings-preference-row input[type="checkbox"] {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+.preferences-dialog .settings-theme-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  flex: none;
+  width: 180px;
+  padding: 4px;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+.preferences-dialog .settings-theme-options button {
+  padding: 10px 6px;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 1;
+}
+.preferences-dialog .settings-theme-options button[aria-checked="true"] {
+  background: var(--bg-element);
+  color: var(--text-main);
+}
+.preferences-dialog .settings-panel :disabled {
+  cursor: not-allowed;
+}
+.preferences-dialog .settings-usage-preview {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+.preferences-dialog .settings-usage-preview select {
+  width: 160px;
+}
+.preferences-dialog .settings-usage-preview p {
+  margin: 12px 0 0;
+  font-size: 11px;
+}
+.preferences-dialog .settings-usage-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 16px 0 0;
+  gap: 16px;
+}
+.preferences-dialog .settings-usage-metrics dt {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.preferences-dialog .settings-usage-metrics dd {
+  margin: 6px 0 0;
+  color: var(--text-sub);
+  font-size: 16px;
+  font-family: var(--font-mono);
+}
+.preferences-dialog .settings-estimate-preview {
+  margin-top: 20px;
+}
+.preferences-dialog .settings-estimate-preview strong {
+  color: var(--text-sub);
+  font-weight: 500;
+  font-size: 12px;
+}
+.preferences-dialog .settings-estimate-preview > div {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 10px 0;
+  gap: 6px;
+}
+.preferences-dialog .settings-estimate-preview span {
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.preferences-dialog .settings-estimate-preview p {
+  margin: 0;
+  font-size: 11px;
 }
 .dialog-actions {
   display: flex;
@@ -1674,25 +1901,6 @@ textarea::placeholder {
 }
 .quiet-btn:hover {
   border-color: var(--border-focus);
-  background: var(--bg-element-hover);
-  color: var(--text-main);
-}
-
-.icon-button-sm {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease;
-}
-.icon-button-sm:hover {
   background: var(--bg-element-hover);
   color: var(--text-main);
 }
@@ -2189,11 +2397,11 @@ button svg,
   .model-popover {
     right: 0;
     left: auto;
-    width: min(320px, calc(100vw - 24px));
+    width: min(320px, calc(100vw - 78px));
   }
   .tools-popover {
     left: 0;
-    width: min(320px, calc(100vw - 56px));
+    width: min(320px, calc(100vw - 72px));
   }
   .composer-control:not(.model-trigger) > span,
   .composer-caption .hint {
@@ -2214,6 +2422,23 @@ button svg,
 }
 
 @media (max-width: 520px) {
+  .preferences-dialog .settings-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .preferences-dialog .settings-preference-row {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .preferences-dialog .settings-preference-copy {
+    flex-basis: calc(100% - 32px);
+  }
+  .preferences-dialog .settings-preference-row select,
+  .preferences-dialog .settings-preference-row input[type="number"] {
+    width: 100%;
+  }
+  .preferences-dialog .settings-usage-preview .settings-panel-heading {
+    flex-wrap: wrap;
+  }
   .form-grid-2 {
     grid-template-columns: 1fr;
     gap: 12px;

@@ -4,6 +4,7 @@ import { createChat } from './chat.js';
 import { createProfiles } from './profiles.js';
 import { createWorkspace } from './workspace.js';
 import { initializeUI } from './ui.js';
+import { initializeSettings } from './settings.js';
 
 const workspace = createWorkspace();
 const profiles = createProfiles({ isGenerating: () => chat.isGenerating() });
@@ -18,8 +19,13 @@ const chat = createChat({
 });
 
 initializeUI({
-  beforeDialogClose: (dialog) => dialog.id !== 'workspace-dialog' || workspace.beforeDialogClose()
+  beforeDialogClose(dialog) {
+    if (dialog.id === 'workspace-dialog') return workspace.beforeDialogClose();
+    if (dialog.id === 'settings-dialog') return profiles.beforeDialogClose();
+    return true;
+  }
 });
+initializeSettings({ onConversationUsageVisibilityChange: chat.setUsageVisibility });
 workspace.init();
 profiles.init();
 chat.init();

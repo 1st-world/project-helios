@@ -1,4 +1,4 @@
-/* Provide shared DOM helpers, notifications, sidebar behavior, and dialog interactions. */
+/* Provide shared DOM helpers, notifications, sidebar behavior, dialog interactions, and composer popover placement. */
 
 export const $ = (selector) => document.querySelector(selector);
 
@@ -91,6 +91,39 @@ export function initializeUI({ beforeDialogClose }) {
   function closeDialog(dialog) {
     if (beforeDialogClose(dialog)) dialog.close();
   }
+
+  const composerActions = $('.composer-actions');
+  const composerFooter = composerActions.closest('footer');
+  const composerPopovers = [...composerActions.querySelectorAll('.tools-popover, .model-popover')];
+
+  function positionComposerPopovers() {
+    const bounds = composerFooter.getBoundingClientRect();
+    const style = getComputedStyle(composerFooter);
+    const left = bounds.left + parseFloat(style.paddingLeft);
+    const right = bounds.right - parseFloat(style.paddingRight);
+
+    composerPopovers.forEach((popover) => {
+      if (!popover.closest('details').open) {
+        popover.style.removeProperty('--popover-max-width');
+        popover.style.removeProperty('--popover-offset-x');
+        return;
+      }
+
+      popover.style.setProperty('--popover-max-width', `${Math.max(0, right - left)}px`);
+      popover.style.setProperty('--popover-offset-x', '0px');
+      const rect = popover.getBoundingClientRect();
+      const adjustedLeft = Math.max(left, Math.min(rect.left, right - rect.width));
+      popover.style.setProperty('--popover-offset-x', `${adjustedLeft - rect.left}px`);
+    });
+  }
+
+  const popoverResizeObserver = new ResizeObserver(positionComposerPopovers);
+  popoverResizeObserver.observe(composerFooter);
+  composerPopovers.forEach((popover) => {
+    const details = popover.closest('details');
+    details.addEventListener('toggle', positionComposerPopovers);
+    popoverResizeObserver.observe(details);
+  });
 
   const sidebarEl = $('#sidebar');
   if (sidebarEl) {

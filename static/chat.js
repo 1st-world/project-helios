@@ -7,13 +7,29 @@ export function createChat({ getActiveProfileId, getWorkspaceFile, clearFocusFil
     conversationId: null,
     conversationVersion: null,
     controller: null,
-    generating: false
+    generating: false,
+    showConversationUsage: true
   };
 
   const chat = $('#chat');
   const prompt = $('#prompt');
   const send = $('#send');
   const stop = $('#stop');
+  const usageFooter = document.createElement('aside');
+  usageFooter.className = 'conversation-usage';
+  usageFooter.id = 'conversation-usage';
+  usageFooter.setAttribute('aria-label', 'Conversation usage preview');
+  usageFooter.setAttribute('aria-live', 'off');
+  usageFooter.innerHTML = `
+    <div class="conversation-usage-heading"><i data-lucide="chart-no-axes-combined"></i><strong>Conversation usage</strong><span>Preview</span></div>
+    <dl class="conversation-usage-metrics">
+      <div><dt>Calls</dt><dd>—</dd></div>
+      <div><dt>Input / output</dt><dd>— / —</dd></div>
+      <div><dt>Total tokens</dt><dd>—</dd></div>
+      <div><dt>Estimated cost</dt><dd>—</dd></div>
+    </dl>
+    <p>Cumulative totals, including regeneration and memory summaries, are not available yet.</p>
+  `;
   const emptyChatMarkup = `
     <div class="empty-state">
       <span><i data-lucide="sparkles"></i></span>
@@ -62,11 +78,29 @@ export function createChat({ getActiveProfileId, getWorkspaceFile, clearFocusFil
   }
 
   function setGenerating(value) {
+    const wasNearBottom = isNearBottom();
     state.generating = value;
     send.disabled = value;
     stop.classList.toggle('hidden', !value);
     onGeneratingChange(value);
     chat.querySelectorAll('[data-mutates-conversation]').forEach((button) => { button.disabled = value; });
+    updateConversationUsage();
+    if (!value && wasNearBottom) scrollDown(false);
+  }
+
+  function updateConversationUsage() {
+    usageFooter.hidden = !state.showConversationUsage || !state.conversationId || state.generating || !chat.querySelector('.message');
+    if (!usageFooter.hidden) {
+      chat.append(usageFooter);
+      refreshIcons();
+    }
+  }
+
+  function setUsageVisibility(visible) {
+    const wasNearBottom = isNearBottom();
+    state.showConversationUsage = visible;
+    updateConversationUsage();
+    if (wasNearBottom) scrollDown(false);
   }
 
   function formatMessageMeta(meta) {
@@ -162,7 +196,7 @@ export function createChat({ getActiveProfileId, getWorkspaceFile, clearFocusFil
     };
     actionsEl.append(copy);
 
-    chat.append(el);
+    chat.insertBefore(el, usageFooter.parentElement === chat ? usageFooter : null);
     refreshIcons();
     if (shouldScroll) scrollDown(smooth);
     return { el, render, setMeta };
@@ -248,10 +282,11 @@ export function createChat({ getActiveProfileId, getWorkspaceFile, clearFocusFil
       const regeneration = message.role === 'assistant' && source?.role === 'user'
         ? { userIndex: index - 1, content: source.content, hasFollowing: index < data.messages.length - 1 }
         : null;
-      const shouldScroll = preserveScroll && !wasNearBottom ? false : index === data.messages.length - 1;
-      appendMessage(message.role, message.content, index, shouldScroll, false, message, regeneration);
+      appendMessage(message.role, message.content, index, false, false, message, regeneration);
     });
+    updateConversationUsage();
     if (preserveScroll && !wasNearBottom) { chat.scrollTop = savedScrollTop; }
+    else scrollDown(false);
     loadConversations();
   }
 
@@ -432,5 +467,5 @@ export function createChat({ getActiveProfileId, getWorkspaceFile, clearFocusFil
     };
   }
 
-  return { init, newChat, isGenerating: () => state.generating };
+  return { init, newChat, setUsageVisibility, isGenerating: () => state.generating };
 }

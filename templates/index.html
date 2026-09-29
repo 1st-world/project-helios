@@ -44,7 +44,7 @@
       </button>
 
       <div class="sidebar-dock">
-        <button id="open-settings" class="sidebar-dock-btn" type="button" title="Azure OpenAI settings" aria-label="Azure OpenAI settings">
+        <button id="open-settings" class="sidebar-dock-btn" type="button" title="Settings" aria-label="Settings">
           <i data-lucide="settings-2"></i>
           <span>Settings</span>
         </button>
@@ -166,106 +166,184 @@
     </div>
   </dialog>
 
-  <dialog id="settings-dialog" class="settings-dialog">
+  <dialog id="settings-dialog" class="settings-dialog preferences-dialog" aria-labelledby="settings-title">
     <div class="dialog-heading">
       <div>
-        <i data-lucide="cloud-cog"></i>
-        <h2>Azure OpenAI connection profiles</h2>
+        <i data-lucide="settings-2"></i>
+        <h2 id="settings-title">Settings</h2>
       </div>
       <button class="dialog-close" type="button" data-close-dialog="settings-dialog" aria-label="Close"><i data-lucide="x"></i></button>
     </div>
 
-    <div class="info-callout">
-      <i data-lucide="shield-check"></i>
-      <p>Connection profiles are saved locally in <code>profiles.json</code> and ignored by version control. API keys are never returned to the browser.</p>
+    <div class="settings-tabs" role="tablist" aria-label="Settings categories">
+      <button id="settings-general-tab" type="button" role="tab" data-settings-tab="general" aria-controls="settings-general" aria-selected="true">General</button>
+      <button id="settings-notifications-tab" type="button" role="tab" data-settings-tab="notifications" aria-controls="settings-notifications" aria-selected="false" tabindex="-1">Notifications</button>
+      <button id="settings-connections-tab" type="button" role="tab" data-settings-tab="connections" aria-controls="settings-connections" aria-selected="false" tabindex="-1">Connections</button>
+      <button id="settings-usage-tab" type="button" role="tab" data-settings-tab="usage" aria-controls="settings-usage" aria-selected="false" tabindex="-1">Usage & costs</button>
     </div>
 
-    <div class="section-title-row">
-      <h3>Profiles</h3>
-      <button id="add-profile-btn" class="quiet-btn" type="button"><i data-lucide="plus"></i> New profile</button>
-    </div>
+    <section id="settings-general" class="settings-panel" role="tabpanel" aria-labelledby="settings-general-tab" tabindex="0">
+      <div class="settings-panel-heading"><h3>Appearance & language</h3></div>
+      <div class="info-callout"><i data-lucide="info"></i><p><strong>Preview.</strong> Appearance, language, and timezone preferences are not available yet.</p></div>
+      <div class="settings-preference-row">
+        <div class="settings-preference-copy"><strong id="theme-label">Theme</strong><small>Choose a light, dark, or system appearance.</small></div>
+        <div class="settings-theme-options" role="radiogroup" aria-labelledby="theme-label"><button type="button" role="radio" disabled aria-checked="false">Light</button><button type="button" role="radio" disabled aria-checked="true">Dark</button><button type="button" role="radio" disabled aria-checked="false">System</button></div>
+      </div>
+      <div class="settings-preference-row">
+        <div class="settings-preference-copy"><label for="ui-language">Interface language</label><small>Language of menus and controls.</small></div>
+        <select id="ui-language" disabled><option selected>English</option></select>
+      </div>
+      <div class="settings-preference-row">
+        <div class="settings-preference-copy"><label for="message-timezone">Message timezone</label><small>Timezone used to display message timestamps.</small></div>
+        <select id="message-timezone" disabled><option selected>N/A</option></select>
+      </div>
+    </section>
 
-    <div class="profile-manager">
-      <div id="profile-empty-state" class="profile-empty-state hidden">
-        <i data-lucide="inbox"></i>
-        <span>No profiles configured yet. Create one below.</span>
+    <section id="settings-notifications" class="settings-panel" role="tabpanel" aria-labelledby="settings-notifications-tab" tabindex="0" hidden>
+      <div class="settings-panel-heading"><h3>Notifications</h3></div>
+      <div class="info-callout"><i data-lucide="info"></i><p><strong>Preview.</strong> Notification preferences are not available yet.</p></div>
+      <div class="settings-preference-row">
+        <div class="settings-preference-copy"><label for="notify-response">Response completion</label><small>Notify you when an assistant response finishes.</small></div>
+        <input id="notify-response" type="checkbox" disabled>
       </div>
-      <div id="profile-list-container" class="profile-list-container"></div>
-    </div>
+      <div class="settings-preference-row">
+        <div class="settings-preference-copy"><label for="notify-sound">Notification sound</label><small>Play a sound with notifications.</small></div>
+        <input id="notify-sound" type="checkbox" disabled>
+      </div>
+      <div class="settings-preference-row">
+        <div class="settings-preference-copy"><label for="notify-desktop">Desktop notifications</label><small>Browser permission will be required when available.</small></div>
+        <input id="notify-desktop" type="checkbox" disabled>
+      </div>
+    </section>
 
-    <form id="azure-settings-form">
-      <input type="hidden" id="editing-profile-id" value="">
-      <div class="form-title-row">
-        <h3 id="profile-form-title">Edit profile</h3>
+    <section id="settings-connections" class="settings-panel" role="tabpanel" aria-labelledby="settings-connections-tab" tabindex="0" hidden>
+      <div class="settings-panel-heading"><h3>Azure OpenAI connection profiles</h3></div>
+      <div class="info-callout">
+        <i data-lucide="shield-check"></i>
+        <p>Connection profiles are saved locally in <code>profiles.json</code> and ignored by version control. API keys are never returned to the browser.</p>
       </div>
-      <div class="form-grid-2">
-        <label>Profile name<input id="profile-name" required placeholder="e.g. EastUS GPT-5.6 Sol"></label>
-        <label>Deployment name<input id="azure-deployment" required placeholder="e.g. gpt-5.6-sol"></label>
+
+      <div class="section-title-row">
+        <h3>Profiles</h3>
+        <button id="add-profile-btn" class="quiet-btn" type="button"><i data-lucide="plus"></i> New profile</button>
       </div>
-      <label>Azure endpoint<input id="azure-endpoint" type="url" required placeholder="https://your-resource.cognitiveservices.azure.com/"></label>
-      <label>
-        API key
-        <div class="input-with-action">
-          <input id="azure-api-key" type="password" placeholder="Leave blank to keep existing key" autocomplete="off">
-          <button id="toggle-api-key-btn" class="input-action-btn" type="button" title="Toggle key visibility" aria-label="Toggle key visibility">
-            <i data-lucide="eye"></i>
-          </button>
+
+      <div class="profile-manager">
+        <div id="profile-empty-state" class="profile-empty-state hidden">
+          <i data-lucide="inbox"></i>
+          <span>No profiles configured yet. Create one below.</span>
         </div>
-        <span id="api-key-hint" class="field-hint">Leave blank to keep existing key</span>
-      </label>
-      <div class="pricing-field-group">
-        <details id="profile-pricing-accordion" class="pricing-accordion">
-          <summary class="pricing-accordion-header">
-            <span class="pricing-accordion-title"><i data-lucide="calculator"></i>Token pricing</span>
-            <span class="pricing-accordion-status" id="pricing-accordion-status"><i data-lucide="circle-dashed"></i> Not configured</span>
-            <i data-lucide="chevron-down" class="pricing-chevron"></i>
-          </summary>
-          <div class="pricing-accordion-body">
-            <div class="pricing-tier-block">
-              <div class="tier-header">
-                <span class="tier-pill standard"><span class="tier-indicator"></span>Standard context</span>
-                <span class="tier-range" id="standard-range-label">&le; 128K tokens</span>
-              </div>
-              <div class="form-grid-2">
-                <label>Input price ($ / 1M)<input id="azure-input-price" type="number" step="any" min="0" placeholder="e.g. 5.00"></label>
-                <label>Output price ($ / 1M)<input id="azure-output-price" type="number" step="any" min="0" placeholder="e.g. 30.00"></label>
-              </div>
-            </div>
-            <div class="tier-divider">
-              <div class="tier-divider-line"></div>
-              <div class="tier-threshold-pill">
-                <i data-lucide="git-commit-vertical" class="threshold-icon"></i>
-                <span class="threshold-tag">Threshold breakpoint</span>
-                <div class="threshold-input-wrap">
-                  <input id="azure-long-threshold" type="number" step="1000" min="1000" placeholder="128000">
-                  <span class="threshold-unit">tokens</span>
+        <div id="profile-list-container" class="profile-list-container"></div>
+      </div>
+
+      <form id="azure-settings-form">
+        <input type="hidden" id="editing-profile-id" value="">
+        <div class="form-title-row">
+          <h3 id="profile-form-title">Edit profile</h3>
+        </div>
+        <div class="form-grid-2">
+          <label>Profile name<input id="profile-name" required placeholder="e.g. EastUS GPT-5.6 Sol"></label>
+          <label>Deployment name<input id="azure-deployment" required placeholder="e.g. gpt-5.6-sol"></label>
+        </div>
+        <label>Azure endpoint<input id="azure-endpoint" type="url" required placeholder="https://your-resource.cognitiveservices.azure.com/"></label>
+        <label>
+          API key
+          <div class="input-with-action">
+            <input id="azure-api-key" type="password" placeholder="Leave blank to keep existing key" autocomplete="off">
+            <button id="toggle-api-key-btn" class="input-action-btn" type="button" title="Toggle key visibility" aria-label="Toggle key visibility">
+              <i data-lucide="eye"></i>
+            </button>
+          </div>
+          <span id="api-key-hint" class="field-hint">Leave blank to keep existing key</span>
+        </label>
+        <div class="pricing-field-group">
+          <details id="profile-pricing-accordion" class="pricing-accordion">
+            <summary class="pricing-accordion-header">
+              <span class="pricing-accordion-title"><i data-lucide="calculator"></i>Token pricing</span>
+              <span class="pricing-accordion-status" id="pricing-accordion-status"><i data-lucide="circle-dashed"></i> Not configured</span>
+              <i data-lucide="chevron-down" class="pricing-chevron"></i>
+            </summary>
+            <div class="pricing-accordion-body">
+              <div class="pricing-tier-block">
+                <div class="tier-header">
+                  <span class="tier-pill standard"><span class="tier-indicator"></span>Standard context</span>
+                  <span class="tier-range" id="standard-range-label">&le; 128K tokens</span>
+                </div>
+                <div class="form-grid-2">
+                  <label>Input price ($ / 1M)<input id="azure-input-price" type="number" step="any" min="0" placeholder="e.g. 5.00"></label>
+                  <label>Output price ($ / 1M)<input id="azure-output-price" type="number" step="any" min="0" placeholder="e.g. 30.00"></label>
                 </div>
               </div>
-              <div class="tier-divider-line"></div>
-            </div>
-            <div class="pricing-tier-block">
-              <div class="tier-header">
-                <span class="tier-pill long"><span class="tier-indicator"></span>Long context</span>
-                <span class="tier-range" id="long-range-label">&gt; 128K tokens</span>
+              <div class="tier-divider">
+                <div class="tier-divider-line"></div>
+                <div class="tier-threshold-pill">
+                  <i data-lucide="git-commit-vertical" class="threshold-icon"></i>
+                  <span class="threshold-tag">Threshold breakpoint</span>
+                  <div class="threshold-input-wrap">
+                    <input id="azure-long-threshold" type="number" step="1000" min="1000" placeholder="128000">
+                    <span class="threshold-unit">tokens</span>
+                  </div>
+                </div>
+                <div class="tier-divider-line"></div>
               </div>
-              <div class="form-grid-2">
-                <label>Long input price ($ / 1M)<input id="azure-long-input-price" type="number" step="any" min="0" placeholder="e.g. 10.00"></label>
-                <label>Long output price ($ / 1M)<input id="azure-long-output-price" type="number" step="any" min="0" placeholder="e.g. 45.00"></label>
+              <div class="pricing-tier-block">
+                <div class="tier-header">
+                  <span class="tier-pill long"><span class="tier-indicator"></span>Long context</span>
+                  <span class="tier-range" id="long-range-label">&gt; 128K tokens</span>
+                </div>
+                <div class="form-grid-2">
+                  <label>Long input price ($ / 1M)<input id="azure-long-input-price" type="number" step="any" min="0" placeholder="e.g. 10.00"></label>
+                  <label>Long output price ($ / 1M)<input id="azure-long-output-price" type="number" step="any" min="0" placeholder="e.g. 45.00"></label>
+                </div>
               </div>
+              <span class="field-hint pricing-hint">Standard rates apply if long rates are blank or prompt is under threshold.</span>
             </div>
-            <span class="field-hint pricing-hint">Standard rates apply if long rates are blank or prompt is under threshold.</span>
-          </div>
-        </details>
-        <span class="field-hint">Optional. Configure token rates to calculate estimated conversation costs.</span>
-      </div>
-      <div class="dialog-actions">
-        <button id="delete-profile-btn" class="delete-btn hidden" type="button"><i data-lucide="trash-2"></i> Delete</button>
-        <div class="dialog-actions-right">
-          <button class="quiet" type="button" data-close-dialog="settings-dialog">Close</button>
-          <button class="primary-btn" type="submit"><i data-lucide="save"></i> <span id="save-profile-label">Save profile</span></button>
+          </details>
+          <span class="field-hint">Optional. Configure token rates to calculate estimated conversation costs.</span>
         </div>
+        <div class="dialog-actions">
+          <button id="delete-profile-btn" class="delete-btn hidden" type="button"><i data-lucide="trash-2"></i> Delete</button>
+          <div class="dialog-actions-right">
+            <button id="cancel-profile-edit" class="quiet" type="button" title="Discard unsaved profile changes and close Settings">Cancel</button>
+            <button class="primary-btn" type="submit"><i data-lucide="save"></i> <span id="save-profile-label">Save profile</span></button>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <section id="settings-usage" class="settings-panel" role="tabpanel" aria-labelledby="settings-usage-tab" tabindex="0" hidden>
+      <div class="settings-panel-heading"><h3>Usage & costs</h3></div>
+      <div class="info-callout"><i data-lucide="info"></i><p><strong>Preview.</strong> Usage totals and cost preferences are not available yet. Profile token prices currently use USD per 1M tokens.</p></div>
+      <div class="settings-preference-row">
+        <div class="settings-preference-copy"><label for="display-currency">Display currency</label><small>Currency used to display estimated costs.</small></div>
+        <select id="display-currency" disabled><option selected>USD · US Dollar</option></select>
       </div>
-    </form>
+      <div class="settings-preference-row">
+        <div class="settings-preference-copy"><label for="conversion-rate">Conversion rate (1 USD)</label><small>For display in another currency. Conversion is planned.</small></div>
+        <input id="conversion-rate" type="number" step="any" min="0" placeholder="Not configured" disabled>
+      </div>
+      <div class="settings-preference-row">
+        <div class="settings-preference-copy"><label for="show-response-usage">Per-response usage</label><small>Show tokens, response time, and estimated cost.</small></div>
+        <input id="show-response-usage" type="checkbox" checked disabled>
+      </div>
+      <div class="settings-preference-row">
+        <div class="settings-preference-copy"><label for="show-conversation-usage">Conversation usage footer</label><small>Show the usage preview after the last message in each conversation.</small></div>
+        <input id="show-conversation-usage" type="checkbox" checked>
+      </div>
+      <div class="settings-usage-preview">
+        <div class="settings-panel-heading"><h4>Usage overview</h4><select disabled aria-label="Usage period"><option>This conversation</option></select></div>
+        <dl class="settings-usage-metrics">
+          <div><dt>API calls</dt><dd>—</dd></div>
+          <div><dt>Input / output tokens</dt><dd>— / —</dd></div>
+          <div><dt>Total tokens</dt><dd>—</dd></div>
+          <div><dt>Cache read / write</dt><dd>— / —</dd></div>
+          <div><dt>Memory-summary calls</dt><dd>—</dd></div>
+          <div><dt>Estimated cost</dt><dd>—</dd></div>
+        </dl>
+        <p>Totals are not available yet. Cumulative usage is separate from the current context size.</p>
+      </div>
+      <div class="settings-estimate-preview"><strong>Estimate status preview</strong><div><span>Partial estimate</span><span>Pricing unavailable</span><span>Usage unavailable</span></div><p>Future estimates will identify missing rates and usage rather than treating them as free.</p></div>
+    </section>
   </dialog>
 
   <script src="https://cdn.jsdelivr.net/npm/marked@18.0.14/lib/marked.umd.js"></script>
