@@ -605,6 +605,16 @@ async def chat(payload: ChatRequest):
                 msg_kwargs["is_long_context"] = bool(
                     usage_data.get("is_long_context", False)
                 )
+                for name in (
+                    "uncached_input_tokens",
+                    "cache_read_tokens",
+                    "cache_write_tokens",
+                    "reasoning_tokens",
+                    "usage_status",
+                    "cost_status",
+                    "provider_usage",
+                ):
+                    msg_kwargs[name] = usage_data.get(name)
 
             if payload.regenerate_message_index is None:
                 if conversation.messages is not turn_messages:

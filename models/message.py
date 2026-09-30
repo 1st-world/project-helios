@@ -1,5 +1,6 @@
 """Represent chat messages and serialize their timestamps, provider metadata, and usage."""
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal
@@ -23,6 +24,13 @@ class Message:
     response_time_ms: int | None = None
     estimated_cost: float | None = None
     is_long_context: bool = False
+    uncached_input_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    usage_status: str | None = None
+    cost_status: str | None = None
+    provider_usage: dict | None = None
 
     def to_dict(self) -> dict:
         """Serialize a message, omitting metadata that was not recorded."""
@@ -49,6 +57,18 @@ class Message:
             data["estimated_cost"] = self.estimated_cost
         if self.is_long_context:
             data["is_long_context"] = self.is_long_context
+        for name in (
+            "uncached_input_tokens",
+            "cache_read_tokens",
+            "cache_write_tokens",
+            "reasoning_tokens",
+            "usage_status",
+            "cost_status",
+            "provider_usage",
+        ):
+            value = getattr(self, name)
+            if value is not None:
+                data[name] = deepcopy(value)
         return data
 
     @classmethod
@@ -75,4 +95,11 @@ class Message:
             response_time_ms=data.get("response_time_ms"),
             estimated_cost=float(cost) if cost is not None else None,
             is_long_context=bool(data.get("is_long_context", False)),
+            uncached_input_tokens=data.get("uncached_input_tokens"),
+            cache_read_tokens=data.get("cache_read_tokens"),
+            cache_write_tokens=data.get("cache_write_tokens"),
+            reasoning_tokens=data.get("reasoning_tokens"),
+            usage_status=data.get("usage_status"),
+            cost_status=data.get("cost_status"),
+            provider_usage=deepcopy(data.get("provider_usage")),
         )

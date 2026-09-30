@@ -277,6 +277,13 @@ class ConversationManager:
         response_time_ms: int | None = None,
         estimated_cost: float | None = None,
         is_long_context: bool = False,
+        uncached_input_tokens: int | None = None,
+        cache_read_tokens: int | None = None,
+        cache_write_tokens: int | None = None,
+        reasoning_tokens: int | None = None,
+        usage_status: str | None = None,
+        cost_status: str | None = None,
+        provider_usage: dict | None = None,
     ) -> Message:
         """Persist a new message and derive the initial title from the first user content."""
         message = Message(
@@ -291,6 +298,13 @@ class ConversationManager:
             response_time_ms=response_time_ms,
             estimated_cost=estimated_cost,
             is_long_context=is_long_context,
+            uncached_input_tokens=uncached_input_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
+            reasoning_tokens=reasoning_tokens,
+            usage_status=usage_status,
+            cost_status=cost_status,
+            provider_usage=provider_usage,
         )
         title = conversation.title
         if role == "user" and conversation.title == "New conversation":

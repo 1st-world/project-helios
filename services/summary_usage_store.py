@@ -37,9 +37,18 @@ class SummaryUsageStore:
             "input_tokens": 0,
             "output_tokens": 0,
             "total_tokens": 0,
+            "uncached_input_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "reasoning_tokens": 0,
             "known_estimated_cost": 0.0,
             "unknown_usage_calls": 0,
             "unknown_cost_calls": 0,
+            "partial_cost_calls": 0,
+            "unknown_uncached_input_calls": 0,
+            "unknown_cache_read_calls": 0,
+            "unknown_cache_write_calls": 0,
+            "unknown_reasoning_calls": 0,
             "statuses": {},
             "recording_errors": self.recording_errors,
         }
@@ -56,15 +65,36 @@ class SummaryUsageStore:
             status = record["status"]
             result["statuses"][status] = result["statuses"].get(status, 0) + 1
             usage = record["usage"]
-            if usage is None:
+            if (
+                usage is None
+                or usage.get("usage_status") in {"partial", "unavailable"}
+                or any(
+                    usage.get(key) is None
+                    for key in ("input_tokens", "output_tokens", "total_tokens")
+                )
+            ):
                 result["unknown_usage_calls"] += 1
-            else:
+            if usage is not None:
                 for key in ("input_tokens", "output_tokens", "total_tokens"):
-                    result[key] += usage[key]
+                    if usage.get(key) is not None:
+                        result[key] += usage[key]
+            for key, unknown_key in (
+                ("uncached_input_tokens", "unknown_uncached_input_calls"),
+                ("cache_read_tokens", "unknown_cache_read_calls"),
+                ("cache_write_tokens", "unknown_cache_write_calls"),
+                ("reasoning_tokens", "unknown_reasoning_calls"),
+            ):
+                count = usage.get(key) if usage is not None else None
+                if count is None:
+                    result[unknown_key] += 1
+                else:
+                    result[key] += count
             if usage is None or usage["estimated_cost"] is None:
                 result["unknown_cost_calls"] += 1
             else:
                 result["known_estimated_cost"] += usage["estimated_cost"]
+                if usage.get("cost_status") == "partial":
+                    result["partial_cost_calls"] += 1
         result["known_estimated_cost"] = round(
             result["known_estimated_cost"], 8
         )

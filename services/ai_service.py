@@ -121,9 +121,32 @@ class AIService:
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Yield reply deltas, usage, and completion events, surfacing provider failures."""
         client, profile = await self._get_client_and_profile(profile_id)
+        profile = replace(profile)
         started = time.perf_counter()
         response_usage = None
         completed = False
+        stream = None
+
+        def usage_event(raw_usage: object | None) -> dict:
+            """Normalize terminal usage against the profile snapshot used for this request."""
+            return {
+                "type": "usage",
+                "usage": self.usage_service.summarize(
+                    raw_usage,
+                    int((time.perf_counter() - started) * 1000),
+                    input_price_per_million=profile.input_price_per_million,
+                    output_price_per_million=profile.output_price_per_million,
+                    long_context_threshold=profile.long_context_threshold,
+                    long_input_price_per_million=profile.long_input_price_per_million,
+                    long_output_price_per_million=profile.long_output_price_per_million,
+                ).to_dict(),
+                "profile": {
+                    "id": profile.id,
+                    "name": profile.name,
+                    "deployment": profile.deployment,
+                },
+            }
+
         try:
             stream = await client.responses.create(
                 model=profile.deployment,
@@ -138,9 +161,8 @@ class AIService:
                     completed = True
                     response_usage = getattr(event.response, "usage", None)
                 elif event.type in {"response.failed", "response.incomplete"}:
-                    error = getattr(
-                        getattr(event, "response", None), "error", None
-                    )
+                    response = getattr(event, "response", None)
+                    error = getattr(response, "error", None)
                     if (
                         getattr(error, "code", None)
                         == "context_length_exceeded"
@@ -148,8 +170,21 @@ class AIService:
                         raise ContextWindowExceeded(
                             "The model's input context limit was exceeded."
                         )
+                    raw_usage = getattr(response, "usage", None)
+                    if raw_usage is not None:
+                        terminal_usage = usage_event(raw_usage)
+                        terminal_usage["response_status"] = getattr(
+                            response, "status", None
+                        )
+                        yield terminal_usage
+                    reason = getattr(
+                        getattr(response, "incomplete_details", None),
+                        "reason",
+                        None,
+                    )
                     raise RuntimeError(
                         "Azure OpenAI response did not complete."
+                        + (f" Reason: {reason}." if reason else "")
                     )
                 elif event.type == "error":
                     if (
@@ -166,26 +201,7 @@ class AIService:
                 raise RuntimeError(
                     "Azure OpenAI stream ended before the response completed."
                 )
-            elapsed = int((time.perf_counter() - started) * 1000)
-            usage_summary = self.usage_service.summarize(
-                response_usage,
-                elapsed,
-                input_price_per_million=profile.input_price_per_million,
-                output_price_per_million=profile.output_price_per_million,
-                long_context_threshold=profile.long_context_threshold,
-                long_input_price_per_million=profile.long_input_price_per_million,
-                long_output_price_per_million=profile.long_output_price_per_million,
-            ).to_dict()
-            profile_summary = {
-                "id": profile.id,
-                "name": profile.name,
-                "deployment": profile.deployment,
-            }
-            yield {
-                "type": "usage",
-                "usage": usage_summary,
-                "profile": profile_summary,
-            }
+            yield usage_event(response_usage)
             yield {"type": "done"}
         except (APIConnectionError, RateLimitError, APIError) as exc:
             if exc.code == "context_length_exceeded":
@@ -205,6 +221,9 @@ class AIService:
         except Exception:
             logger.exception("Unexpected streaming interruption")
             raise
+        finally:
+            if stream is not None and callable(getattr(stream, "close", None)):
+                await stream.close()
 
     async def summarize_memory(
         self,
@@ -258,6 +277,7 @@ class AIService:
                     usage["output_tokens"] and out_rate is None
                 ):
                     usage["estimated_cost"] = None
+                    usage["cost_status"] = "unavailable"
             try:
                 self.summary_usage_store.record(
                     conversation_id=conversation_id,

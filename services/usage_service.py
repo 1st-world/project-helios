@@ -1,27 +1,75 @@
 """Normalize provider token usage and estimate costs from profile-specific pricing."""
 
+from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import dataclass
+
+
+def _value(source: object | None, name: str) -> object | None:
+    """Read a usage field from a provider object or a replayed JSON mapping."""
+    if isinstance(source, Mapping):
+        return source.get(name)
+    return getattr(source, name, None)
+
+
+def _tokens(source: object | None, name: str) -> int | None:
+    """Preserve missing or invalid counts instead of converting them to zero."""
+    value = _value(source, name)
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return None
+
+
+def _provider_usage(usage: object | None) -> dict | None:
+    """Snapshot provider usage, including fields the local schema does not yet expose."""
+    if usage is None:
+        return None
+    if isinstance(usage, Mapping):
+        return deepcopy(dict(usage))
+    if callable(getattr(usage, "model_dump", None)):
+        return usage.model_dump(mode="json")
+    data = deepcopy(vars(usage))
+    for key in ("input_tokens_details", "output_tokens_details"):
+        details = data.get(key)
+        if details is not None and not isinstance(details, Mapping):
+            data[key] = vars(details).copy()
+    return data
 
 
 @dataclass
 class UsageSummary:
     """Hold normalized token counts, response duration, and optional estimated cost."""
 
-    input_tokens: int = 0
-    output_tokens: int = 0
+    input_tokens: int | None = None
+    output_tokens: int | None = None
     response_time_ms: int = 0
     estimated_cost: float | None = None
     is_long_context: bool = False
+    total_tokens: int | None = None
+    uncached_input_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    usage_status: str = "unavailable"
+    cost_status: str = "unavailable"
+    provider_usage: dict | None = None
 
     def to_dict(self) -> dict:
-        """Serialize usage metadata and derive the combined token count."""
+        """Serialize reported counts while keeping unavailable usage explicit."""
         return {
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
-            "total_tokens": self.input_tokens + self.output_tokens,
+            "total_tokens": self.total_tokens,
             "response_time_ms": self.response_time_ms,
             "estimated_cost": self.estimated_cost,
             "is_long_context": self.is_long_context,
+            "uncached_input_tokens": self.uncached_input_tokens,
+            "cache_read_tokens": self.cache_read_tokens,
+            "cache_write_tokens": self.cache_write_tokens,
+            "reasoning_tokens": self.reasoning_tokens,
+            "usage_status": self.usage_status,
+            "cost_status": self.cost_status,
+            "provider_usage": deepcopy(self.provider_usage),
         }
 
 
@@ -38,9 +86,60 @@ class UsageService:
         long_input_price_per_million: float | None = None,
         long_output_price_per_million: float | None = None,
     ) -> UsageSummary:
-        """Apply profile rates to usage, treating an unpriced side as zero when another is priced."""
-        input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
-        output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+        """Normalize usage and estimate regular-token costs without pricing unknown cache rates."""
+        input_tokens = _tokens(usage, "input_tokens")
+        output_tokens = _tokens(usage, "output_tokens")
+        total_tokens = _tokens(usage, "total_tokens")
+        if (
+            _value(usage, "total_tokens") is None
+            and input_tokens is not None
+            and output_tokens is not None
+        ):
+            total_tokens = input_tokens + output_tokens
+        input_details = _value(usage, "input_tokens_details")
+        output_details = _value(usage, "output_tokens_details")
+        cache_read_tokens = _tokens(input_details, "cached_tokens")
+        cache_write_tokens = _tokens(input_details, "cache_write_tokens")
+        reasoning_tokens = _tokens(output_details, "reasoning_tokens")
+        uncached_input_tokens = None
+        if (
+            input_tokens is not None
+            and cache_read_tokens is not None
+            and cache_write_tokens is not None
+        ):
+            ordinary = input_tokens - cache_read_tokens - cache_write_tokens
+            if ordinary >= 0:
+                uncached_input_tokens = ordinary
+
+        counts = (input_tokens, output_tokens, total_tokens)
+        if all(count is None for count in counts):
+            usage_status = "unavailable"
+        elif (
+            all(count is not None for count in counts)
+            and total_tokens == input_tokens + output_tokens
+        ):
+            usage_status = "available"
+        else:
+            usage_status = "partial"
+        invalid_cache = input_tokens is not None and (
+            (cache_read_tokens is not None and cache_read_tokens > input_tokens)
+            or (
+                cache_write_tokens is not None
+                and cache_write_tokens > input_tokens
+            )
+            or (
+                cache_read_tokens is not None
+                and cache_write_tokens is not None
+                and cache_read_tokens + cache_write_tokens > input_tokens
+            )
+        )
+        invalid_reasoning = (
+            output_tokens is not None
+            and reasoning_tokens is not None
+            and reasoning_tokens > output_tokens
+        )
+        if usage_status == "available" and (invalid_cache or invalid_reasoning):
+            usage_status = "partial"
 
         threshold = (
             long_context_threshold
@@ -51,7 +150,11 @@ class UsageService:
             long_input_price_per_million is not None
             or long_output_price_per_million is not None
         )
-        is_long_tier = bool(has_long_rates and input_tokens >= threshold)
+        is_long_tier = bool(
+            has_long_rates
+            and input_tokens is not None
+            and input_tokens >= threshold
+        )
 
         if is_long_tier:
             in_price = (
@@ -68,15 +171,31 @@ class UsageService:
             in_price = input_price_per_million
             out_price = output_price_per_million
 
-        if in_price is not None or out_price is not None:
+        estimated_cost = None
+        cost_status = "unavailable"
+        # Cache-read and cache-write rates are not configured by current profiles.
+        # Do not apply the ordinary input rate to either reported category.
+        has_cache_usage = bool(cache_read_tokens or cache_write_tokens)
+        if (
+            usage_status == "available"
+            and not has_cache_usage
+            and (in_price is not None or out_price is not None)
+        ):
             actual_in = in_price if in_price is not None else 0.0
             actual_out = out_price if out_price is not None else 0.0
             cost = (input_tokens / 1_000_000 * actual_in) + (
                 output_tokens / 1_000_000 * actual_out
             )
             estimated_cost = round(cost, 8)
-        else:
-            estimated_cost = None
+            missing_rate = (input_tokens > 0 and in_price is None) or (
+                output_tokens > 0 and out_price is None
+            )
+            missing_details = (
+                cache_read_tokens is None or cache_write_tokens is None
+            )
+            cost_status = (
+                "partial" if missing_rate or missing_details else "complete"
+            )
 
         return UsageSummary(
             input_tokens=input_tokens,
@@ -84,4 +203,12 @@ class UsageService:
             response_time_ms=response_time_ms,
             estimated_cost=estimated_cost,
             is_long_context=is_long_tier,
+            total_tokens=total_tokens,
+            uncached_input_tokens=uncached_input_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
+            reasoning_tokens=reasoning_tokens,
+            usage_status=usage_status,
+            cost_status=cost_status,
+            provider_usage=_provider_usage(usage),
         )
