@@ -139,6 +139,10 @@ class AIService:
                     long_context_threshold=profile.long_context_threshold,
                     long_input_price_per_million=profile.long_input_price_per_million,
                     long_output_price_per_million=profile.long_output_price_per_million,
+                    cache_read_price_per_million=profile.cache_read_price_per_million,
+                    cache_write_price_per_million=profile.cache_write_price_per_million,
+                    long_cache_read_price_per_million=profile.long_cache_read_price_per_million,
+                    long_cache_write_price_per_million=profile.long_cache_write_price_per_million,
                 ).to_dict(),
                 "profile": {
                     "id": profile.id,
@@ -258,26 +262,11 @@ class AIService:
                     long_context_threshold=profile.long_context_threshold,
                     long_input_price_per_million=profile.long_input_price_per_million,
                     long_output_price_per_million=profile.long_output_price_per_million,
+                    cache_read_price_per_million=profile.cache_read_price_per_million,
+                    cache_write_price_per_million=profile.cache_write_price_per_million,
+                    long_cache_read_price_per_million=profile.long_cache_read_price_per_million,
+                    long_cache_write_price_per_million=profile.long_cache_write_price_per_million,
                 ).to_dict()
-                # Missing rates are unknown, not free tokens.
-                long_tier = usage["is_long_context"]
-                in_rate = (
-                    profile.long_input_price_per_million
-                    if long_tier
-                    and profile.long_input_price_per_million is not None
-                    else profile.input_price_per_million
-                )
-                out_rate = (
-                    profile.long_output_price_per_million
-                    if long_tier
-                    and profile.long_output_price_per_million is not None
-                    else profile.output_price_per_million
-                )
-                if (usage["input_tokens"] and in_rate is None) or (
-                    usage["output_tokens"] and out_rate is None
-                ):
-                    usage["estimated_cost"] = None
-                    usage["cost_status"] = "unavailable"
             try:
                 self.summary_usage_store.record(
                     conversation_id=conversation_id,

@@ -85,8 +85,12 @@ class UsageService:
         long_context_threshold: int | None = None,
         long_input_price_per_million: float | None = None,
         long_output_price_per_million: float | None = None,
+        cache_read_price_per_million: float | None = None,
+        cache_write_price_per_million: float | None = None,
+        long_cache_read_price_per_million: float | None = None,
+        long_cache_write_price_per_million: float | None = None,
     ) -> UsageSummary:
-        """Normalize usage and estimate regular-token costs without pricing unknown cache rates."""
+        """Price reported token categories while distinguishing partial and unavailable estimates."""
         input_tokens = _tokens(usage, "input_tokens")
         output_tokens = _tokens(usage, "output_tokens")
         total_tokens = _tokens(usage, "total_tokens")
@@ -121,7 +125,13 @@ class UsageService:
             usage_status = "available"
         else:
             usage_status = "partial"
-        invalid_cache = input_tokens is not None and (
+        invalid_cache = any(
+            _value(input_details, name) is not None and count is None
+            for name, count in (
+                ("cached_tokens", cache_read_tokens),
+                ("cache_write_tokens", cache_write_tokens),
+            )
+        ) or input_tokens is not None and (
             (cache_read_tokens is not None and cache_read_tokens > input_tokens)
             or (
                 cache_write_tokens is not None
@@ -134,6 +144,9 @@ class UsageService:
             )
         )
         invalid_reasoning = (
+            _value(output_details, "reasoning_tokens") is not None
+            and reasoning_tokens is None
+        ) or (
             output_tokens is not None
             and reasoning_tokens is not None
             and reasoning_tokens > output_tokens
@@ -149,6 +162,8 @@ class UsageService:
         has_long_rates = (
             long_input_price_per_million is not None
             or long_output_price_per_million is not None
+            or long_cache_read_price_per_million is not None
+            or long_cache_write_price_per_million is not None
         )
         is_long_tier = bool(
             has_long_rates
@@ -167,30 +182,51 @@ class UsageService:
                 if long_output_price_per_million is not None
                 else output_price_per_million
             )
+            read_price = (
+                long_cache_read_price_per_million
+                if long_cache_read_price_per_million is not None
+                else cache_read_price_per_million
+            )
+            write_price = (
+                long_cache_write_price_per_million
+                if long_cache_write_price_per_million is not None
+                else cache_write_price_per_million
+            )
         else:
             in_price = input_price_per_million
             out_price = output_price_per_million
+            read_price = cache_read_price_per_million
+            write_price = cache_write_price_per_million
 
         estimated_cost = None
         cost_status = "unavailable"
-        # Cache-read and cache-write rates are not configured by current profiles.
-        # Do not apply the ordinary input rate to either reported category.
-        has_cache_usage = bool(cache_read_tokens or cache_write_tokens)
-        if (
-            usage_status == "available"
-            and not has_cache_usage
-            and (in_price is not None or out_price is not None)
+        priced_input = uncached_input_tokens
+        if priced_input is None and not (
+            cache_read_tokens or cache_write_tokens
         ):
-            actual_in = in_price if in_price is not None else 0.0
-            actual_out = out_price if out_price is not None else 0.0
-            cost = (input_tokens / 1_000_000 * actual_in) + (
-                output_tokens / 1_000_000 * actual_out
+            # Keep legacy input estimates partial when cache details are missing.
+            priced_input = input_tokens
+        categories = (
+            (priced_input, in_price),
+            (cache_read_tokens, read_price),
+            (cache_write_tokens, write_price),
+            (output_tokens, out_price),
+        )
+        priced_categories = [
+            (count, price) for count, price in categories
+            if count is not None and price is not None
+        ]
+        if usage_status == "available" and priced_categories:
+            cost = sum(
+                count / 1_000_000 * price
+                for count, price in priced_categories
             )
             estimated_cost = round(cost, 8)
-            missing_rate = (input_tokens > 0 and in_price is None) or (
-                output_tokens > 0 and out_price is None
+            missing_rate = any(
+                count is not None and count > 0 and price is None
+                for count, price in categories
             )
-            missing_details = (
+            missing_details = input_tokens > 0 and (
                 cache_read_tokens is None or cache_write_tokens is None
             )
             cost_status = (

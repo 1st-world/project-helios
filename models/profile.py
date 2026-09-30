@@ -6,7 +6,7 @@ from uuid import uuid4
 
 @dataclass
 class ConnectionProfile:
-    """Hold connection credentials, deployment, and optional standard and long-context rates."""
+    """Hold connection credentials and optional ordinary, cache, and long-context rates."""
 
     id: str = field(default_factory=lambda: str(uuid4()))
     name: str = "Default Azure Profile"
@@ -18,6 +18,10 @@ class ConnectionProfile:
     long_context_threshold: int | None = 128_000
     long_input_price_per_million: float | None = None
     long_output_price_per_million: float | None = None
+    cache_read_price_per_million: float | None = None
+    cache_write_price_per_million: float | None = None
+    long_cache_read_price_per_million: float | None = None
+    long_cache_write_price_per_million: float | None = None
 
     @property
     def is_configured(self) -> bool:
@@ -40,6 +44,10 @@ class ConnectionProfile:
             "long_context_threshold": self.long_context_threshold,
             "long_input_price_per_million": self.long_input_price_per_million,
             "long_output_price_per_million": self.long_output_price_per_million,
+            "cache_read_price_per_million": self.cache_read_price_per_million,
+            "cache_write_price_per_million": self.cache_write_price_per_million,
+            "long_cache_read_price_per_million": self.long_cache_read_price_per_million,
+            "long_cache_write_price_per_million": self.long_cache_write_price_per_million,
             "is_configured": self.is_configured,
             "has_api_key": bool(self.api_key.strip()),
         }
@@ -55,6 +63,10 @@ class ConnectionProfile:
         threshold = data.get("long_context_threshold")
         long_in = data.get("long_input_price_per_million")
         long_out = data.get("long_output_price_per_million")
+        cache_read = data.get("cache_read_price_per_million")
+        cache_write = data.get("cache_write_price_per_million")
+        long_cache_read = data.get("long_cache_read_price_per_million")
+        long_cache_write = data.get("long_cache_write_price_per_million")
         return cls(
             id=str(data.get("id") or uuid4()),
             name=str(data.get("name") or "Azure Profile").strip(),
@@ -84,6 +96,28 @@ class ConnectionProfile:
             long_output_price_per_million=(
                 float(long_out)
                 if long_out is not None and str(long_out).strip() != ""
+                else None
+            ),
+            cache_read_price_per_million=(
+                float(cache_read)
+                if cache_read is not None and str(cache_read).strip() != ""
+                else None
+            ),
+            cache_write_price_per_million=(
+                float(cache_write)
+                if cache_write is not None and str(cache_write).strip() != ""
+                else None
+            ),
+            long_cache_read_price_per_million=(
+                float(long_cache_read)
+                if long_cache_read is not None
+                and str(long_cache_read).strip() != ""
+                else None
+            ),
+            long_cache_write_price_per_million=(
+                float(long_cache_write)
+                if long_cache_write is not None
+                and str(long_cache_write).strip() != ""
                 else None
             ),
         )

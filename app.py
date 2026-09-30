@@ -154,6 +154,10 @@ class CreateProfileRequest(BaseModel):
     long_context_threshold: int | None = Field(default=128_000, ge=1)
     long_input_price_per_million: float | None = Field(default=None, ge=0)
     long_output_price_per_million: float | None = Field(default=None, ge=0)
+    cache_read_price_per_million: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    cache_write_price_per_million: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    long_cache_read_price_per_million: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    long_cache_write_price_per_million: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
 
 class UpdateProfileRequest(BaseModel):
@@ -172,6 +176,14 @@ class UpdateProfileRequest(BaseModel):
     long_output_price_per_million: float | None = Field(default=None, ge=0)
     clear_long_input_price: bool = False
     clear_long_output_price: bool = False
+    cache_read_price_per_million: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    cache_write_price_per_million: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    long_cache_read_price_per_million: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    long_cache_write_price_per_million: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    clear_cache_read_price: bool = False
+    clear_cache_write_price: bool = False
+    clear_long_cache_read_price: bool = False
+    clear_long_cache_write_price: bool = False
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -211,6 +223,10 @@ async def create_profile(payload: CreateProfileRequest):
             payload.long_context_threshold,
             payload.long_input_price_per_million,
             payload.long_output_price_per_million,
+            cache_read_price_per_million=payload.cache_read_price_per_million,
+            cache_write_price_per_million=payload.cache_write_price_per_million,
+            long_cache_read_price_per_million=payload.long_cache_read_price_per_million,
+            long_cache_write_price_per_million=payload.long_cache_write_price_per_million,
         )
     except Exception:
         logger.exception("Could not create profile")
@@ -239,6 +255,14 @@ async def update_profile(profile_id: str, payload: UpdateProfileRequest):
             long_output_price_per_million=payload.long_output_price_per_million,
             clear_long_input_price=payload.clear_long_input_price,
             clear_long_output_price=payload.clear_long_output_price,
+            cache_read_price_per_million=payload.cache_read_price_per_million,
+            cache_write_price_per_million=payload.cache_write_price_per_million,
+            long_cache_read_price_per_million=payload.long_cache_read_price_per_million,
+            long_cache_write_price_per_million=payload.long_cache_write_price_per_million,
+            clear_cache_read_price=payload.clear_cache_read_price,
+            clear_cache_write_price=payload.clear_cache_write_price,
+            clear_long_cache_read_price=payload.clear_long_cache_read_price,
+            clear_long_cache_write_price=payload.clear_long_cache_write_price,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))

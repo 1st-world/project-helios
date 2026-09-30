@@ -117,11 +117,21 @@ export function createChat({ getActiveProfileId, getWorkspaceFile, clearFocusFil
       const detail = (inTokens != null && outTokens != null) ? ` (${inTokens.toLocaleString()} in / ${outTokens.toLocaleString()} out)` : '';
       parts.push(`<span class="message-meta-item">${totalTokens.toLocaleString()} tokens${detail}</span>`);
     }
+    const tokenDetails = [
+      ['cache_read_tokens', 'cache read'],
+      ['cache_write_tokens', 'cache write'],
+      ['reasoning_tokens', 'reasoning'],
+    ].filter(([name]) => Number.isInteger(meta[name]) && meta[name] > 0)
+      .map(([name, label]) => `${meta[name].toLocaleString()} ${label}`);
+    if (tokenDetails.length) {
+      parts.push(`<span class="message-meta-item" title="Cache tokens are included in input; reasoning tokens are included in output.">· ${tokenDetails.join(' / ')}</span>`);
+    }
     if (meta.response_time_ms != null) {
       parts.push(`<span class="message-meta-item">· ${(meta.response_time_ms / 1000).toFixed(1)}s</span>`);
     }
     if (meta.estimated_cost !== null && meta.estimated_cost !== undefined) {
-      parts.push(`<span class="message-meta-item message-meta-cost">· $${Number(meta.estimated_cost).toFixed(6)}</span>`);
+      const qualification = meta.cost_status === 'complete' ? '' : meta.cost_status === 'partial' ? ' (Partial estimate)' : ' (Completeness unknown)';
+      parts.push(`<span class="message-meta-item message-meta-cost">· $${Number(meta.estimated_cost).toFixed(6)}${qualification}</span>`);
     }
     if (meta.is_long_context) {
       parts.push(`<span class="message-meta-tag message-meta-tier">Long Tier</span>`);
@@ -416,6 +426,11 @@ export function createChat({ getActiveProfileId, getWorkspaceFile, clearFocusFil
                 response_time_ms: event.usage.response_time_ms,
                 estimated_cost: event.usage.estimated_cost,
                 is_long_context: event.usage.is_long_context,
+                cache_read_tokens: event.usage.cache_read_tokens,
+                cache_write_tokens: event.usage.cache_write_tokens,
+                reasoning_tokens: event.usage.reasoning_tokens,
+                usage_status: event.usage.usage_status,
+                cost_status: event.usage.cost_status,
               });
             }
           }

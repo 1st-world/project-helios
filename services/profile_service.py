@@ -104,6 +104,10 @@ class ProfileService:
         long_context_threshold: int | None = 128_000,
         long_input_price_per_million: float | None = None,
         long_output_price_per_million: float | None = None,
+        cache_read_price_per_million: float | None = None,
+        cache_write_price_per_million: float | None = None,
+        long_cache_read_price_per_million: float | None = None,
+        long_cache_write_price_per_million: float | None = None,
     ) -> ConnectionProfile:
         """Create a normalized profile and select it when no active profile exists."""
         cleaned_name = name.strip() or "New Azure Profile"
@@ -122,6 +126,10 @@ class ProfileService:
             ),
             long_input_price_per_million=long_input_price_per_million,
             long_output_price_per_million=long_output_price_per_million,
+            cache_read_price_per_million=cache_read_price_per_million,
+            cache_write_price_per_million=cache_write_price_per_million,
+            long_cache_read_price_per_million=long_cache_read_price_per_million,
+            long_cache_write_price_per_million=long_cache_write_price_per_million,
         )
         self._profiles[profile.id] = profile
         if not self._active_profile_id:
@@ -145,6 +153,14 @@ class ProfileService:
         long_output_price_per_million: float | None = None,
         clear_long_input_price: bool = False,
         clear_long_output_price: bool = False,
+        cache_read_price_per_million: float | None = None,
+        cache_write_price_per_million: float | None = None,
+        long_cache_read_price_per_million: float | None = None,
+        long_cache_write_price_per_million: float | None = None,
+        clear_cache_read_price: bool = False,
+        clear_cache_write_price: bool = False,
+        clear_long_cache_read_price: bool = False,
+        clear_long_cache_write_price: bool = False,
     ) -> ConnectionProfile:
         """Apply provided profile values and pricing-clear flags, preserving omitted settings."""
         profile = self.get_profile(profile_id)
@@ -178,6 +194,16 @@ class ProfileService:
             profile.long_output_price_per_million = (
                 long_output_price_per_million
             )
+        for name, value, clear in (
+            ("cache_read_price_per_million", cache_read_price_per_million, clear_cache_read_price),
+            ("cache_write_price_per_million", cache_write_price_per_million, clear_cache_write_price),
+            ("long_cache_read_price_per_million", long_cache_read_price_per_million, clear_long_cache_read_price),
+            ("long_cache_write_price_per_million", long_cache_write_price_per_million, clear_long_cache_write_price),
+        ):
+            if clear:
+                setattr(profile, name, None)
+            elif value is not None:
+                setattr(profile, name, value)
 
         self._save()
         return profile
