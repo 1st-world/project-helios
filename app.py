@@ -3,11 +3,14 @@
 import asyncio
 import json
 import logging
-from contextlib import asynccontextmanager
+from contextlib import aclosing, asynccontextmanager
+from datetime import date
 from logging.handlers import RotatingFileHandler
+from typing import Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
+import anyio
 from fastapi import (
     BackgroundTasks,
     FastAPI,
@@ -34,6 +37,7 @@ from services.conversation_service import (
     ConversationManager,
     ConversationUnavailableError,
 )
+from services.call_usage_store import CallUsageStore
 from services.folder_picker_service import (
     FolderPickerService,
     PickerReconnectingError,
@@ -67,8 +71,23 @@ usage_service = UsageService()
 summary_usage_store = SummaryUsageStore(
     settings.logs_root / "summary_usage.sqlite3"
 )
+call_usage_store = CallUsageStore(settings.logs_root / "usage_calls.sqlite3")
+try:
+    call_usage_store.import_summaries(summary_usage_store)
+except Exception:
+    call_usage_store.import_errors += 1
+    logger.exception("Could not import historical summary usage")
+for stored_conversation in conversation_manager.list():
+    try:
+        call_usage_store.import_conversation(
+            conversation_manager.get(stored_conversation["id"])
+        )
+    except Exception:
+        call_usage_store.import_errors += 1
+        logger.exception("Could not import historical conversation usage")
 ai_service = AIService(
-    usage_service, profile_service, summary_usage_store=summary_usage_store
+    usage_service, profile_service, summary_usage_store=summary_usage_store,
+    call_usage_store=call_usage_store,
 )
 context_budget = ContextBudget(
     settings.context_token_budget,
@@ -105,6 +124,45 @@ templates = Jinja2Templates(directory=settings.templates_root)
 async def summary_usage(conversation_id: str | None = None):
     """Return recorded summary usage for one conversation or all conversations."""
     return summary_usage_store.totals(conversation_id)
+
+
+@app.get("/api/usage")
+async def call_usage(
+    conversation_id: str | None = None,
+    kind: Literal[
+        "chat", "regeneration", "summary", "legacy_reply"
+    ] | None = None,
+    timezone: str = "UTC", start_date: date | None = None,
+    end_date: date | None = None,
+):
+    """Return cumulative call usage and daily buckets in the requested IANA timezone."""
+    try:
+        return call_usage_store.totals(
+            conversation_id=conversation_id, kind=kind,
+            timezone_name=timezone, start_date=start_date, end_date=end_date,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/usage/calls")
+async def call_usage_records(
+    conversation_id: str | None = None,
+    kind: Literal[
+        "chat", "regeneration", "summary", "legacy_reply"
+    ] | None = None,
+    timezone: str = "UTC", start_date: date | None = None,
+    end_date: date | None = None, limit: int = 100, offset: int = 0,
+):
+    """Return a bounded page of immutable call results and saved pricing metadata."""
+    try:
+        return {"calls": call_usage_store.records(
+            conversation_id=conversation_id, kind=kind,
+            timezone_name=timezone, start_date=start_date, end_date=end_date,
+            limit=limit, offset=offset,
+        )}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 class ReadFileRequest(BaseModel):
@@ -556,6 +614,7 @@ async def chat(payload: ChatRequest):
         """Stream reply events, save a completed reply, and schedule memory compaction."""
         answer = ""
         usage_data = None
+        usage_call_id = None
         profile_data = None
         completed = False
         request_instructions, request_messages = instructions, input_messages
@@ -563,20 +622,27 @@ async def chat(payload: ChatRequest):
             yield f"data: {json.dumps({'type': 'start', 'conversation_id': conversation.id})}\n\n"
             for attempt in range(2):
                 try:
-                    async for event in ai_service.stream(
+                    async with aclosing(ai_service.stream(
                         request_instructions,
                         request_messages,
                         profile_id=profile_id,
-                    ):
-                        if event["type"] == "delta":
-                            answer += event["text"]
-                        elif event["type"] == "usage":
-                            usage_data = event.get("usage")
-                            profile_data = event.get("profile")
-                        elif event["type"] == "done":
-                            completed = True
-                            continue
-                        yield f"data: {json.dumps(event)}\n\n"
+                        conversation_id=conversation.id,
+                        call_kind=(
+                            "regeneration" if payload.regenerate_message_index
+                            is not None else "chat"
+                        ),
+                    )) as reply_stream:
+                        async for event in reply_stream:
+                            if event["type"] == "delta":
+                                answer += event["text"]
+                            elif event["type"] == "usage":
+                                usage_data = event.get("usage")
+                                profile_data = event.get("profile")
+                                usage_call_id = event.get("call_id")
+                            elif event["type"] == "done":
+                                completed = True
+                                continue
+                            yield f"data: {json.dumps(event)}\n\n"
                     break
                 except ContextWindowExceeded:
                     # Retry a confirmed context-limit error only before streaming text, using a smaller input.
@@ -614,6 +680,8 @@ async def chat(payload: ChatRequest):
             if not completed:
                 raise RuntimeError("Response stream ended before completion.")
             msg_kwargs = {}
+            if usage_call_id is not None:
+                msg_kwargs["usage_call_id"] = usage_call_id
             if profile_data:
                 msg_kwargs["profile_id"] = profile_data.get("id")
                 msg_kwargs["profile_name"] = profile_data.get("name")
@@ -671,12 +739,24 @@ async def chat(payload: ChatRequest):
             logger.exception("Chat stream failed")
             yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
 
-    return StreamingResponse(
+    return ChatStreamingResponse(
         events(),
         media_type="text/event-stream",
         background=background_tasks,
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+class ChatStreamingResponse(StreamingResponse):
+    """Close the reply generator deterministically when an ASGI client disconnects."""
+
+    async def __call__(self, scope, receive, send) -> None:
+        """Shield final generator cleanup from the streaming task's cancellation scope."""
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            with anyio.CancelScope(shield=True):
+                await self.body_iterator.aclose()
 
 
 if __name__ == "__main__":

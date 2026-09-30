@@ -31,6 +31,7 @@ class Message:
     usage_status: str | None = None
     cost_status: str | None = None
     provider_usage: dict | None = None
+    usage_call_id: str | None = None
 
     def to_dict(self) -> dict:
         """Serialize a message, omitting metadata that was not recorded."""
@@ -65,6 +66,7 @@ class Message:
             "usage_status",
             "cost_status",
             "provider_usage",
+            "usage_call_id",
         ):
             value = getattr(self, name)
             if value is not None:
@@ -102,4 +104,5 @@ class Message:
             usage_status=data.get("usage_status"),
             cost_status=data.get("cost_status"),
             provider_usage=deepcopy(data.get("provider_usage")),
+            usage_call_id=data.get("usage_call_id"),
         )

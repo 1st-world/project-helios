@@ -284,6 +284,7 @@ class ConversationManager:
         usage_status: str | None = None,
         cost_status: str | None = None,
         provider_usage: dict | None = None,
+        usage_call_id: str | None = None,
     ) -> Message:
         """Persist a new message and derive the initial title from the first user content."""
         message = Message(
@@ -305,6 +306,7 @@ class ConversationManager:
             usage_status=usage_status,
             cost_status=cost_status,
             provider_usage=provider_usage,
+            usage_call_id=usage_call_id,
         )
         title = conversation.title
         if role == "user" and conversation.title == "New conversation":

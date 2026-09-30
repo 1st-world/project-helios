@@ -1,16 +1,20 @@
 """Manage Azure OpenAI clients, stream replies, and account for conversation summaries."""
 
+import asyncio
 import logging
 import time
 from collections.abc import AsyncGenerator
 from dataclasses import replace
+from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
 
 from openai import APIConnectionError, APIError, AsyncOpenAI, RateLimitError
 
 from models.message import Message
 from models.profile import ConnectionProfile
 from services.context_budget import ContextWindowExceeded
+from services.call_usage_store import CallUsageStore, utc_timestamp
 from services.profile_service import ProfileService
 from services.prompt_builder import PromptBuilder
 from services.summary_usage_store import SummaryUsageStore
@@ -28,19 +32,76 @@ class AIService:
         profile_service: ProfileService | None = None,
         *,
         summary_usage_store: SummaryUsageStore | None = None,
+        call_usage_store: CallUsageStore | None = None,
     ) -> None:
         """Bind profile and usage services and initialize the client cache."""
         self.summary_usage_store = summary_usage_store or SummaryUsageStore()
+        self.call_usage_store = call_usage_store or CallUsageStore()
         self.usage_service = usage_service
         self.profile_service = profile_service
         self._clients: dict[str, dict[str, Any]] = {}
 
     async def close(self) -> None:
         """Closes all cached client connections when the application shuts down."""
-        for cached in self._clients.values():
-            await cached["client"].close()
-        self._clients.clear()
-        self.summary_usage_store.close()
+        try:
+            for cached in self._clients.values():
+                await cached["client"].close()
+        finally:
+            self._clients.clear()
+            try:
+                self.summary_usage_store.close()
+            finally:
+                self.call_usage_store.close()
+
+    def _record_call(self, record: dict) -> None:
+        """Keep accounting failures from repeating requests or discarding usable replies."""
+        try:
+            self.call_usage_store.record(record)
+        except Exception:
+            self.call_usage_store.recording_errors += 1
+            logger.exception("Could not record API call usage")
+
+    def _begin_call(
+        self, profile: ConnectionProfile, kind: str,
+        conversation_id: str | None,
+    ) -> dict:
+        """Persist request metadata and prices without credentials or prompt content."""
+        record = {
+            "id": str(uuid4()), "source": "live", "kind": kind,
+            "conversation_id": conversation_id, "status": "in_progress",
+            "profile_id": profile.id, "profile_name": profile.name,
+            "deployment": profile.deployment,
+            "started_at": utc_timestamp(datetime.now(timezone.utc)),
+            "finished_at": None, "response_id": None, "usage": None,
+            "price_snapshot": {
+                "currency": "USD",
+                **{name: getattr(profile, name) for name in (
+                    "input_price_per_million", "output_price_per_million",
+                    "long_context_threshold", "long_input_price_per_million",
+                    "long_output_price_per_million",
+                    "cache_read_price_per_million",
+                    "cache_write_price_per_million",
+                    "long_cache_read_price_per_million",
+                    "long_cache_write_price_per_million",
+                )},
+            },
+        }
+        self._record_call(record)
+        return record
+
+    def _finish_call(self, record: dict, **details: object) -> None:
+        """Finalize a call once, retaining provider results after consumer cancellation."""
+        if record["status"] != "in_progress":
+            return
+        finished = datetime.now(timezone.utc)
+        record.update(
+            finished_at=utc_timestamp(finished),
+            response_time_ms=max(0, int((
+                finished - datetime.fromisoformat(record["started_at"])
+            ).total_seconds() * 1000)),
+            **details,
+        )
+        self._record_call(record)
 
     def _resolve_profile(
         self, profile_id: str | None = None
@@ -85,6 +146,7 @@ class AIService:
         client = AsyncOpenAI(
             api_key=target_profile.api_key,
             base_url=base_url,
+            max_retries=0,
         )
         self._clients[target_profile.id] = {
             "client": client,
@@ -118,10 +180,16 @@ class AIService:
         instructions: str,
         input_messages: list[dict[str, str]],
         profile_id: str | None = None,
+        *,
+        conversation_id: str | None = None,
+        call_kind: str = "chat",
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Yield reply deltas, usage, and completion events, surfacing provider failures."""
         client, profile = await self._get_client_and_profile(profile_id)
         profile = replace(profile)
+        if call_kind not in {"chat", "regeneration"}:
+            raise ValueError("Unsupported reply call kind.")
+        call = self._begin_call(profile, call_kind, conversation_id)
         started = time.perf_counter()
         response_usage = None
         completed = False
@@ -131,6 +199,7 @@ class AIService:
             """Normalize terminal usage against the profile snapshot used for this request."""
             return {
                 "type": "usage",
+                "call_id": call["id"],
                 "usage": self.usage_service.summarize(
                     raw_usage,
                     int((time.perf_counter() - started) * 1000),
@@ -159,14 +228,38 @@ class AIService:
                 stream=True,
             )
             async for event in stream:
-                if event.type == "response.output_text.delta":
+                if event.type == "response.created":
+                    response_id = getattr(
+                        getattr(event, "response", None), "id", None
+                    )
+                    if response_id:
+                        call["response_id"] = response_id
+                        self._record_call(call)
+                elif event.type == "response.output_text.delta":
                     yield {"type": "delta", "text": event.delta}
                 elif event.type == "response.completed":
                     completed = True
                     response_usage = getattr(event.response, "usage", None)
+                    self._finish_call(
+                        call, status="completed",
+                        response_id=getattr(event.response, "id", None),
+                        usage=usage_event(response_usage)["usage"],
+                    )
                 elif event.type in {"response.failed", "response.incomplete"}:
                     response = getattr(event, "response", None)
                     error = getattr(response, "error", None)
+                    raw_usage = getattr(response, "usage", None)
+                    reason = getattr(
+                        getattr(response, "incomplete_details", None),
+                        "reason", None,
+                    )
+                    self._finish_call(
+                        call, status=event.type.removeprefix("response."),
+                        response_id=getattr(response, "id", None),
+                        error_code=getattr(error, "code", None),
+                        incomplete_reason=reason,
+                        usage=usage_event(raw_usage)["usage"],
+                    )
                     if (
                         getattr(error, "code", None)
                         == "context_length_exceeded"
@@ -174,7 +267,6 @@ class AIService:
                         raise ContextWindowExceeded(
                             "The model's input context limit was exceeded."
                         )
-                    raw_usage = getattr(response, "usage", None)
                     if raw_usage is not None:
                         terminal_usage = usage_event(raw_usage)
                         terminal_usage["response_status"] = getattr(
@@ -191,6 +283,10 @@ class AIService:
                         + (f" Reason: {reason}." if reason else "")
                     )
                 elif event.type == "error":
+                    self._finish_call(
+                        call, status="failed",
+                        error_code=getattr(event, "code", None),
+                    )
                     if (
                         getattr(event, "code", None)
                         == "context_length_exceeded"
@@ -202,12 +298,22 @@ class AIService:
                         "Azure OpenAI returned a streaming error."
                     )
             if not completed:
+                self._finish_call(
+                    call, status="interrupted",
+                    interruption_reason="stream_ended_without_terminal_response",
+                )
                 raise RuntimeError(
                     "Azure OpenAI stream ended before the response completed."
                 )
-            yield usage_event(response_usage)
+            final_usage = usage_event(response_usage)
+            final_usage["usage"] = call["usage"]
+            yield final_usage
             yield {"type": "done"}
         except (APIConnectionError, RateLimitError, APIError) as exc:
+            self._finish_call(
+                call, status="failed", error_code=exc.code,
+                http_status=getattr(exc, "status_code", None),
+            )
             if exc.code == "context_length_exceeded":
                 raise ContextWindowExceeded(
                     "The model's input context limit was exceeded."
@@ -222,7 +328,11 @@ class AIService:
             ) from exc
         except ContextWindowExceeded:
             raise
+        except (asyncio.CancelledError, GeneratorExit):
+            self._finish_call(call, status="cancelled")
+            raise
         except Exception:
+            self._finish_call(call, status="failed")
             logger.exception("Unexpected streaming interruption")
             raise
         finally:
@@ -244,6 +354,7 @@ class AIService:
             previous_summary, messages
         )
         started = time.perf_counter()
+        call = self._begin_call(profile, "summary", conversation_id)
         try:
             response = await client.responses.create(
                 model=profile.deployment,
@@ -267,9 +378,18 @@ class AIService:
                     long_cache_read_price_per_million=profile.long_cache_read_price_per_million,
                     long_cache_write_price_per_million=profile.long_cache_write_price_per_million,
                 ).to_dict()
+            self._finish_call(
+                call, status=response.status,
+                response_id=getattr(response, "id", None), usage=usage,
+                incomplete_reason=getattr(
+                    getattr(response, "incomplete_details", None), "reason", None
+                ),
+                error_code=getattr(getattr(response, "error", None), "code", None),
+            )
             try:
                 self.summary_usage_store.record(
                     conversation_id=conversation_id,
+                    usage_call_id=call["id"],
                     response_id=getattr(response, "id", None),
                     profile_id=profile.id,
                     deployment=profile.deployment,
@@ -308,6 +428,10 @@ class AIService:
                 return ""
             return response.output_text.strip()
         except (APIConnectionError, RateLimitError, APIError) as exc:
+            self._finish_call(
+                call, status="failed", error_code=exc.code,
+                http_status=getattr(exc, "status_code", None),
+            )
             if exc.code == "context_length_exceeded":
                 raise ContextWindowExceeded(
                     "The summary input context limit was exceeded."
@@ -316,3 +440,9 @@ class AIService:
             raise RuntimeError(
                 "Could not compact conversation memory."
             ) from exc
+        except asyncio.CancelledError:
+            self._finish_call(call, status="cancelled")
+            raise
+        except Exception:
+            self._finish_call(call, status="failed")
+            raise

@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -29,6 +30,13 @@ class SummaryUsageStore:
                 "INSERT INTO summary_usage VALUES (?, ?)",
                 (str(uuid4()), json.dumps(data, ensure_ascii=False)),
             )
+
+    def records(self) -> Iterator[tuple[str, dict]]:
+        """Yield stable row identifiers and snapshots for idempotent ledger migration."""
+        for record_id, raw in self.connection.execute(
+            "SELECT id, data FROM summary_usage"
+        ):
+            yield record_id, json.loads(raw)
 
     def totals(self, conversation_id: str | None = None) -> dict:
         """Aggregate usage and known costs while counting missing data and recording failures."""
