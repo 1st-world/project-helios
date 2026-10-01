@@ -26,6 +26,10 @@ from pydantic import BaseModel, Field
 
 from config import settings
 from services.ai_service import AIService
+from services.attachment_errors import ProviderAttachmentError
+from services.attachment_service import (
+    AttachmentError, AttachmentService, PreparedAttachments,
+)
 from services.context_budget import (
     ContextBudget,
     ContextBudgetExceeded,
@@ -66,6 +70,7 @@ logger = logging.getLogger(__name__)
 profile_service = ProfileService(settings.profiles_path)
 conversation_manager = ConversationManager(settings.conversations_root)
 workspace_service = WorkspaceService(settings.workspace_root)
+attachment_service = AttachmentService(workspace_service)
 folder_picker_service = FolderPickerService()
 usage_service = UsageService()
 summary_usage_store = SummaryUsageStore(
@@ -178,9 +183,16 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None
     workspace_file: str | None = None
     workspace_files: list[str] = Field(default_factory=list)
+    attachment_files: list[str] = Field(default_factory=list, max_length=16)
     profile_id: str | None = None
     regenerate_message_index: int | None = Field(default=None, ge=0)
     expected_conversation_version: int | None = Field(default=None, ge=0)
+
+
+class AttachmentSelectionRequest(BaseModel):
+    """Validate files for the backend attachment API without changing GUI selection."""
+
+    paths: list[str] = Field(min_length=1, max_length=16)
 
 
 class RenameConversationRequest(BaseModel):
@@ -538,6 +550,29 @@ async def read_file(payload: ReadFileRequest):
         raise HTTPException(status_code=500, detail="Could not read file.")
 
 
+@app.post("/api/attachments/inspect")
+async def inspect_attachments(payload: AttachmentSelectionRequest):
+    """Validate local attachments without provider calls or returning binary contents."""
+    try:
+        prepared = await anyio.to_thread.run_sync(
+            attachment_service.prepare, payload.paths
+        )
+    except AttachmentError as exc:
+        raise HTTPException(
+            status_code=exc.status_code, detail=exc.detail()
+        ) from exc
+    estimate = context_budget.estimate(
+        "", [{"role": "user", "content": prepared.content}],
+        visual_tokens=prepared.visual_tokens,
+    )
+    return {
+        "files": prepared.metadata,
+        "estimated_context_tokens": estimate,
+        "context_input_limit": context_budget.input_limit,
+        "model_support": "validated_by_provider_on_chat",
+    }
+
+
 @app.post("/api/chat")
 async def chat(payload: ChatRequest):
     """Prepare a versioned conversation turn and return its server-sent response stream."""
@@ -578,15 +613,44 @@ async def chat(payload: ChatRequest):
             )
         history_end = payload.regenerate_message_index
         user_prompt = source_message.content
+    workspace_root = workspace_service.root
     workspace_context = workspace_service.project_context()
     selected_files = list(payload.workspace_files)
     if payload.workspace_file:
         selected_files.append(payload.workspace_file)
     try:
-        workspace_context += workspace_service.selected_context(selected_files)
+        attachments = (
+            await anyio.to_thread.run_sync(
+                attachment_service.prepare, payload.attachment_files
+            ) if payload.attachment_files else PreparedAttachments()
+        )
+        if workspace_service.root != workspace_root:
+            raise AttachmentError(
+                "attachment_workspace_changed",
+                "Workspace changed while reading attachments. Select the files again.",
+                "", 409,
+            )
+    except AttachmentError as exc:
+        raise HTTPException(
+            status_code=exc.status_code, detail=exc.detail()
+        ) from exc
+    try:
+        attached_paths = {
+            workspace_service._resolve(item["path"])
+            for item in attachments.metadata
+        }
+        workspace_context += workspace_service.selected_context(
+            selected_files, exclude_paths=attached_paths
+        )
     except WorkspaceAccessError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
+    attachment_options = (
+        {
+            "attachment_content": attachments.content,
+            "visual_tokens": attachments.visual_tokens,
+        }
+        if attachments.content else {}
+    )
     try:
         instructions, input_messages = await memory_service.prepare_context(
             conversation,
@@ -595,6 +659,7 @@ async def chat(payload: ChatRequest):
             profile_id,
             history_end=history_end,
             persist_memory=payload.regenerate_message_index is None,
+            **attachment_options,
         )
     except ContextBudgetExceeded as exc:
         raise HTTPException(status_code=413, detail=str(exc)) from exc
@@ -617,6 +682,11 @@ async def chat(payload: ChatRequest):
         request_instructions, request_messages = instructions, input_messages
         try:
             yield f"data: {json.dumps({'type': 'start', 'conversation_id': conversation.id})}\n\n"
+            if attachments.metadata:
+                metadata_event = {
+                    "type": "attachments", "files": attachments.metadata,
+                }
+                yield f"data: {json.dumps(metadata_event)}\n\n"
             for attempt in range(2):
                 try:
                     async with aclosing(ai_service.stream(
@@ -656,7 +726,8 @@ async def chat(payload: ChatRequest):
                         )
                     reduced_limit = (
                         context_budget.estimate(
-                            request_instructions, request_messages
+                            request_instructions, request_messages,
+                            visual_tokens=attachments.visual_tokens,
                         )
                         * 3
                         // 4
@@ -671,6 +742,7 @@ async def chat(payload: ChatRequest):
                             persist_memory=payload.regenerate_message_index
                             is None,
                             input_limit=reduced_limit,
+                            **attachment_options,
                         )
                     )
 
@@ -732,6 +804,12 @@ async def chat(payload: ChatRequest):
                 "Discarded response for an unavailable conversation: %s",
                 conversation.id,
             )
+        except ProviderAttachmentError as exc:
+            error = {
+                "type": "error", "code": exc.code, "message": str(exc),
+                "paths": [item["path"] for item in attachments.metadata],
+            }
+            yield f"data: {json.dumps(error)}\n\n"
         except Exception as exc:
             logger.exception("Chat stream failed")
             yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"

@@ -30,14 +30,15 @@ class WorkspaceService:
             raise WorkspaceAccessError("Workspace path must be a folder.")
         self.root = resolved
 
-    def _resolve(self, relative_path: str) -> Path:
-        """Resolve a relative path and reject absolute paths or escapes from the workspace."""
+    def _resolve(self, relative_path: str, *, root: Path | None = None) -> Path:
+        """Resolve a relative path within the current or snapshotted workspace boundary."""
         candidate = Path(relative_path)
         if candidate.is_absolute():
             raise WorkspaceAccessError("Absolute paths are not allowed.")
-        resolved = (self.root / candidate).resolve()
+        boundary = self.root if root is None else root
+        resolved = (boundary / candidate).resolve()
         try:
-            resolved.relative_to(self.root)
+            resolved.relative_to(boundary)
         except ValueError as exc:
             raise WorkspaceAccessError(
                 "Path must remain inside the workspace."
@@ -117,9 +118,11 @@ class WorkspaceService:
         listing = "\n".join(paths) if paths else "(empty workspace)"
         return f"Project workspace: {self.root}\nProject tree:\n{listing}"
 
-    def selected_context(self, relative_paths: list[str]) -> str:
+    def selected_context(
+        self, relative_paths: list[str], *, exclude_paths: set[Path] | None = None
+    ) -> str:
         """Read each selected file once and reject the whole selection on a file error."""
-        seen: set[Path] = set()
+        seen: set[Path] = set(exclude_paths or ())
         sections: list[str] = []
         for relative_path in relative_paths:
             try:

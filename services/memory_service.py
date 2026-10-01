@@ -207,8 +207,10 @@ class ConversationMemoryService:
         *,
         history_end: int | None = None,
         persist_memory: bool = True,
-        input_limit: int | None = None
-    ) -> tuple[str, list[dict[str, str]]]:
+        input_limit: int | None = None,
+        attachment_content: list[dict] | None = None,
+        visual_tokens: int = 0,
+    ) -> tuple[str, list[dict]]:
         """Fit a request before adding its user message or emitting any answer text."""
         builder = PromptBuilder()
         limit = min(
@@ -219,10 +221,13 @@ class ConversationMemoryService:
                 else self.context_budget.input_limit
             ),
         )
-        fixed = builder.build([], user_prompt, workspace_context)
-        if self.context_budget.estimate(*fixed) > limit:
+        fixed = builder.build(
+            [], user_prompt, workspace_context, attachment_content=attachment_content,
+        )
+        if self.context_budget.estimate(*fixed, visual_tokens=visual_tokens) > limit:
             raise ContextBudgetExceeded(
-                "The current question and workspace context exceed the input budget. Shorten the question or selected file."
+                "The current question and workspace context exceed the input "
+                "budget. Shorten the question or reduce selected attachments."
             )
         original_messages = conversation.messages
         self._check_version(conversation, conversation.version)
@@ -237,9 +242,13 @@ class ConversationMemoryService:
             workspace_context,
             conversation.memory_summary,
             conversation.summarized_message_count,
+            attachment_content=attachment_content,
         )
         # Requests that already fit can proceed while background memory is being generated.
-        if self.context_budget.estimate(*prepared) <= limit:
+        if (
+            self.context_budget.estimate(*prepared, visual_tokens=visual_tokens)
+            <= limit
+        ):
             return prepared
         async with self._exclusive(conversation.id):
             if original_messages is not conversation.messages:
@@ -256,12 +265,12 @@ class ConversationMemoryService:
             if not summary.strip() or not 0 < start <= end:
                 summary, start = "", 0
             inputs = builder.build(
-                history, user_prompt, workspace_context, summary, start
+                history, user_prompt, workspace_context, summary, start, attachment_content=attachment_content,
             )
             original_count = start
             boundaries = self.turn_boundaries(history)
             work = [0]
-            while self.context_budget.estimate(*inputs) > limit:
+            while self.context_budget.estimate(*inputs, visual_tokens=visual_tokens) > limit:
                 candidates = [
                     boundary for boundary in boundaries if boundary > start
                 ]
@@ -300,7 +309,7 @@ class ConversationMemoryService:
                     ) from exc
                 start = cutoff
                 inputs = builder.build(
-                    history, user_prompt, workspace_context, summary, start
+                    history, user_prompt, workspace_context, summary, start, attachment_content=attachment_content,
                 )
             self._check_version(conversation, version)
             if persist_memory and start > original_count:

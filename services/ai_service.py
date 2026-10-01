@@ -13,6 +13,7 @@ from openai import APIConnectionError, APIError, AsyncOpenAI, RateLimitError
 
 from models.message import Message
 from models.profile import ConnectionProfile
+from services.attachment_errors import ProviderAttachmentError
 from services.context_budget import ContextWindowExceeded
 from services.call_usage_store import CallUsageStore, utc_timestamp
 from services.profile_service import ProfileService
@@ -178,7 +179,7 @@ class AIService:
     async def stream(
         self,
         instructions: str,
-        input_messages: list[dict[str, str]],
+        input_messages: list[dict],
         profile_id: str | None = None,
         *,
         conversation_id: str | None = None,
@@ -278,6 +279,11 @@ class AIService:
                         "reason",
                         None,
                     )
+                    attachment_error = ProviderAttachmentError.from_provider(
+                        error, input_messages
+                    )
+                    if attachment_error:
+                        raise attachment_error
                     raise RuntimeError(
                         "Azure OpenAI response did not complete."
                         + (f" Reason: {reason}." if reason else "")
@@ -294,6 +300,11 @@ class AIService:
                         raise ContextWindowExceeded(
                             "The model's input context limit was exceeded."
                         )
+                    attachment_error = ProviderAttachmentError.from_provider(
+                        event, input_messages
+                    )
+                    if attachment_error:
+                        raise attachment_error
                     raise RuntimeError(
                         "Azure OpenAI returned a streaming error."
                     )
@@ -318,6 +329,15 @@ class AIService:
                 raise ContextWindowExceeded(
                     "The model's input context limit was exceeded."
                 ) from exc
+            attachment_error = ProviderAttachmentError.from_provider(
+                exc, input_messages
+            )
+            if attachment_error:
+                logger.warning(
+                    "Attachment request rejected for profile %s: %s",
+                    profile.id, attachment_error.code,
+                )
+                raise attachment_error from exc
             logger.exception(
                 "Azure API failure for profile %s (%s)",
                 profile.name,
@@ -326,7 +346,7 @@ class AIService:
             raise RuntimeError(
                 f"Azure OpenAI request failed for '{profile.name}'. Check credentials and deployment."
             ) from exc
-        except ContextWindowExceeded:
+        except (ContextWindowExceeded, ProviderAttachmentError):
             raise
         except (asyncio.CancelledError, GeneratorExit):
             self._finish_call(call, status="cancelled")

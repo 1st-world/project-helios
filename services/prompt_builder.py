@@ -47,7 +47,9 @@ class PromptBuilder:
         workspace_context: str | None = None,
         memory_summary: str = "",
         summarized_message_count: int = 0,
-    ) -> tuple[str, list[dict[str, str]]]:
+        *,
+        attachment_content: list[dict] | None = None,
+    ) -> tuple[str, list[dict]]:
         """Build reply input from applicable memory, remaining history, and the current prompt."""
         instructions = self.SYSTEM_PROMPT
         # A request scoped to an earlier turn must not inherit later memory.
@@ -70,5 +72,11 @@ class PromptBuilder:
             {"role": message.role, "content": message.content}
             for message in recent_history
         ]
-        messages.append({"role": "user", "content": user_prompt})
+        content = user_prompt
+        if attachment_content:
+            content = [
+                {"type": "input_text", "text": user_prompt},
+                *attachment_content,
+            ]
+        messages.append({"role": "user", "content": content})
         return instructions, messages
