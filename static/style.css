@@ -2259,10 +2259,6 @@ textarea::placeholder {
   background: var(--bg-app);
 }
 
-.settings-dialog .attachment-roadmap {
-  margin: 4px 0 0;
-}
-
 .settings-dialog .attachment-help {
   margin: 0;
 }

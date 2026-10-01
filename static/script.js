@@ -10,8 +10,8 @@ const workspace = createWorkspace();
 const profiles = createProfiles({ isGenerating: () => chat.isGenerating() });
 const chat = createChat({
   getActiveProfileId: profiles.getActiveProfileId,
-  getWorkspaceFile: workspace.getWorkspaceFile,
-  clearFocusFile: workspace.clearFocusFile,
+  getWorkspaceFiles: workspace.getWorkspaceFiles,
+  clearFocusFiles: workspace.clearFocusFiles,
   onGeneratingChange(value) {
     workspace.setGenerating(value);
     profiles.setGenerating(value);

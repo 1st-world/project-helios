@@ -177,6 +177,7 @@ class ChatRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=100_000)
     conversation_id: str | None = None
     workspace_file: str | None = None
+    workspace_files: list[str] = Field(default_factory=list)
     profile_id: str | None = None
     regenerate_message_index: int | None = Field(default=None, ge=0)
     expected_conversation_version: int | None = Field(default=None, ge=0)
@@ -578,17 +579,13 @@ async def chat(payload: ChatRequest):
         history_end = payload.regenerate_message_index
         user_prompt = source_message.content
     workspace_context = workspace_service.project_context()
+    selected_files = list(payload.workspace_files)
     if payload.workspace_file:
-        try:
-            workspace_context += f"\n\nSelected file: {payload.workspace_file}\n{workspace_service.read_text(payload.workspace_file)}"
-        except (
-            FileNotFoundError,
-            PermissionError,
-            WorkspaceAccessError,
-        ) as exc:
-            raise HTTPException(
-                status_code=400, detail=f"Cannot load workspace file: {exc}"
-            )
+        selected_files.append(payload.workspace_file)
+    try:
+        workspace_context += workspace_service.selected_context(selected_files)
+    except WorkspaceAccessError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
         instructions, input_messages = await memory_service.prepare_context(

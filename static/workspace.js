@@ -1,15 +1,16 @@
-/* Own the workspace tree, selected attachment, and workspace dialogs, coordinating the folder picker. */
+/* Own the workspace tree, selected attachments, and workspace dialogs, coordinating the folder picker. */
 
 import { $, closeMobileSidebar, refreshIcons, toast } from './ui.js';
 import { createWorkspacePicker } from './workspace-picker.js';
 
 export function createWorkspace() {
   const state = {
-    workspaceFile: null,
+    workspaceFiles: [],
     workspaceRoot: '',
     workspaceEntries: [],
-    pendingFile: null,
+    pendingFiles: [],
     attachingFile: false,
+    generating: false,
     fileDialogVersion: 0,
     workspaceRequest: 0
   };
@@ -39,13 +40,14 @@ export function createWorkspace() {
         row.className = 'tree-entry file';
         row.dataset.path = entry.path;
         row.title = entry.path;
-        row.setAttribute('aria-pressed', String(entry.path === state.pendingFile));
-        row.classList.toggle('selected', entry.path === state.pendingFile);
+        row.setAttribute('aria-pressed', String(state.pendingFiles.includes(entry.path)));
+        row.classList.toggle('selected', state.pendingFiles.includes(entry.path));
+        row.disabled = state.attachingFile || state.generating;
         row.innerHTML = '<i data-lucide="file-text"></i>';
         const name = document.createElement('span');
         name.textContent = query ? entry.path : entry.name;
         row.append(name);
-        row.onclick = () => selectFile(entry.path);
+        row.onclick = () => toggleFile(entry.path);
         parent.append(row);
       }
     }
@@ -70,7 +72,7 @@ export function createWorkspace() {
   }
 
   function applyWorkspace(data) {
-    if (state.workspaceRoot && state.workspaceRoot !== data.root) clearFocusFile();
+    if (state.workspaceRoot && state.workspaceRoot !== data.root) clearFocusFiles();
     state.workspaceRoot = data.root;
     state.workspaceEntries = data.entries;
     const folderName = data.root.split(/[/\\]/).filter(Boolean).pop() || data.root;
@@ -89,9 +91,10 @@ export function createWorkspace() {
       if (entry.children) collect(entry.children);
     });
     collect(data.entries);
-    if (state.workspaceFile && !paths.has(state.workspaceFile)) clearFocusFile();
-    if (state.pendingFile && !paths.has(state.pendingFile)) state.pendingFile = null;
-    selectFile(state.pendingFile);
+    state.workspaceFiles = state.workspaceFiles.filter((path) => paths.has(path));
+    state.pendingFiles = state.pendingFiles.filter((path) => paths.has(path));
+    renderAttachments();
+    updateSelection();
     renderFileList();
   }
 
@@ -109,27 +112,67 @@ export function createWorkspace() {
       $('#composer-workspace-sub').textContent = 'Unavailable';
       $('#workspace-tree').textContent = 'Could not load files. Use Refresh to try again.';
       state.workspaceEntries = [];
-      selectFile(null);
+      state.pendingFiles = [];
+      updateSelection();
       toast('Could not load workspace.', 'error');
     }
   }
 
-  function selectFile(path) {
-    state.pendingFile = path;
+  function updateSelection() {
     $('#workspace-tree').querySelectorAll('[data-path]').forEach((row) => {
-      const selected = row.dataset.path === path;
+      const selected = state.pendingFiles.includes(row.dataset.path);
       row.classList.toggle('selected', selected);
       row.setAttribute('aria-pressed', String(selected));
+      row.disabled = state.attachingFile || state.generating;
     });
-    $('#selected-file-label').textContent = path || 'No file selected';
-    $('#selected-file-label').dataset.hasFile = String(Boolean(path));
-    $('#selected-file-label').title = path || '';
-    $('#attach-selected-file').disabled = !path || state.attachingFile;
+    const count = state.pendingFiles.length;
+    $('#selected-file-label').textContent = count ? `${count} file${count === 1 ? '' : 's'} selected` : 'No files selected';
+    $('#selected-file-label').dataset.hasFile = String(count > 0);
+    $('#selected-file-label').title = state.pendingFiles.join('\n');
+    $('#attach-selected-file').disabled = state.attachingFile || state.generating || (!count && !state.workspaceFiles.length);
+    $('#refresh-workspace').disabled = state.attachingFile || state.generating;
   }
 
-  function clearFocusFile() {
-    state.workspaceFile = null;
-    $('#file-chip').classList.add('hidden');
+  function toggleFile(path) {
+    if (state.attachingFile || state.generating) return;
+    if (state.pendingFiles.includes(path)) {
+      state.pendingFiles = state.pendingFiles.filter((selected) => selected !== path);
+    } else {
+      state.pendingFiles.push(path);
+    }
+    updateSelection();
+  }
+
+  function renderAttachments() {
+    const bar = $('.context-bar');
+    bar.querySelectorAll('.context-chip.file').forEach((chip) => chip.remove());
+    for (const path of state.workspaceFiles) {
+      const chip = $('#file-chip-template').content.firstElementChild.cloneNode(true);
+      chip.dataset.workspaceFile = path;
+      const name = chip.querySelector('.file-chip-name');
+      name.textContent = path;
+      name.title = path;
+      const remove = chip.querySelector('button');
+      remove.disabled = state.generating;
+      remove.title = `Remove ${path}`;
+      remove.setAttribute('aria-label', `Remove ${path}`);
+      remove.onclick = () => {
+        if (state.generating) return;
+        state.workspaceFiles = state.workspaceFiles.filter((selected) => selected !== path);
+        state.pendingFiles = state.pendingFiles.filter((selected) => selected !== path);
+        renderAttachments();
+        updateSelection();
+      };
+      bar.append(chip);
+    }
+    refreshIcons();
+  }
+
+  function clearFocusFiles() {
+    state.workspaceFiles = [];
+    state.pendingFiles = [];
+    renderAttachments();
+    updateSelection();
   }
 
   function openWorkspaceDialog() {
@@ -141,9 +184,9 @@ export function createWorkspace() {
   async function openFileDialog() {
     ++state.fileDialogVersion;
     closeMobileSidebar();
-    state.pendingFile = state.workspaceFile;
+    state.pendingFiles = [...state.workspaceFiles];
     $('#file-search').value = '';
-    selectFile(state.pendingFile);
+    updateSelection();
     renderFileList();
     $('#file-dialog').showModal();
     $('#file-search').focus();
@@ -151,10 +194,13 @@ export function createWorkspace() {
   }
 
   function setGenerating(value) {
-    ['load-file', 'workspace-card', 'workspace-context-chip', 'remove-focus-file'].forEach((id) => {
+    state.generating = value;
+    ['load-file', 'workspace-card', 'workspace-context-chip'].forEach((id) => {
       const el = $(`#${id}`);
       if (el) el.disabled = value;
     });
+    $('.context-bar').querySelectorAll('.context-chip.file button').forEach((button) => { button.disabled = value; });
+    updateSelection();
   }
 
   function beforeDialogClose() {
@@ -168,27 +214,30 @@ export function createWorkspace() {
     $('#workspace-context-chip').onclick = openWorkspaceDialog;
     $('#file-search').oninput = renderFileList;
     $('#attach-selected-file').onclick = async () => {
-      const path = state.pendingFile;
+      const paths = [...state.pendingFiles];
       const root = state.workspaceRoot;
       const dialogVersion = state.fileDialogVersion;
-      if (!path || state.attachingFile) return;
+      if (state.attachingFile || state.generating || (!paths.length && !state.workspaceFiles.length)) return;
       state.attachingFile = true;
+      updateSelection();
       const button = $('#attach-selected-file');
       button.disabled = true;
       button.textContent = 'Checking...';
       try {
-        const response = await fetch('/api/read-file', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path })
-        });
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.detail || 'Could not attach this file.');
+        for (const path of paths) {
+          const response = await fetch('/api/read-file', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path })
+          });
+          if (!response.ok) {
+            const error = await response.json();
+            throw new Error(`${path}: ${error.detail || 'Could not attach this file.'}`);
+          }
+          if (!$('#file-dialog').open || dialogVersion !== state.fileDialogVersion || state.workspaceRoot !== root) return;
         }
-        if (!$('#file-dialog').open || dialogVersion !== state.fileDialogVersion || state.pendingFile !== path || state.workspaceRoot !== root) return;
-        state.workspaceFile = path;
-        $('#file-chip .file-chip-name').textContent = path;
-        $('#file-chip .file-chip-name').title = path;
-        $('#file-chip').classList.remove('hidden');
+        if (!$('#file-dialog').open || dialogVersion !== state.fileDialogVersion || state.workspaceRoot !== root
+            || paths.length !== state.pendingFiles.length || paths.some((path, index) => path !== state.pendingFiles[index])) return;
+        state.workspaceFiles = paths;
+        renderAttachments();
         $('#file-dialog').close();
         $('#prompt').focus();
       } catch (error) {
@@ -197,8 +246,8 @@ export function createWorkspace() {
         }
       } finally {
         state.attachingFile = false;
-        button.textContent = 'Attach file';
-        button.disabled = !state.pendingFile;
+        button.textContent = 'Apply selection';
+        updateSelection();
       }
     };
 
@@ -217,8 +266,7 @@ export function createWorkspace() {
         const data = await response.json();
         if (!response.ok) throw new Error(data.detail || 'Could not open workspace folder.');
         ++state.workspaceRequest;
-        clearFocusFile();
-        state.pendingFile = null;
+        clearFocusFiles();
         applyWorkspace(data);
         $('#workspace-dialog').close();
         toast('Workspace folder updated.', 'success');
@@ -231,19 +279,11 @@ export function createWorkspace() {
 
     $('#load-file').onclick = openFileDialog;
 
-    const removeFocusBtn = $('#remove-focus-file');
-    if (removeFocusBtn) {
-      removeFocusBtn.onclick = (event) => {
-        event.stopPropagation();
-        clearFocusFile();
-      };
-    }
-
     picker.init();
   }
 
   return {
-    init, load: loadWorkspace, clearFocusFile, setGenerating, beforeDialogClose,
-    restorePicker: picker.restore, getWorkspaceFile: () => state.workspaceFile
+    init, load: loadWorkspace, clearFocusFiles, setGenerating, beforeDialogClose,
+    restorePicker: picker.restore, getWorkspaceFiles: () => [...state.workspaceFiles]
   };
 }

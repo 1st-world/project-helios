@@ -116,3 +116,22 @@ class WorkspaceService:
             paths.append("... (some workspace paths could not be read)")
         listing = "\n".join(paths) if paths else "(empty workspace)"
         return f"Project workspace: {self.root}\nProject tree:\n{listing}"
+
+    def selected_context(self, relative_paths: list[str]) -> str:
+        """Read each selected file once and reject the whole selection on a file error."""
+        seen: set[Path] = set()
+        sections: list[str] = []
+        for relative_path in relative_paths:
+            try:
+                resolved = self._resolve(relative_path)
+                if resolved in seen:
+                    continue
+                content = self.read_text(relative_path)
+            except (OSError, WorkspaceAccessError) as exc:
+                raise WorkspaceAccessError(
+                    f"Cannot load workspace file {relative_path!r}: {exc}"
+                ) from exc
+            seen.add(resolved)
+            path = resolved.relative_to(self.root).as_posix()
+            sections.append(f"\n\nSelected file: {path}\n{content}")
+        return "".join(sections)

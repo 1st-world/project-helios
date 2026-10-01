@@ -70,16 +70,18 @@
           <span id="composer-workspace-name">Workspace</span>
           <span class="chip-sub" id="composer-workspace-sub">Folder context</span>
         </button>
-        <div id="file-chip" class="context-chip file hidden" title="File contents are included with each message until removed">
-          <i data-lucide="file-code"></i>
-          <span class="file-chip-name"></span>
-          <button type="button" id="remove-focus-file" title="Remove attachment" aria-label="Remove attachment"><i data-lucide="x"></i></button>
-        </div>
+        <template id="file-chip-template">
+          <div class="context-chip file" title="File contents are included with each message until removed">
+            <i data-lucide="file-code"></i>
+            <span class="file-chip-name"></span>
+            <button type="button" title="Remove attachment" aria-label="Remove attachment"><i data-lucide="x"></i></button>
+          </div>
+        </template>
       </div>
       <div class="composer">
         <textarea id="prompt" rows="1" placeholder="Message Helios..." aria-label="Message"></textarea>
         <div class="composer-actions">
-          <button id="load-file" class="quiet composer-control" type="button" aria-label="Attach a file" title="Attach a workspace file"><i data-lucide="paperclip"></i><span>Attach</span></button>
+          <button id="load-file" class="quiet composer-control" type="button" aria-label="Attach files" title="Attach workspace files"><i data-lucide="paperclip"></i><span>Attach</span></button>
           <details id="work-tools" class="work-tools">
             <summary class="quiet composer-control" aria-label="Work tools"><i data-lucide="sliders-horizontal"></i><span>Tools</span></summary>
             <div class="tools-popover">
@@ -147,7 +149,7 @@
 
   <dialog id="file-dialog" class="settings-dialog workspace-modal" aria-labelledby="file-dialog-title">
     <div class="dialog-heading">
-      <div><i data-lucide="paperclip"></i><h2 id="file-dialog-title">Attach a file</h2></div>
+      <div><i data-lucide="paperclip"></i><h2 id="file-dialog-title">Attach files</h2></div>
       <button class="dialog-close" type="button" data-close-dialog="file-dialog" aria-label="Close"><i data-lucide="x"></i></button>
     </div>
     <div class="file-source-row"><i data-lucide="folder"></i><span id="file-source-name">Workspace</span></div>
@@ -157,12 +159,11 @@
       <button id="refresh-workspace" class="quiet sm-btn" type="button" aria-label="Refresh files" title="Refresh files"><i data-lucide="refresh-cw"></i><span>Refresh</span></button>
     </div>
     <div id="workspace-tree" class="workspace-tree modal-tree" aria-label="Workspace files"></div>
-    <p class="field-hint attachment-help">One UTF-8 text file at a time, included with each message until removed.</p>
-    <p class="field-hint attachment-roadmap">Computer uploads and multiple attachments are planned.</p>
+    <p class="field-hint attachment-help">Select UTF-8 text files. Each file is included with every message until removed.</p>
     <div class="dialog-actions file-dialog-actions">
-      <span id="selected-file-label" role="status">No file selected</span>
+      <span id="selected-file-label" role="status">No files selected</span>
       <button class="quiet" type="button" data-close-dialog="file-dialog">Cancel</button>
-      <button id="attach-selected-file" class="primary-btn" type="button" disabled>Attach file</button>
+      <button id="attach-selected-file" class="primary-btn" type="button" disabled>Apply selection</button>
     </div>
   </dialog>
 

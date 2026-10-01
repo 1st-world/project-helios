@@ -2,7 +2,7 @@
 
 import { $, closeMobileSidebar, escapeHtml, refreshIcons, toast } from './ui.js';
 
-export function createChat({ getActiveProfileId, getWorkspaceFile, clearFocusFile, onGeneratingChange }) {
+export function createChat({ getActiveProfileId, getWorkspaceFiles, clearFocusFiles, onGeneratingChange }) {
   const state = {
     conversationId: null,
     conversationVersion: null,
@@ -303,7 +303,7 @@ export function createChat({ getActiveProfileId, getWorkspaceFile, clearFocusFil
   function newChat() {
     closeMobileSidebar();
     state.conversationId = null;
-    clearFocusFile();
+    clearFocusFiles();
     chat.innerHTML = emptyChatMarkup;
     loadConversations();
     prompt.focus();
@@ -392,7 +392,7 @@ export function createChat({ getActiveProfileId, getWorkspaceFile, clearFocusFil
         body: JSON.stringify({
           prompt: text,
           conversation_id: state.conversationId,
-          workspace_file: getWorkspaceFile(),
+          workspace_files: getWorkspaceFiles(),
           profile_id: getActiveProfileId(),
           regenerate_message_index: options.regenerateMessageIndex,
           expected_conversation_version: options.expectedConversationVersion
