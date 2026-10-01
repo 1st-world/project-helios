@@ -44,3 +44,10 @@ logs/*
 .agents/*
 !.agents/.gitkeep
 profiles.json
+
+# ========================================
+# Local Validation & Documentation
+# ========================================
+docs/*
+!docs/api-validation-results.json
+tests/
