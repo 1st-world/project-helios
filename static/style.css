@@ -1207,6 +1207,7 @@ textarea::placeholder {
   align-items: center;
   min-width: 0;
   max-width: 100%;
+  min-height: 34px;
   padding: 4px 8px;
   gap: 6px;
   border: 1px solid var(--border);
@@ -1248,6 +1249,7 @@ textarea::placeholder {
   font-size: 10px;
 }
 .context-chip.file {
+  padding-right: 4px;
   border-color: var(--accent);
   background: var(--bg-surface-active);
   color: var(--text-main);
@@ -1395,6 +1397,7 @@ textarea::placeholder {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  margin-bottom: 20px;
 }
 .dialog-heading > div {
   display: flex;
@@ -1484,7 +1487,7 @@ textarea::placeholder {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   flex: none;
-  margin: 20px 0;
+  margin: 0 0 20px;
   padding: 4px;
   gap: 4px;
   border: 1px solid var(--border);
@@ -2221,7 +2224,7 @@ textarea::placeholder {
 .file-source-row {
   display: flex;
   align-items: center;
-  margin: 16px 0 10px;
+  margin: 0 0 10px;
   gap: 6px;
   color: var(--text-muted);
   font-size: 12px;
