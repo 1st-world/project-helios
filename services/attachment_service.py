@@ -7,12 +7,15 @@ import base64
 import warnings
 from dataclasses import dataclass, field
 from io import BytesIO
+from math import ceil
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
 from docx import Document
 from docx.table import Table
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet._reader import WorkSheetParser
 from PIL import Image
 from pptx import Presentation
 from pypdf import PdfReader
@@ -49,17 +52,38 @@ class PreparedAttachments:
 class AttachmentService:
     """Read supported local files once, enforcing root, size, and parser limits."""
 
-    MAX_FILES = 16
-    MAX_FILE_BYTES = 10 * 1024 * 1024
-    MAX_TOTAL_BYTES = 20 * 1024 * 1024
-    MAX_TEXT_BYTES = 512 * 1024
-    MAX_ZIP_BYTES = 32 * 1024 * 1024
-    MAX_ZIP_MEMBERS = 2048
-    MAX_IMAGE_PIXELS = 25_000_000
-    MAX_PDF_PAGES = 32
+    # Defaults below are provisional desktop resource policies.
+    # Their safety has not been benchmarked across workloads or hardware.
+    # Model token capacity does not determine these parser-work limits.
+    # Match Azure's image count initially, but count every local file here.
+    MAX_FILES = 50
+    # Begin below Azure's decimal 50 MB native-input file ceiling.
+    # The common total is a provisional budget for reading mixed formats.
+    # Base64 and JSON duplicate payloads; this is not a peak-memory bound.
+    MAX_FILE_BYTES = 49_999_999
+    MAX_TOTAL_BYTES = 49_999_999
+    # Bound text retained for tokenization and prompts, not model input tokens.
+    # The initial 4 MiB allocation policy has not been benchmarked.
+    MAX_TEXT_BYTES = 4 * 1024 * 1024
+    # Bound Office ZIP expansion independently of compressed source size.
+    # Byte and entry budgets are provisional parser-work limits.
+    MAX_ZIP_BYTES = 128 * 1024 * 1024
+    MAX_ZIP_MEMBERS = 10_000
+    # 50 MP RGB/RGBA pixels alone need about 150-200 MB before decoder copies.
+    # This provisional pixel guard is not a measured peak-memory guarantee.
+    MAX_IMAGE_PIXELS = 50_000_000
+    # A generous initial page count bounds local page-object traversal.
+    # This is not an Azure page limit or benchmarked latency threshold.
+    MAX_PDF_PAGES = 1024
+    # Retain the existing initial work budget while counting stored cells.
+    # Empty rectangular gaps do not count toward the provisional cell limit.
     MAX_SHEET_CELLS = 100_000
-    # Local framing allowance; provider usage remains authoritative for billing.
-    VISUAL_TOKEN_ALLOWANCE = 8192
+    # Azure Responses requirements were checked on 2026-10-02.
+    # Images are limited to 50; each file/category total must be under 50 MB.
+    # User resource policies cannot raise these provider limits.
+    # https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/responses
+    PROVIDER_FILE_BYTES = 50_000_000
+    PROVIDER_IMAGE_COUNT = 50
     IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
     IMAGE_MIMES = {
         "PNG": "image/png",
@@ -90,25 +114,41 @@ class AttachmentService:
         ".tiff",
     }
 
-    def __init__(self, workspace: WorkspaceService) -> None:
-        """Use the application's current workspace boundary for every read."""
+    def __init__(
+        self, workspace: WorkspaceService, *, limits: dict | None = None
+    ) -> None:
+        """Use workspace boundaries and configurable local parser resource limits."""
         self.workspace = workspace
+        for name, value in (limits or {}).items():
+            if not name.startswith("MAX_") or not hasattr(self, name):
+                raise ValueError("Unknown attachment resource limit.")
+            if type(value) is not int or value < 1:
+                raise ValueError("Attachment resource limits must be positive integers.")
+            setattr(self, name, value)
+        if Image.MAX_IMAGE_PIXELS is not None:
+            self.MAX_IMAGE_PIXELS = min(
+                self.MAX_IMAGE_PIXELS, Image.MAX_IMAGE_PIXELS
+            )
 
     def prepare(self, paths: list[str]) -> PreparedAttachments:
         """Validate an entire selection before returning any provider content."""
-        if len(paths) > self.MAX_FILES:
-            raise AttachmentError(
-                "attachment_limit", "Select at most 16 attachments.", "", 413
-            )
         result = PreparedAttachments()
         root = self.workspace.root
         seen: set[Path] = set()
         total = 0
+        native_bytes = {"image": 0, "pdf": 0}
+        image_count = 0
         for supplied_path in paths:
             try:
                 path = self.workspace._resolve(supplied_path, root=root)
                 if path in seen:
                     continue
+                if len(seen) >= self.MAX_FILES:
+                    raise AttachmentError(
+                        "attachment_limit",
+                        f"Selection exceeds the local limit of {self.MAX_FILES} distinct attachments.",
+                        supplied_path, 413,
+                    )
                 if not path.is_file():
                     raise AttachmentError(
                         "attachment_not_found",
@@ -117,16 +157,25 @@ class AttachmentService:
                         404,
                     )
                 size = path.stat().st_size
+                native = path.suffix.lower() in self.IMAGE_EXTENSIONS | {".pdf"}
+                if native and size >= self.PROVIDER_FILE_BYTES:
+                    raise AttachmentError(
+                        "attachment_provider_limit",
+                        "Azure native image and PDF inputs must be smaller than 50 MB.",
+                        supplied_path, 413,
+                    )
                 if size > self.MAX_FILE_BYTES:
                     raise AttachmentError(
                         "attachment_too_large",
-                        "Each attachment must be at most 10 MiB.",
+                        f"Attachment exceeds the local read limit of {self.MAX_FILE_BYTES} bytes.",
                         supplied_path,
                         413,
                     )
                 # Bound reads even if a file grows after stat().
                 with path.open("rb") as source:
-                    data = source.read(self.MAX_FILE_BYTES + 1)
+                    data = source.read(
+                        min(self.MAX_FILE_BYTES, self.MAX_TOTAL_BYTES - total) + 1
+                    )
                 total += len(data)
                 if (
                     len(data) > self.MAX_FILE_BYTES
@@ -134,12 +183,25 @@ class AttachmentService:
                 ):
                     raise AttachmentError(
                         "attachment_too_large",
-                        "Attachments exceed the 20 MiB combined limit.",
+                        f"Attachments exceed the local combined read limit of {self.MAX_TOTAL_BYTES} bytes.",
                         supplied_path,
                         413,
                     )
                 canonical = path.relative_to(root).as_posix()
                 parts, metadata, estimate = self._prepare_file(canonical, data)
+                if native:
+                    kind = metadata["kind"]
+                    native_bytes[kind] += len(data)
+                    image_count += metadata["kind"] == "image"
+                    if (
+                        native_bytes[kind] >= self.PROVIDER_FILE_BYTES
+                        or image_count > self.PROVIDER_IMAGE_COUNT
+                    ):
+                        raise AttachmentError(
+                            "attachment_provider_limit",
+                            "Native inputs exceed the Azure limit of 50 images or 50 MB within one input category.",
+                            supplied_path, 413,
+                        )
             except AttachmentError:
                 raise
             except PermissionError as exc:
@@ -185,15 +247,20 @@ class AttachmentService:
                 return (
                     self._label(path, part),
                     metadata,
-                    self.VISUAL_TOKEN_ALLOWANCE,
+                    self._visual_estimate(
+                        dimensions["width"], dimensions["height"]
+                    ),
                 )
             if extension == ".pdf":
-                part, pages, text_bytes = self._pdf(path, data)
+                part, pages, estimate = self._pdf(path, data)
                 metadata.update(kind="pdf", delivery="native", pages=pages)
+                metadata["warnings"] = [
+                    "The local PDF estimate covers page visuals only; provider-extracted text and rendering can change token usage."
+                ]
                 return (
                     self._label(path, part),
                     metadata,
-                    pages * self.VISUAL_TOKEN_ALLOWANCE + text_bytes,
+                    estimate,
                 )
             if extension in self.UNSUPPORTED_EXTENSIONS:
                 raise AttachmentError(
@@ -256,6 +323,15 @@ class AttachmentService:
                 path,
                 415,
             ) from exc
+        except (
+            Image.DecompressionBombWarning, Image.DecompressionBombError
+        ) as exc:
+            raise AttachmentError(
+                "attachment_too_large",
+                "Image exceeds the local decoder pixel limit.",
+                path,
+                413,
+            ) from exc
         except Exception as exc:
             raise AttachmentError(
                 "attachment_invalid",
@@ -273,7 +349,7 @@ class AttachmentService:
         if len(text.encode("utf-8")) > self.MAX_TEXT_BYTES:
             raise AttachmentError(
                 "attachment_text_too_large",
-                "Extracted text exceeds 512 KiB. Split the document.",
+                f"Extracted text exceeds the local limit of {self.MAX_TEXT_BYTES} bytes.",
                 path,
                 413,
             )
@@ -295,7 +371,7 @@ class AttachmentService:
                 if width * height > self.MAX_IMAGE_PIXELS:
                     raise AttachmentError(
                         "attachment_too_large",
-                        "Image exceeds 25 megapixels.",
+                        f"Image exceeds the local decode limit of {self.MAX_IMAGE_PIXELS} pixels.",
                         path,
                         413,
                     )
@@ -318,12 +394,12 @@ class AttachmentService:
         )
 
     def _pdf(self, path: str, data: bytes) -> tuple[dict, int, int]:
-        """Inspect PDF pages and text while preserving page visuals for the provider."""
-        if not data.startswith(b"%PDF-"):
+        """Inspect PDF structure without making local text extraction a native-input requirement."""
+        if b"%PDF-" not in data[:1024]:
             raise AttachmentError(
                 "attachment_invalid", "File is not a valid PDF.", path
             )
-        reader = PdfReader(BytesIO(data), strict=True)
+        reader = PdfReader(BytesIO(data), strict=False)
         if reader.is_encrypted:
             raise AttachmentError(
                 "attachment_encrypted",
@@ -334,20 +410,17 @@ class AttachmentService:
         if not 1 <= pages <= self.MAX_PDF_PAGES:
             raise AttachmentError(
                 "attachment_too_large",
-                "PDF must contain 1 to 32 pages; the context budget may require fewer.",
+                f"PDF exceeds the local page inspection limit of {self.MAX_PDF_PAGES}, or has no pages.",
                 path,
                 413,
             )
-        text_bytes = 0
-        for page in reader.pages:
-            text_bytes += len((page.extract_text() or "").encode("utf-8"))
-            if text_bytes > self.MAX_TEXT_BYTES:
-                raise AttachmentError(
-                    "attachment_text_too_large",
-                    "PDF text exceeds 512 KiB. Split the document.",
-                    path,
-                    413,
-                )
+        estimate = sum(
+            self._visual_estimate(
+                float(page.mediabox.width) * 2,
+                float(page.mediabox.height) * 2,
+            )
+            for page in reader.pages
+        )
         return (
             {
                 "type": "input_file",
@@ -355,8 +428,13 @@ class AttachmentService:
                 "file_data": self._data_url("application/pdf", data),
             },
             pages,
-            text_bytes,
+            estimate,
         )
+
+    @staticmethod
+    def _visual_estimate(width: float, height: float) -> int:
+        """Use dimension-based patches as an uncertain proxy, never exact model tokenization."""
+        return max(1, ceil(abs(width) / 32) * ceil(abs(height) / 32))
 
     @staticmethod
     def _data_url(mime: str, data: bytes) -> str:
@@ -438,33 +516,28 @@ class AttachmentService:
         try:
             for sheet in workbook.worksheets:
                 sections.append(f"Sheet: {sheet.title}")
-                if (
-                    sheet.max_row
-                    and sheet.max_column
-                    and sheet.max_row * sheet.max_column > self.MAX_SHEET_CELLS
-                ):
-                    raise AttachmentError(
-                        "attachment_too_large",
-                        "Spreadsheet exceeds 100000 scanned cells.",
-                        path,
-                        413,
+                # The public row iterator pads gaps; inspect stored XML cells.
+                with sheet._get_source() as source:
+                    parser = WorkSheetParser(
+                        source, sheet._shared_strings, data_only=False,
+                        epoch=workbook.epoch,
+                        date_formats=workbook._date_formats,
+                        timedelta_formats=workbook._timedelta_formats,
                     )
-                for row in sheet.iter_rows():
-                    cells += len(row)
-                    if cells > self.MAX_SHEET_CELLS:
-                        raise AttachmentError(
-                            "attachment_too_large",
-                            "Spreadsheet exceeds 100000 scanned cells.",
-                            path,
-                            413,
-                        )
-                    values = [
-                        f"{cell.coordinate}={cell.value}"
-                        for cell in row
-                        if cell.value is not None
-                    ]
-                    if values:
-                        sections.append("\t".join(values))
+                    for _, row in parser.parse():
+                        cells += len(row)
+                        if cells > self.MAX_SHEET_CELLS:
+                            raise AttachmentError(
+                                "attachment_too_large",
+                                f"Spreadsheet exceeds the local limit of {self.MAX_SHEET_CELLS} stored cells.",
+                                path, 413,
+                            )
+                        values = [
+                            f"{get_column_letter(cell['column'])}{cell['row']}={cell['value']}"
+                            for cell in row if cell["value"] is not None
+                        ]
+                        if values:
+                            sections.append("\t".join(values))
         finally:
             workbook.close()
         return "\n".join(sections)

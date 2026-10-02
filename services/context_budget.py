@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from services.token_estimator import text_tokens
+
 
 class ContextBudgetExceeded(ValueError):
     """The request cannot fit without discarding unsummarized content."""
@@ -49,19 +51,19 @@ class ContextBudget:
     def estimate(
         instructions: str, inputs: list[dict], *, visual_tokens: int = 0
     ) -> int:
-        """Count text bytes plus a supplied visual allowance, excluding encoded payloads."""
-        estimate = 256 + len(instructions.encode("utf-8")) + visual_tokens
+        """Estimate text and framing with supplied visual proxies, excluding encoded payloads."""
+        estimate = 256 + text_tokens(instructions) + visual_tokens
         has_visual = False
         for item in inputs:
-            estimate += 32 + len(item["role"].encode("utf-8"))
+            estimate += 32 + text_tokens(item["role"])
             content = item["content"]
             if isinstance(content, str):
-                estimate += len(content.encode("utf-8"))
+                estimate += text_tokens(content)
                 continue
             for part in content:
                 estimate += 32
                 if part["type"] == "input_text":
-                    estimate += len(part["text"].encode("utf-8"))
+                    estimate += text_tokens(part["text"])
                 elif part["type"] in {"input_image", "input_file"}:
                     has_visual = True
                 else:

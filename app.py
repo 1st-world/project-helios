@@ -25,6 +25,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from config import settings
+from models.profile import CONTEXT_FIELDS, ConnectionProfile
 from services.ai_service import AIService
 from services.attachment_errors import ProviderAttachmentError
 from services.attachment_service import (
@@ -41,6 +42,7 @@ from services.conversation_service import (
     ConversationManager,
     ConversationUnavailableError,
 )
+from services.context_policy import ContextPolicy
 from services.call_usage_store import CallUsageStore
 from services.folder_picker_service import (
     FolderPickerService,
@@ -70,7 +72,14 @@ logger = logging.getLogger(__name__)
 profile_service = ProfileService(settings.profiles_path)
 conversation_manager = ConversationManager(settings.conversations_root)
 workspace_service = WorkspaceService(settings.workspace_root)
-attachment_service = AttachmentService(workspace_service)
+attachment_service = AttachmentService(
+    workspace_service,
+    limits={
+        name.removeprefix("attachment_").upper(): getattr(settings, name)
+        for name in vars(settings) if name.startswith("attachment_max_")
+    },
+)
+MAX_SELECTION_ENTRIES = max(200, attachment_service.MAX_FILES * 4)
 folder_picker_service = FolderPickerService()
 usage_service = UsageService()
 summary_usage_store = SummaryUsageStore(
@@ -93,6 +102,7 @@ for stored_conversation in conversation_manager.list():
 ai_service = AIService(
     usage_service, profile_service, summary_usage_store=summary_usage_store,
     call_usage_store=call_usage_store,
+    max_output_tokens=settings.context_output_reserve,
 )
 context_budget = ContextBudget(
     settings.context_token_budget,
@@ -176,23 +186,35 @@ class ReadFileRequest(BaseModel):
     path: str = Field(min_length=1, max_length=4096)
 
 
-class ChatRequest(BaseModel):
+class ContextRequestOptions(BaseModel):
+    """Allow request-level estimate policy overrides without changing profile settings."""
+
+    context_preflight_mode: Literal["warn", "block", "off"] | None = None
+    context_input_budget: int | None = Field(default=None, ge=1, strict=True)
+
+
+class ChatRequest(ContextRequestOptions):
     """Validate a new chat turn or regeneration request and its context selection."""
 
     prompt: str = Field(min_length=1, max_length=100_000)
     conversation_id: str | None = None
     workspace_file: str | None = None
-    workspace_files: list[str] = Field(default_factory=list)
-    attachment_files: list[str] = Field(default_factory=list, max_length=16)
+    workspace_files: list[str] = Field(
+        default_factory=list, max_length=MAX_SELECTION_ENTRIES
+    )
+    attachment_files: list[str] = Field(
+        default_factory=list, max_length=MAX_SELECTION_ENTRIES
+    )
     profile_id: str | None = None
     regenerate_message_index: int | None = Field(default=None, ge=0)
     expected_conversation_version: int | None = Field(default=None, ge=0)
 
 
-class AttachmentSelectionRequest(BaseModel):
+class AttachmentSelectionRequest(ContextRequestOptions):
     """Validate files for the backend attachment API without changing GUI selection."""
 
-    paths: list[str] = Field(min_length=1, max_length=16)
+    paths: list[str] = Field(min_length=1, max_length=MAX_SELECTION_ENTRIES)
+    profile_id: str | None = None
 
 
 class RenameConversationRequest(BaseModel):
@@ -213,7 +235,15 @@ class WorkspaceRootRequest(BaseModel):
     path: str = Field(min_length=1, max_length=4096)
 
 
-class CreateProfileRequest(BaseModel):
+class ProfileContextSettings(ContextRequestOptions):
+    """Validate optional model declarations that never depend on deployment aliases."""
+
+    model_context_window: int | None = Field(default=None, ge=1, strict=True)
+    model_max_input_tokens: int | None = Field(default=None, ge=1, strict=True)
+    model_max_output_tokens: int | None = Field(default=None, ge=1, strict=True)
+
+
+class CreateProfileRequest(ProfileContextSettings):
     """Validate connection credentials, deployment, and optional pricing for a profile."""
 
     name: str = Field(min_length=1, max_length=100)
@@ -231,7 +261,7 @@ class CreateProfileRequest(BaseModel):
     long_cache_write_price_per_million: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
 
-class UpdateProfileRequest(BaseModel):
+class UpdateProfileRequest(ProfileContextSettings):
     """Validate partial profile changes and explicit requests to clear pricing."""
 
     name: str | None = Field(default=None, max_length=100)
@@ -298,6 +328,7 @@ async def create_profile(payload: CreateProfileRequest):
             cache_write_price_per_million=payload.cache_write_price_per_million,
             long_cache_read_price_per_million=payload.long_cache_read_price_per_million,
             long_cache_write_price_per_million=payload.long_cache_write_price_per_million,
+            **{name: getattr(payload, name) for name in CONTEXT_FIELDS},
         )
     except Exception:
         logger.exception("Could not create profile")
@@ -334,6 +365,10 @@ async def update_profile(profile_id: str, payload: UpdateProfileRequest):
             clear_cache_write_price=payload.clear_cache_write_price,
             clear_long_cache_read_price=payload.clear_long_cache_read_price,
             clear_long_cache_write_price=payload.clear_long_cache_write_price,
+            context_settings={
+                name: getattr(payload, name) for name in CONTEXT_FIELDS
+                if name in payload.model_fields_set
+            },
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
@@ -550,6 +585,39 @@ async def read_file(payload: ReadFileRequest):
         raise HTTPException(status_code=500, detail="Could not read file.")
 
 
+def resolve_context_policy(
+    profile_id: str | None = None,
+    mode: str | None = None,
+    input_budget: int | None = None,
+) -> ContextPolicy:
+    """Resolve defaults and optional profile settings without contacting the provider."""
+    profile = (
+        profile_service.get_profile(profile_id)
+        if profile_id else profile_service.get_active_profile()
+    )
+    if profile_id and profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found.")
+    return ContextPolicy.resolve(
+        profile or ConnectionProfile(), context_budget,
+        getattr(settings, "context_preflight_mode", "warn"), mode, input_budget,
+    )
+
+
+@app.get("/api/context-policy")
+async def context_policy_settings(profile_id: str | None = None):
+    """Expose effective estimate and local resource settings for future GUI integration."""
+    policy = resolve_context_policy(profile_id)
+    return {
+        "mode": policy.mode, "input_budget": policy.input_budget,
+        "declared_model_input_limit": policy.declared_model_input_limit,
+        "max_output_tokens": policy.max_output_tokens,
+        "local_attachment_limits": {
+            name: getattr(attachment_service, name)
+            for name in vars(AttachmentService) if name.startswith("MAX_")
+        },
+    }
+
+
 @app.post("/api/attachments/inspect")
 async def inspect_attachments(payload: AttachmentSelectionRequest):
     """Validate local attachments without provider calls or returning binary contents."""
@@ -561,14 +629,20 @@ async def inspect_attachments(payload: AttachmentSelectionRequest):
         raise HTTPException(
             status_code=exc.status_code, detail=exc.detail()
         ) from exc
-    estimate = context_budget.estimate(
+    policy = resolve_context_policy(
+        payload.profile_id, payload.context_preflight_mode,
+        payload.context_input_budget,
+    )
+    assessment = policy.assess(
         "", [{"role": "user", "content": prepared.content}],
         visual_tokens=prepared.visual_tokens,
     )
     return {
         "files": prepared.metadata,
-        "estimated_context_tokens": estimate,
-        "context_input_limit": context_budget.input_limit,
+        "estimated_context_tokens": assessment["estimated_input_tokens"],
+        "context_input_limit": policy.input_budget,
+        "context_policy": assessment,
+        "estimate_scope": "attachments_only; chat also includes the question, workspace, and history",
         "model_support": "validated_by_provider_on_chat",
     }
 
@@ -640,10 +714,31 @@ async def chat(payload: ChatRequest):
             for item in attachments.metadata
         }
         workspace_context += workspace_service.selected_context(
-            selected_files, exclude_paths=attached_paths
+            selected_files, exclude_paths=attached_paths,
+            max_file_bytes=min(
+                attachment_service.MAX_FILE_BYTES,
+                attachment_service.MAX_TEXT_BYTES,
+            ),
+            max_total_bytes=max(
+                0, attachment_service.MAX_TOTAL_BYTES - sum(
+                    item["size_bytes"] for item in attachments.metadata
+                ),
+            ),
+            max_files=attachment_service.MAX_FILES,
         )
     except WorkspaceAccessError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if workspace_service.root != workspace_root:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "attachment_workspace_changed",
+                "message": "Workspace changed while reading attachments. Select the files again.",
+            },
+        )
+    policy = resolve_context_policy(
+        profile_id, payload.context_preflight_mode, payload.context_input_budget,
+    )
     attachment_options = (
         {
             "attachment_content": attachments.content,
@@ -659,14 +754,33 @@ async def chat(payload: ChatRequest):
             profile_id,
             history_end=history_end,
             persist_memory=payload.regenerate_message_index is None,
+            preflight_mode=policy.mode,
+            input_limit=min(
+                policy.input_budget,
+                policy.declared_model_input_limit
+                if policy.declared_model_input_limit is not None
+                else policy.input_budget,
+            ),
             **attachment_options,
         )
     except ContextBudgetExceeded as exc:
-        raise HTTPException(status_code=413, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "code": "context_preflight_blocked",
+                "message": str(exc),
+                "mode": policy.mode,
+                "input_budget": policy.input_budget,
+                "declared_model_input_limit": policy.declared_model_input_limit,
+            },
+        ) from exc
     except ContextChangedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except SummaryUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    context_assessment = policy.assess(
+        instructions, input_messages, visual_tokens=attachments.visual_tokens,
+    )
     if payload.regenerate_message_index is None:
         conversation_manager.add_message(conversation, "user", user_prompt)
     turn_version = conversation.version
@@ -687,6 +801,19 @@ async def chat(payload: ChatRequest):
                     "type": "attachments", "files": attachments.metadata,
                 }
                 yield f"data: {json.dumps(metadata_event)}\n\n"
+            if (
+                attachments.metadata or context_assessment["warning"]
+                or payload.context_preflight_mode is not None
+                or payload.context_input_budget is not None
+            ):
+                policy_event = {"type": "context_policy", **context_assessment}
+                yield f"data: {json.dumps(policy_event)}\n\n"
+            if context_assessment["warning"]:
+                warning = {
+                    "type": "context_warning", "code": "context_estimate_exceeded",
+                    "message": "The estimated input exceeds the selected budget or declared model limit. The estimate is approximate; this request is allowed in warning mode.",
+                }
+                yield f"data: {json.dumps(warning)}\n\n"
             for attempt in range(2):
                 try:
                     async with aclosing(ai_service.stream(
@@ -742,6 +869,7 @@ async def chat(payload: ChatRequest):
                             persist_memory=payload.regenerate_message_index
                             is None,
                             input_limit=reduced_limit,
+                            preflight_mode="block",
                             **attachment_options,
                         )
                     )

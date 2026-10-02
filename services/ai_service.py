@@ -34,6 +34,7 @@ class AIService:
         *,
         summary_usage_store: SummaryUsageStore | None = None,
         call_usage_store: CallUsageStore | None = None,
+        max_output_tokens: int = 4096,
     ) -> None:
         """Bind profile and usage services and initialize the client cache."""
         self.summary_usage_store = summary_usage_store or SummaryUsageStore()
@@ -41,6 +42,16 @@ class AIService:
         self.usage_service = usage_service
         self.profile_service = profile_service
         self._clients: dict[str, dict[str, Any]] = {}
+        if max_output_tokens < 1:
+            raise ValueError("The output token limit must be positive.")
+        self.max_output_tokens = max_output_tokens
+
+    def output_limit(self, profile: ConnectionProfile) -> int:
+        """Use the configured output cap within any explicitly declared model limit."""
+        return min(
+            self.max_output_tokens,
+            profile.model_max_output_tokens or self.max_output_tokens,
+        )
 
     async def close(self) -> None:
         """Closes all cached client connections when the application shuts down."""
@@ -227,6 +238,7 @@ class AIService:
                 instructions=instructions,
                 input=input_messages,
                 stream=True,
+                max_output_tokens=self.output_limit(profile),
             )
             async for event in stream:
                 if event.type == "response.created":
@@ -380,6 +392,7 @@ class AIService:
                 model=profile.deployment,
                 instructions=instructions,
                 input=request,
+                max_output_tokens=self.output_limit(profile),
             )
             # Account before validation or memory adoption, even if the caller is stale.
             raw_usage = getattr(response, "usage", None)

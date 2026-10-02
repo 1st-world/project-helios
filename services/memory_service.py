@@ -210,21 +210,25 @@ class ConversationMemoryService:
         input_limit: int | None = None,
         attachment_content: list[dict] | None = None,
         visual_tokens: int = 0,
+        preflight_mode: str = "block",
     ) -> tuple[str, list[dict]]:
-        """Fit a request before adding its user message or emitting any answer text."""
+        """Prepare the full request and compact it only when estimate blocking is selected."""
         builder = PromptBuilder()
-        limit = min(
-            self.context_budget.input_limit,
-            (
-                input_limit
-                if input_limit is not None
-                else self.context_budget.input_limit
-            ),
+        limit = (
+            input_limit
+            if input_limit is not None else self.context_budget.input_limit
         )
         fixed = builder.build(
             [], user_prompt, workspace_context, attachment_content=attachment_content,
         )
-        if self.context_budget.estimate(*fixed, visual_tokens=visual_tokens) > limit:
+        if preflight_mode not in {"warn", "block", "off"}:
+            raise ValueError("Context preflight mode must be warn, block, or off.")
+        if (
+            preflight_mode == "block"
+            and self.context_budget.estimate(
+                *fixed, visual_tokens=visual_tokens
+            ) > limit
+        ):
             raise ContextBudgetExceeded(
                 "The current question and workspace context exceed the input "
                 "budget. Shorten the question or reduce selected attachments."
@@ -244,6 +248,9 @@ class ConversationMemoryService:
             conversation.summarized_message_count,
             attachment_content=attachment_content,
         )
+        # Advisory admission must not spend summary calls to enforce an optional estimate.
+        if preflight_mode in {"warn", "off"}:
+            return prepared
         # Requests that already fit can proceed while background memory is being generated.
         if (
             self.context_budget.estimate(*prepared, visual_tokens=visual_tokens)

@@ -4,6 +4,12 @@ from dataclasses import dataclass, field
 from uuid import uuid4
 
 
+CONTEXT_FIELDS = (
+    "context_preflight_mode", "context_input_budget", "model_context_window",
+    "model_max_input_tokens", "model_max_output_tokens",
+)
+
+
 @dataclass
 class ConnectionProfile:
     """Hold connection credentials and optional ordinary, cache, and long-context rates."""
@@ -22,6 +28,20 @@ class ConnectionProfile:
     cache_write_price_per_million: float | None = None
     long_cache_read_price_per_million: float | None = None
     long_cache_write_price_per_million: float | None = None
+    context_preflight_mode: str | None = None
+    context_input_budget: int | None = None
+    model_context_window: int | None = None
+    model_max_input_tokens: int | None = None
+    model_max_output_tokens: int | None = None
+
+    def __post_init__(self) -> None:
+        """Validate optional context declarations without guessing from deployment names."""
+        if self.context_preflight_mode not in {None, "warn", "block", "off"}:
+            raise ValueError("Context preflight mode must be warn, block, off, or null.")
+        for name in CONTEXT_FIELDS[1:]:
+            value = getattr(self, name)
+            if value is not None and (type(value) is not int or value < 1):
+                raise ValueError("Context limits must be positive integers or null.")
 
     @property
     def is_configured(self) -> bool:
@@ -50,6 +70,7 @@ class ConnectionProfile:
             "long_cache_write_price_per_million": self.long_cache_write_price_per_million,
             "is_configured": self.is_configured,
             "has_api_key": bool(self.api_key.strip()),
+            **{name: getattr(self, name) for name in CONTEXT_FIELDS},
         }
         if include_sensitive:
             data["api_key"] = self.api_key
@@ -120,4 +141,5 @@ class ConnectionProfile:
                 and str(long_cache_write).strip() != ""
                 else None
             ),
+            **{name: data.get(name) for name in CONTEXT_FIELDS},
         )

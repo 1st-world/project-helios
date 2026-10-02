@@ -82,12 +82,22 @@ class WorkspaceService:
 
         return walk(self.root)
 
-    def read_text(self, relative_path: str) -> str:
+    def read_text(self, relative_path: str, *, max_bytes: int | None = None) -> str:
         """Read an existing UTF-8 file after validating its workspace-relative path."""
         path = self._resolve(relative_path)
         if not path.exists() or not path.is_file():
             raise FileNotFoundError(relative_path)
         try:
+            if max_bytes is not None:
+                with path.open("rb") as source:
+                    data = source.read(max_bytes + 1)
+                if len(data) > max_bytes:
+                    raise WorkspaceAccessError(
+                        f"Workspace text exceeds the local read limit of {max_bytes} bytes."
+                    )
+                return (
+                    data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+                )
             return path.read_text(encoding="utf-8")
         except PermissionError:
             raise
@@ -119,17 +129,41 @@ class WorkspaceService:
         return f"Project workspace: {self.root}\nProject tree:\n{listing}"
 
     def selected_context(
-        self, relative_paths: list[str], *, exclude_paths: set[Path] | None = None
+        self,
+        relative_paths: list[str],
+        *,
+        exclude_paths: set[Path] | None = None,
+        max_file_bytes: int | None = None,
+        max_total_bytes: int | None = None,
+        max_files: int | None = None,
     ) -> str:
         """Read each selected file once and reject the whole selection on a file error."""
         seen: set[Path] = set(exclude_paths or ())
         sections: list[str] = []
+        total = 0
         for relative_path in relative_paths:
             try:
                 resolved = self._resolve(relative_path)
                 if resolved in seen:
                     continue
-                content = self.read_text(relative_path)
+                if max_files is not None and len(seen) >= max_files:
+                    raise WorkspaceAccessError("Selection exceeds the local attachment count limit.")
+                read_limit = max_file_bytes
+                if max_total_bytes is not None:
+                    # Limit raw reads before loading another file.
+                    # This local budget does not estimate model input tokens.
+                    remaining = max(0, max_total_bytes - total)
+                    read_limit = (
+                        remaining if read_limit is None
+                        else min(read_limit, remaining)
+                    )
+                content = (
+                    self.read_text(relative_path, max_bytes=read_limit)
+                    if read_limit is not None else self.read_text(relative_path)
+                )
+                total += len(content.encode("utf-8"))
+                if max_total_bytes is not None and total > max_total_bytes:
+                    raise WorkspaceAccessError("Workspace text exceeds the local combined read limit.")
             except (OSError, WorkspaceAccessError) as exc:
                 raise WorkspaceAccessError(
                     f"Cannot load workspace file {relative_path!r}: {exc}"

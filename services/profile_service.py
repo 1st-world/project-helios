@@ -2,10 +2,11 @@
 
 import json
 import logging
+from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
-from models.profile import ConnectionProfile
+from models.profile import CONTEXT_FIELDS, ConnectionProfile
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +109,11 @@ class ProfileService:
         cache_write_price_per_million: float | None = None,
         long_cache_read_price_per_million: float | None = None,
         long_cache_write_price_per_million: float | None = None,
+        context_preflight_mode: str | None = None,
+        context_input_budget: int | None = None,
+        model_context_window: int | None = None,
+        model_max_input_tokens: int | None = None,
+        model_max_output_tokens: int | None = None,
     ) -> ConnectionProfile:
         """Create a normalized profile and select it when no active profile exists."""
         cleaned_name = name.strip() or "New Azure Profile"
@@ -130,6 +136,11 @@ class ProfileService:
             cache_write_price_per_million=cache_write_price_per_million,
             long_cache_read_price_per_million=long_cache_read_price_per_million,
             long_cache_write_price_per_million=long_cache_write_price_per_million,
+            context_preflight_mode=context_preflight_mode,
+            context_input_budget=context_input_budget,
+            model_context_window=model_context_window,
+            model_max_input_tokens=model_max_input_tokens,
+            model_max_output_tokens=model_max_output_tokens,
         )
         self._profiles[profile.id] = profile
         if not self._active_profile_id:
@@ -161,11 +172,18 @@ class ProfileService:
         clear_cache_write_price: bool = False,
         clear_long_cache_read_price: bool = False,
         clear_long_cache_write_price: bool = False,
+        context_settings: dict | None = None,
     ) -> ConnectionProfile:
         """Apply provided profile values and pricing-clear flags, preserving omitted settings."""
         profile = self.get_profile(profile_id)
         if not profile:
             raise ValueError("Profile not found.")
+        changes = context_settings or {}
+        if set(changes) - set(CONTEXT_FIELDS):
+            raise ValueError("Unknown context setting.")
+        validated = replace(profile, **changes)
+        for name in changes:
+            setattr(profile, name, getattr(validated, name))
         if name is not None and name.strip():
             profile.name = name.strip()
         if endpoint is not None:
