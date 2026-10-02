@@ -22,9 +22,10 @@ from fastapi import (
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from config import settings
+from models.app_settings import AppSettings, DEFAULT_APP_SETTINGS
 from models.profile import CONTEXT_FIELDS, ConnectionProfile
 from services.ai_service import AIService
 from services.attachment_errors import ProviderAttachmentError
@@ -50,6 +51,7 @@ from services.folder_picker_service import (
 )
 from services.memory_service import ConversationMemoryService
 from services.profile_service import ProfileService
+from services.settings_service import SettingsService, SettingsStorageError
 from services.summary_usage_store import SummaryUsageStore
 from services.usage_service import UsageService
 from services.workspace_service import WorkspaceAccessError, WorkspaceService
@@ -69,17 +71,24 @@ logging.basicConfig(
 logging.getLogger("watchfiles").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
+settings_service = SettingsService(
+    getattr(
+        settings, "app_settings_path",
+        settings.profiles_path.with_name("settings.json"),
+    ),
+    AppSettings(**{
+        name: getattr(settings, name, value)
+        for name, value in DEFAULT_APP_SETTINGS.to_dict().items()
+    }),
+)
+application_settings = settings_service.current
 profile_service = ProfileService(settings.profiles_path)
 conversation_manager = ConversationManager(settings.conversations_root)
 workspace_service = WorkspaceService(settings.workspace_root)
 attachment_service = AttachmentService(
     workspace_service,
-    limits={
-        name.removeprefix("attachment_").upper(): getattr(settings, name)
-        for name in vars(settings) if name.startswith("attachment_max_")
-    },
+    limits=application_settings.attachment_limits(),
 )
-MAX_SELECTION_ENTRIES = max(200, attachment_service.MAX_FILES * 4)
 folder_picker_service = FolderPickerService()
 usage_service = UsageService()
 summary_usage_store = SummaryUsageStore(
@@ -102,18 +111,18 @@ for stored_conversation in conversation_manager.list():
 ai_service = AIService(
     usage_service, profile_service, summary_usage_store=summary_usage_store,
     call_usage_store=call_usage_store,
-    max_output_tokens=settings.context_output_reserve,
+    max_output_tokens=application_settings.context_output_reserve,
 )
 context_budget = ContextBudget(
-    settings.context_token_budget,
-    settings.context_output_reserve,
-    settings.max_summary_calls,
+    application_settings.context_token_budget,
+    application_settings.context_output_reserve,
+    application_settings.max_summary_calls,
 )
 memory_service = ConversationMemoryService(
     ai_service,
     conversation_manager,
-    settings.max_context_messages,
-    settings.keep_recent_messages,
+    application_settings.max_context_messages,
+    application_settings.keep_recent_messages,
     context_budget,
 )
 
@@ -193,18 +202,51 @@ class ContextRequestOptions(BaseModel):
     context_input_budget: int | None = Field(default=None, ge=1, strict=True)
 
 
+class UpdateSettingsRequest(BaseModel):
+    """Validate partial app preferences while allowing null to restore defaults."""
+
+    model_config = ConfigDict(extra="forbid")
+    max_context_messages: int | None = Field(default=None, ge=3, strict=True)
+    keep_recent_messages: int | None = Field(default=None, ge=2, strict=True)
+    context_token_budget: int | None = Field(default=None, ge=1, strict=True)
+    context_output_reserve: int | None = Field(default=None, ge=1, strict=True)
+    max_summary_calls: int | None = Field(default=None, ge=1, strict=True)
+    context_preflight_mode: Literal["warn", "block", "off"] | None = None
+    attachment_max_files: int | None = Field(default=None, ge=1, strict=True)
+    attachment_max_file_bytes: int | None = Field(
+        default=None, ge=1, strict=True
+    )
+    attachment_max_total_bytes: int | None = Field(
+        default=None, ge=1, strict=True
+    )
+    attachment_max_text_bytes: int | None = Field(
+        default=None, ge=1, strict=True
+    )
+    attachment_max_zip_bytes: int | None = Field(
+        default=None, ge=1, strict=True
+    )
+    attachment_max_zip_members: int | None = Field(
+        default=None, ge=1, strict=True
+    )
+    attachment_max_image_pixels: int | None = Field(
+        default=None, ge=1, strict=True
+    )
+    attachment_max_pdf_pages: int | None = Field(
+        default=None, ge=1, strict=True
+    )
+    attachment_max_sheet_cells: int | None = Field(
+        default=None, ge=1, strict=True
+    )
+
+
 class ChatRequest(ContextRequestOptions):
     """Validate a new chat turn or regeneration request and its context selection."""
 
     prompt: str = Field(min_length=1, max_length=100_000)
     conversation_id: str | None = None
     workspace_file: str | None = None
-    workspace_files: list[str] = Field(
-        default_factory=list, max_length=MAX_SELECTION_ENTRIES
-    )
-    attachment_files: list[str] = Field(
-        default_factory=list, max_length=MAX_SELECTION_ENTRIES
-    )
+    workspace_files: list[str] = Field(default_factory=list)
+    attachment_files: list[str] = Field(default_factory=list)
     profile_id: str | None = None
     regenerate_message_index: int | None = Field(default=None, ge=0)
     expected_conversation_version: int | None = Field(default=None, ge=0)
@@ -213,7 +255,7 @@ class ChatRequest(ContextRequestOptions):
 class AttachmentSelectionRequest(ContextRequestOptions):
     """Validate files for the backend attachment API without changing GUI selection."""
 
-    paths: list[str] = Field(min_length=1, max_length=MAX_SELECTION_ENTRIES)
+    paths: list[str] = Field(min_length=1)
     profile_id: str | None = None
 
 
@@ -585,10 +627,87 @@ async def read_file(payload: ReadFileRequest):
         raise HTTPException(status_code=500, detail="Could not read file.")
 
 
+def application_settings_response() -> dict:
+    """Return saved preferences, reset defaults, and separately enforced limits."""
+    return {
+        "settings": settings_service.current.to_dict(),
+        "defaults": settings_service.defaults.to_dict(),
+        "local_attachment_limits": {
+            name: getattr(attachment_service, name)
+            for name in vars(AttachmentService) if name.startswith("MAX_")
+        },
+        "provider_limits": {
+            "max_images": AttachmentService.PROVIDER_IMAGE_COUNT,
+            "native_file_bytes_exclusive": AttachmentService.PROVIDER_FILE_BYTES,
+            "native_category_total_bytes_exclusive": (
+                AttachmentService.PROVIDER_FILE_BYTES
+            ),
+        },
+        "applies_to": "new_requests",
+    }
+
+
+@app.get("/api/settings")
+async def get_application_settings():
+    """Expose application preferences for future Settings GUI integration."""
+    return application_settings_response()
+
+
+@app.put("/api/settings")
+async def update_application_settings(payload: UpdateSettingsRequest):
+    """Persist an update before publishing a new immutable request policy."""
+    global attachment_service, ai_service, context_budget, memory_service
+    try:
+        candidate = settings_service.prepare_update(
+            payload.model_dump(exclude_unset=True)
+        )
+        new_budget = ContextBudget(
+            candidate.context_token_budget, candidate.context_output_reserve,
+            candidate.max_summary_calls,
+        )
+        new_attachments = AttachmentService(
+            workspace_service, limits=candidate.attachment_limits()
+        )
+        new_ai = ai_service.with_output_limit(candidate.context_output_reserve)
+        new_memory = memory_service.with_settings(
+            new_ai, new_budget,
+            candidate.max_context_messages, candidate.keep_recent_messages,
+        )
+        settings_service.save(candidate)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={
+            "code": "settings_invalid", "message": str(exc),
+        }) from exc
+    except SettingsStorageError as exc:
+        logger.exception("Could not save application settings")
+        raise HTTPException(status_code=500, detail={
+            "code": "settings_save_failed", "message": str(exc),
+        }) from exc
+    # No await separates disk publication from the event-loop policy swap.
+    attachment_service, ai_service, context_budget, memory_service = (
+        new_attachments, new_ai, new_budget, new_memory,
+    )
+    return application_settings_response()
+
+
+def validate_selection_entries(
+    paths: list[str], limits: AttachmentService
+) -> None:
+    """Bound raw path aliases using the resource policy captured for a request."""
+    if len(paths) > max(200, limits.MAX_FILES * 4):
+        raise HTTPException(status_code=422, detail={
+            "code": "attachment_selection_too_large",
+            "message": "Too many file selection entries.",
+        })
+
+
 def resolve_context_policy(
     profile_id: str | None = None,
     mode: str | None = None,
     input_budget: int | None = None,
+    *,
+    budget: ContextBudget | None = None,
+    default_mode: str | None = None,
 ) -> ContextPolicy:
     """Resolve defaults and optional profile settings without contacting the provider."""
     profile = (
@@ -598,8 +717,9 @@ def resolve_context_policy(
     if profile_id and profile is None:
         raise HTTPException(status_code=404, detail="Profile not found.")
     return ContextPolicy.resolve(
-        profile or ConnectionProfile(), context_budget,
-        getattr(settings, "context_preflight_mode", "warn"), mode, input_budget,
+        profile or ConnectionProfile(), budget or context_budget,
+        default_mode or settings_service.current.context_preflight_mode,
+        mode, input_budget,
     )
 
 
@@ -621,9 +741,13 @@ async def context_policy_settings(profile_id: str | None = None):
 @app.post("/api/attachments/inspect")
 async def inspect_attachments(payload: AttachmentSelectionRequest):
     """Validate local attachments without provider calls or returning binary contents."""
+    request_attachments = attachment_service
+    request_budget = context_budget
+    default_mode = settings_service.current.context_preflight_mode
+    validate_selection_entries(payload.paths, request_attachments)
     try:
         prepared = await anyio.to_thread.run_sync(
-            attachment_service.prepare, payload.paths
+            request_attachments.prepare, payload.paths
         )
     except AttachmentError as exc:
         raise HTTPException(
@@ -632,6 +756,7 @@ async def inspect_attachments(payload: AttachmentSelectionRequest):
     policy = resolve_context_policy(
         payload.profile_id, payload.context_preflight_mode,
         payload.context_input_budget,
+        budget=request_budget, default_mode=default_mode,
     )
     assessment = policy.assess(
         "", [{"role": "user", "content": prepared.content}],
@@ -650,8 +775,18 @@ async def inspect_attachments(payload: AttachmentSelectionRequest):
 @app.post("/api/chat")
 async def chat(payload: ChatRequest):
     """Prepare a versioned conversation turn and return its server-sent response stream."""
+    request_ai = ai_service
+    request_memory = memory_service
+    request_attachments = attachment_service
+    request_budget = context_budget
+    default_mode = settings_service.current.context_preflight_mode
+    validate_selection_entries(
+        payload.workspace_files + payload.attachment_files
+        + ([payload.workspace_file] if payload.workspace_file else []),
+        request_attachments,
+    )
     try:
-        profile_id = ai_service.resolve_profile_id(payload.profile_id)
+        profile_id = request_ai.resolve_profile_id(payload.profile_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     background_tasks = BackgroundTasks()
@@ -695,7 +830,7 @@ async def chat(payload: ChatRequest):
     try:
         attachments = (
             await anyio.to_thread.run_sync(
-                attachment_service.prepare, payload.attachment_files
+                request_attachments.prepare, payload.attachment_files
             ) if payload.attachment_files else PreparedAttachments()
         )
         if workspace_service.root != workspace_root:
@@ -716,15 +851,15 @@ async def chat(payload: ChatRequest):
         workspace_context += workspace_service.selected_context(
             selected_files, exclude_paths=attached_paths,
             max_file_bytes=min(
-                attachment_service.MAX_FILE_BYTES,
-                attachment_service.MAX_TEXT_BYTES,
+                request_attachments.MAX_FILE_BYTES,
+                request_attachments.MAX_TEXT_BYTES,
             ),
             max_total_bytes=max(
-                0, attachment_service.MAX_TOTAL_BYTES - sum(
+                0, request_attachments.MAX_TOTAL_BYTES - sum(
                     item["size_bytes"] for item in attachments.metadata
                 ),
             ),
-            max_files=attachment_service.MAX_FILES,
+            max_files=request_attachments.MAX_FILES,
         )
     except WorkspaceAccessError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -738,6 +873,7 @@ async def chat(payload: ChatRequest):
         )
     policy = resolve_context_policy(
         profile_id, payload.context_preflight_mode, payload.context_input_budget,
+        budget=request_budget, default_mode=default_mode,
     )
     attachment_options = (
         {
@@ -747,7 +883,7 @@ async def chat(payload: ChatRequest):
         if attachments.content else {}
     )
     try:
-        instructions, input_messages = await memory_service.prepare_context(
+        instructions, input_messages = await request_memory.prepare_context(
             conversation,
             user_prompt,
             workspace_context,
@@ -816,7 +952,7 @@ async def chat(payload: ChatRequest):
                 yield f"data: {json.dumps(warning)}\n\n"
             for attempt in range(2):
                 try:
-                    async with aclosing(ai_service.stream(
+                    async with aclosing(request_ai.stream(
                         request_instructions,
                         request_messages,
                         profile_id=profile_id,
@@ -852,7 +988,7 @@ async def chat(payload: ChatRequest):
                             "Conversation changed before context recovery. Please retry."
                         )
                     reduced_limit = (
-                        context_budget.estimate(
+                        request_budget.estimate(
                             request_instructions, request_messages,
                             visual_tokens=attachments.visual_tokens,
                         )
@@ -860,7 +996,7 @@ async def chat(payload: ChatRequest):
                         // 4
                     )
                     request_instructions, request_messages = (
-                        await memory_service.prepare_context(
+                        await request_memory.prepare_context(
                             conversation,
                             user_prompt,
                             workspace_context,
@@ -922,7 +1058,7 @@ async def chat(payload: ChatRequest):
                     **msg_kwargs,
                 )
             background_tasks.add_task(
-                memory_service.compact_if_needed,
+                request_memory.compact_if_needed,
                 conversation,
                 profile_id=profile_id,
             )

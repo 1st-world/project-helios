@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from copy import copy
 from dataclasses import replace
 
 from models.conversation import Conversation
@@ -40,9 +41,23 @@ class ConversationMemoryService:
             2, min(keep_recent_messages, self.max_context_messages - 1)
         )
         self._running: set[str] = set()
-        self._pending: dict[str, tuple[Conversation, str | None]] = {}
+        self._pending: dict[
+            str, tuple[Conversation, str | None, "ConversationMemoryService"]
+        ] = {}
         self.context_budget = context_budget or ContextBudget()
         self._locks: dict[str, tuple[asyncio.Lock, int]] = {}
+
+    def with_settings(
+        self, ai_service: AIService, context_budget: ContextBudget,
+        max_context_messages: int, keep_recent_messages: int,
+    ) -> "ConversationMemoryService":
+        """Snapshot work policy while sharing per-conversation summary coordination."""
+        snapshot = copy(self)
+        snapshot.ai_service = ai_service
+        snapshot.context_budget = context_budget
+        snapshot.max_context_messages = max_context_messages
+        snapshot.keep_recent_messages = keep_recent_messages
+        return snapshot
 
     @asynccontextmanager
     async def _exclusive(self, conversation_id: str):
@@ -339,7 +354,7 @@ class ConversationMemoryService:
         if not self.conversation_manager.is_active(conversation):
             return
         conversation_id = conversation.id
-        self._pending[conversation_id] = (conversation, profile_id)
+        self._pending[conversation_id] = (conversation, profile_id, self)
         if conversation_id in self._running:
             return
         self._running.add(conversation_id)
@@ -347,14 +362,20 @@ class ConversationMemoryService:
         try:
             async with self._exclusive(conversation_id):
                 while conversation_id in self._pending:
-                    current, requested_profile_id = self._pending.pop(
-                        conversation_id
+                    pending = self._pending.pop(conversation_id)
+                    current, requested_profile_id, requested_memory = pending
+                    attempt = (
+                        current.version, requested_profile_id,
+                        requested_memory.context_budget,
+                        requested_memory.max_context_messages,
+                        requested_memory.keep_recent_messages,
                     )
-                    attempt = (current.version, requested_profile_id)
                     if attempt == last_attempt:
                         continue
                     last_attempt = attempt
-                    await self._compact_once(current, requested_profile_id)
+                    await requested_memory._compact_once(
+                        current, requested_profile_id
+                    )
         finally:
             # Clear busy state on cancellation so later replies can retry unfinished memory.
             self._pending.pop(conversation_id, None)

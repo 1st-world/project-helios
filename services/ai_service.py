@@ -4,6 +4,7 @@ import asyncio
 import logging
 import time
 from collections.abc import AsyncGenerator
+from copy import copy
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
@@ -52,6 +53,14 @@ class AIService:
             self.max_output_tokens,
             profile.model_max_output_tokens or self.max_output_tokens,
         )
+
+    def with_output_limit(self, max_output_tokens: int) -> "AIService":
+        """Snapshot output policy while sharing clients and persistent usage stores."""
+        if max_output_tokens < 1:
+            raise ValueError("The output token limit must be positive.")
+        snapshot = copy(self)
+        snapshot.max_output_tokens = max_output_tokens
+        return snapshot
 
     async def close(self) -> None:
         """Closes all cached client connections when the application shuts down."""

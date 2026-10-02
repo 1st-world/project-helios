@@ -44,6 +44,8 @@ logs/*
 .agents/*
 !.agents/.gitkeep
 profiles.json
+settings.json
+.helios-settings-*.tmp
 
 # ========================================
 # Local Validation & Documentation

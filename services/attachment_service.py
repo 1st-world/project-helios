@@ -20,6 +20,7 @@ from PIL import Image
 from pptx import Presentation
 from pypdf import PdfReader
 
+from models.app_settings import DEFAULT_APP_SETTINGS
 from services.workspace_service import WorkspaceAccessError, WorkspaceService
 
 
@@ -56,28 +57,28 @@ class AttachmentService:
     # Their safety has not been benchmarked across workloads or hardware.
     # Model token capacity does not determine these parser-work limits.
     # Match Azure's image count initially, but count every local file here.
-    MAX_FILES = 50
+    MAX_FILES = DEFAULT_APP_SETTINGS.attachment_max_files
     # Begin below Azure's decimal 50 MB native-input file ceiling.
     # The common total is a provisional budget for reading mixed formats.
     # Base64 and JSON duplicate payloads; this is not a peak-memory bound.
-    MAX_FILE_BYTES = 49_999_999
-    MAX_TOTAL_BYTES = 49_999_999
+    MAX_FILE_BYTES = DEFAULT_APP_SETTINGS.attachment_max_file_bytes
+    MAX_TOTAL_BYTES = DEFAULT_APP_SETTINGS.attachment_max_total_bytes
     # Bound text retained for tokenization and prompts, not model input tokens.
     # The initial 4 MiB allocation policy has not been benchmarked.
-    MAX_TEXT_BYTES = 4 * 1024 * 1024
+    MAX_TEXT_BYTES = DEFAULT_APP_SETTINGS.attachment_max_text_bytes
     # Bound Office ZIP expansion independently of compressed source size.
     # Byte and entry budgets are provisional parser-work limits.
-    MAX_ZIP_BYTES = 128 * 1024 * 1024
-    MAX_ZIP_MEMBERS = 10_000
+    MAX_ZIP_BYTES = DEFAULT_APP_SETTINGS.attachment_max_zip_bytes
+    MAX_ZIP_MEMBERS = DEFAULT_APP_SETTINGS.attachment_max_zip_members
     # 50 MP RGB/RGBA pixels alone need about 150-200 MB before decoder copies.
     # This provisional pixel guard is not a measured peak-memory guarantee.
-    MAX_IMAGE_PIXELS = 50_000_000
+    MAX_IMAGE_PIXELS = DEFAULT_APP_SETTINGS.attachment_max_image_pixels
     # A generous initial page count bounds local page-object traversal.
     # This is not an Azure page limit or benchmarked latency threshold.
-    MAX_PDF_PAGES = 1024
+    MAX_PDF_PAGES = DEFAULT_APP_SETTINGS.attachment_max_pdf_pages
     # Retain the existing initial work budget while counting stored cells.
     # Empty rectangular gaps do not count toward the provisional cell limit.
-    MAX_SHEET_CELLS = 100_000
+    MAX_SHEET_CELLS = DEFAULT_APP_SETTINGS.attachment_max_sheet_cells
     # Azure Responses requirements were checked on 2026-10-02.
     # Images are limited to 50; each file/category total must be under 50 MB.
     # User resource policies cannot raise these provider limits.
