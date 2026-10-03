@@ -3,7 +3,7 @@
 import { $, closeMobileSidebar, escapeHtml, refreshIcons, toast } from './ui.js';
 import { selectSettingsPanel } from './settings.js';
 
-export function createProfiles({ isGenerating }) {
+export function createProfiles({ isGenerating, closeSettings }) {
   const state = { activeProfileId: null, editingProfileId: null, profiles: [], formBaseline: null };
 
   function snapshotProfileForm() {
@@ -11,9 +11,8 @@ export function createProfiles({ isGenerating }) {
       .map((input) => [input.id, input.value, input.validity.badInput]));
   }
 
-  function beforeDialogClose() {
-    if (state.formBaseline === null || snapshotProfileForm() === state.formBaseline) return true;
-    return window.confirm('Discard unsaved connection profile changes and close Settings?');
+  function hasUnsavedChanges() {
+    return state.formBaseline !== null && snapshotProfileForm() !== state.formBaseline;
   }
 
   function updatePricingStatus(hasPricing) {
@@ -353,7 +352,7 @@ export function createProfiles({ isGenerating }) {
       };
     }
     $('#add-profile-btn').onclick = resetProfileForm;
-    $('#cancel-profile-edit').onclick = () => $('#settings-dialog').close();
+    $('#cancel-profile-edit').onclick = closeSettings;
 
     const toggleKeyBtn = $('#toggle-api-key-btn');
     if (toggleKeyBtn) {
@@ -469,5 +468,5 @@ export function createProfiles({ isGenerating }) {
     setupPricingAccordionAnimation();
   }
 
-  return { init, load: loadProfiles, checkHealth: health, setGenerating, beforeDialogClose, getActiveProfileId: () => state.activeProfileId };
+  return { init, load: loadProfiles, checkHealth: health, setGenerating, hasUnsavedChanges, getActiveProfileId: () => state.activeProfileId };
 }

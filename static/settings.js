@@ -1,6 +1,7 @@
-/* Navigate settings categories and manage the conversation usage preview visibility. */
+/* Navigate settings categories and connect app policy editing and conversation usage visibility. */
 
 import { $ } from './ui.js';
+import { createAppSettings } from './app-settings.js';
 
 export function selectSettingsPanel(name, focus = false) {
   const tabs = [...document.querySelectorAll('[data-settings-tab]')];
@@ -17,9 +18,12 @@ export function selectSettingsPanel(name, focus = false) {
   });
 
   if (focus) selectedTab.focus();
+  $('#settings-dialog').dispatchEvent(new CustomEvent('settings-panel-change', { detail: { name } }));
 }
 
-export function initializeSettings({ onConversationUsageVisibilityChange }) {
+export function initializeSettings({ onConversationUsageVisibilityChange, hasUnsavedProfileChanges }) {
+  const appSettings = createAppSettings({ hasUnsavedProfileChanges });
+  appSettings.init();
   const tabs = [...document.querySelectorAll('[data-settings-tab]')];
   tabs.forEach((tab, index) => {
     tab.addEventListener('click', () => selectSettingsPanel(tab.dataset.settingsTab));
@@ -43,4 +47,5 @@ export function initializeSettings({ onConversationUsageVisibilityChange }) {
     localStorage.setItem('helios.showConversationUsage', String(usageToggle.checked));
     onConversationUsageVisibilityChange(usageToggle.checked);
   });
+  return { beforeDialogClose: appSettings.beforeDialogClose };
 }

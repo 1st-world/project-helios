@@ -7,7 +7,12 @@ import { initializeUI } from './ui.js';
 import { initializeSettings } from './settings.js';
 
 const workspace = createWorkspace({ getActiveProfileId: () => profiles.getActiveProfileId() });
-const profiles = createProfiles({ isGenerating: () => chat.isGenerating() });
+const profiles = createProfiles({
+  isGenerating: () => chat.isGenerating(),
+  closeSettings() {
+    if (settings.beforeDialogClose({ discardProfile: true })) document.querySelector('#settings-dialog').close();
+  }
+});
 const chat = createChat({
   getActiveProfileId: profiles.getActiveProfileId,
   getAttachmentFiles: workspace.getAttachmentFiles,
@@ -19,14 +24,17 @@ const chat = createChat({
   }
 });
 
+const settings = initializeSettings({
+  onConversationUsageVisibilityChange: chat.setUsageVisibility,
+  hasUnsavedProfileChanges: profiles.hasUnsavedChanges
+});
 initializeUI({
   beforeDialogClose(dialog) {
     if (dialog.id === 'workspace-dialog') return workspace.beforeDialogClose();
-    if (dialog.id === 'settings-dialog') return profiles.beforeDialogClose();
+    if (dialog.id === 'settings-dialog') return settings.beforeDialogClose();
     return true;
   }
 });
-initializeSettings({ onConversationUsageVisibilityChange: chat.setUsageVisibility });
 workspace.init();
 profiles.init();
 chat.init();

@@ -1582,6 +1582,59 @@ textarea::placeholder {
   font-weight: 600;
   font-size: 14px;
 }
+.preferences-dialog .settings-group + .settings-group {
+  margin-top: 20px;
+}
+.preferences-dialog .app-settings-form .settings-preference-control {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  flex: none;
+  align-items: center;
+  width: 220px;
+  gap: 8px;
+}
+.preferences-dialog .app-settings-form .settings-preference-control select,
+.preferences-dialog .app-settings-form .settings-preference-control input {
+  grid-column: 2;
+  grid-row: 1;
+  width: 100%;
+}
+.preferences-dialog .app-settings-form .settings-default-reset {
+  grid-column: 1;
+  grid-row: 1;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  line-height: 1;
+}
+.preferences-dialog .app-settings-form button[hidden] {
+  display: none;
+}
+.preferences-dialog .app-settings-form [aria-invalid="true"] {
+  border-color: var(--danger);
+}
+.preferences-dialog .app-settings-form .app-settings-budget,
+.preferences-dialog .app-settings-form .app-settings-status {
+  margin: 12px 0 0;
+  font-size: 11px;
+  white-space: pre-line;
+}
+.preferences-dialog .app-settings-form .app-settings-status[data-state="error"] {
+  color: var(--danger-text);
+}
+.preferences-dialog .app-settings-form .app-settings-status[data-state="success"] {
+  color: var(--success-text);
+}
+.preferences-dialog .app-settings-form .app-settings-dirty {
+  margin: 12px 0 0;
+  color: var(--warning-text);
+  font-size: 11px;
+}
+.preferences-dialog .app-settings-form .app-settings-status:empty,
+.preferences-dialog .app-settings-form .app-settings-dirty:empty {
+  display: none;
+}
 .preferences-dialog .settings-preference-row {
   display: flex;
   align-items: center;
@@ -2523,6 +2576,16 @@ button svg,
   .preferences-dialog .settings-preference-row select,
   .preferences-dialog .settings-preference-row input[type="number"] {
     width: 100%;
+  }
+  .preferences-dialog .app-settings-form .settings-preference-control {
+    width: 100%;
+  }
+  .preferences-dialog .app-settings-form .dialog-actions {
+    flex-wrap: wrap;
+  }
+  .preferences-dialog .app-settings-form .dialog-actions-right {
+    width: 100%;
+    justify-content: flex-end;
   }
   .preferences-dialog .settings-usage-preview .settings-panel-heading {
     flex-wrap: wrap;

@@ -183,43 +183,110 @@
 
     <div class="settings-tabs" role="tablist" aria-label="Settings categories">
       <button id="settings-general-tab" type="button" role="tab" data-settings-tab="general" aria-controls="settings-general" aria-selected="true">General</button>
-      <button id="settings-notifications-tab" type="button" role="tab" data-settings-tab="notifications" aria-controls="settings-notifications" aria-selected="false" tabindex="-1">Notifications</button>
+      <button id="settings-context-tab" type="button" role="tab" data-settings-tab="context" aria-controls="settings-context" aria-selected="false" tabindex="-1">Context & attachments</button>
       <button id="settings-connections-tab" type="button" role="tab" data-settings-tab="connections" aria-controls="settings-connections" aria-selected="false" tabindex="-1">Connections</button>
       <button id="settings-usage-tab" type="button" role="tab" data-settings-tab="usage" aria-controls="settings-usage" aria-selected="false" tabindex="-1">Usage & costs</button>
     </div>
 
     <section id="settings-general" class="settings-panel" role="tabpanel" aria-labelledby="settings-general-tab" tabindex="0">
-      <div class="settings-panel-heading"><h3>Appearance & language</h3></div>
-      <div class="info-callout"><i data-lucide="info"></i><p><strong>Preview.</strong> Appearance, language, and timezone preferences are not available yet.</p></div>
-      <div class="settings-preference-row">
-        <div class="settings-preference-copy"><strong id="theme-label">Theme</strong><small>Choose a light, dark, or system appearance.</small></div>
-        <div class="settings-theme-options" role="radiogroup" aria-labelledby="theme-label"><button type="button" role="radio" disabled aria-checked="false">Light</button><button type="button" role="radio" disabled aria-checked="true">Dark</button><button type="button" role="radio" disabled aria-checked="false">System</button></div>
-      </div>
-      <div class="settings-preference-row">
-        <div class="settings-preference-copy"><label for="ui-language">Interface language</label><small>Language of menus and controls.</small></div>
-        <select id="ui-language" disabled><option selected>English</option></select>
-      </div>
-      <div class="settings-preference-row">
-        <div class="settings-preference-copy"><label for="message-timezone">Message timezone</label><small>Timezone used to display message timestamps.</small></div>
-        <select id="message-timezone" disabled><option selected>N/A</option></select>
-      </div>
+      <div class="info-callout"><i data-lucide="info"></i><p><strong>Preview.</strong> Appearance, language, timezone, and notification preferences are not available yet.</p></div>
+      <section class="settings-group" aria-labelledby="settings-appearance-title">
+        <div class="settings-panel-heading"><h3 id="settings-appearance-title">Appearance & language</h3></div>
+        <div class="settings-preference-row">
+          <div class="settings-preference-copy"><strong id="theme-label">Theme</strong><small>Choose a light, dark, or system appearance.</small></div>
+          <div class="settings-theme-options" role="radiogroup" aria-labelledby="theme-label"><button type="button" role="radio" disabled aria-checked="false">Light</button><button type="button" role="radio" disabled aria-checked="true">Dark</button><button type="button" role="radio" disabled aria-checked="false">System</button></div>
+        </div>
+        <div class="settings-preference-row">
+          <div class="settings-preference-copy"><label for="ui-language">Interface language</label><small>Language of menus and controls.</small></div>
+          <select id="ui-language" disabled><option selected>English</option></select>
+        </div>
+        <div class="settings-preference-row">
+          <div class="settings-preference-copy"><label for="message-timezone">Message timezone</label><small>Timezone used to display message timestamps.</small></div>
+          <select id="message-timezone" disabled><option selected>N/A</option></select>
+        </div>
+      </section>
+
+      <section id="settings-notifications" class="settings-group" aria-labelledby="settings-notifications-title">
+        <div class="settings-panel-heading"><h3 id="settings-notifications-title">Notifications</h3></div>
+        <div class="settings-preference-row">
+          <div class="settings-preference-copy"><label for="notify-response">Response completion</label><small>Notify you when an assistant response finishes.</small></div>
+          <input id="notify-response" type="checkbox" disabled>
+        </div>
+        <div class="settings-preference-row">
+          <div class="settings-preference-copy"><label for="notify-sound">Notification sound</label><small>Play a sound with notifications.</small></div>
+          <input id="notify-sound" type="checkbox" disabled>
+        </div>
+        <div class="settings-preference-row">
+          <div class="settings-preference-copy"><label for="notify-desktop">Desktop notifications</label><small>Browser permission will be required when available.</small></div>
+          <input id="notify-desktop" type="checkbox" disabled>
+        </div>
+      </section>
     </section>
 
-    <section id="settings-notifications" class="settings-panel" role="tabpanel" aria-labelledby="settings-notifications-tab" tabindex="0" hidden>
-      <div class="settings-panel-heading"><h3>Notifications</h3></div>
-      <div class="info-callout"><i data-lucide="info"></i><p><strong>Preview.</strong> Notification preferences are not available yet.</p></div>
-      <div class="settings-preference-row">
-        <div class="settings-preference-copy"><label for="notify-response">Response completion</label><small>Notify you when an assistant response finishes.</small></div>
-        <input id="notify-response" type="checkbox" disabled>
-      </div>
-      <div class="settings-preference-row">
-        <div class="settings-preference-copy"><label for="notify-sound">Notification sound</label><small>Play a sound with notifications.</small></div>
-        <input id="notify-sound" type="checkbox" disabled>
-      </div>
-      <div class="settings-preference-row">
-        <div class="settings-preference-copy"><label for="notify-desktop">Desktop notifications</label><small>Browser permission will be required when available.</small></div>
-        <input id="notify-desktop" type="checkbox" disabled>
-      </div>
+    <section id="settings-context" class="settings-panel" role="tabpanel" aria-labelledby="settings-context-tab" tabindex="0" hidden>
+      <div class="settings-panel-heading"><h3>Context policies</h3></div>
+      <div class="info-callout"><i data-lucide="info"></i><p>App-wide defaults apply unless a profile or request overrides them. Saved changes apply to new requests; running requests keep their settings. Working budgets are separate from model capacity.</p></div>
+      <form id="app-settings-form" class="app-settings-form" novalidate>
+        <section class="settings-group" aria-labelledby="context-input-title">
+          <div class="settings-panel-heading"><h4 id="context-input-title">Input & output</h4></div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="context-preflight-mode">Context preflight</label><small id="context-preflight-help">Choose how local input estimates are used.</small></div>
+            <div class="settings-preference-control">
+              <button class="quiet settings-default-reset" type="button" data-reset-setting="context_preflight_mode" aria-label="Restore default context preflight" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+              <select id="context-preflight-mode" data-app-setting="context_preflight_mode" aria-describedby="context-preflight-help" required disabled><option value="" disabled selected>Select a mode</option><option value="warn">Warn</option><option value="block">Block</option><option value="off">Off</option></select>
+            </div>
+          </div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="context-token-budget">Working context budget (tokens)</label><small id="context-token-budget-help">Includes the output reserve. Keep at least 1,024 tokens available for input.</small></div>
+            <div class="settings-preference-control">
+              <button class="quiet settings-default-reset" type="button" data-reset-setting="context_token_budget" aria-label="Restore default working context budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+              <input id="context-token-budget" type="number" min="1025" step="1" data-app-setting="context_token_budget" aria-describedby="context-token-budget-help app-input-budget" required disabled>
+            </div>
+          </div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="context-output-reserve">Output cap & reserve (tokens)</label><small id="context-output-reserve-help">Caps response output including reasoning tokens. A declared model output limit may lower it.</small></div>
+            <div class="settings-preference-control">
+              <button class="quiet settings-default-reset" type="button" data-reset-setting="context_output_reserve" aria-label="Restore default output cap and reserve" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+              <input id="context-output-reserve" type="number" min="1" step="1" data-app-setting="context_output_reserve" aria-describedby="context-output-reserve-help app-input-budget" required disabled>
+            </div>
+          </div>
+          <p id="app-input-budget" class="app-settings-budget">App input allowance before profile or request overrides: —.</p>
+        </section>
+        <section class="settings-group" aria-labelledby="context-summary-title">
+          <div class="settings-panel-heading"><h4 id="context-summary-title">Memory summaries</h4></div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="max-context-messages">Summary trigger (messages)</label><small id="max-context-messages-help">Summarize after more than this many unsummarized messages. Counts messages, not turns.</small></div>
+            <div class="settings-preference-control">
+              <button class="quiet settings-default-reset" type="button" data-reset-setting="max_context_messages" aria-label="Restore default summary trigger" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+              <input id="max-context-messages" type="number" min="3" step="1" data-app-setting="max_context_messages" aria-describedby="max-context-messages-help" required disabled>
+            </div>
+          </div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="keep-recent-messages">Keep recent messages</label><small id="keep-recent-messages-help">Keep at least 2 recent messages and fewer than the summary trigger. Complete turns are preserved.</small></div>
+            <div class="settings-preference-control">
+              <button class="quiet settings-default-reset" type="button" data-reset-setting="keep_recent_messages" aria-label="Restore default recent message count" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+              <input id="keep-recent-messages" type="number" min="2" step="1" data-app-setting="keep_recent_messages" aria-describedby="keep-recent-messages-help" required disabled>
+            </div>
+          </div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="max-summary-calls">Calls per summary job</label><small id="max-summary-calls-help">Maximum API calls in one summary job. Summaries use your model and consume tokens.</small></div>
+            <div class="settings-preference-control">
+              <button class="quiet settings-default-reset" type="button" data-reset-setting="max_summary_calls" aria-label="Restore default summary call budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+              <input id="max-summary-calls" type="number" min="1" step="1" data-app-setting="max_summary_calls" aria-describedby="max-summary-calls-help" required disabled>
+            </div>
+          </div>
+        </section>
+        <p id="app-settings-status" class="app-settings-status" role="status"></p>
+        <button id="retry-app-settings" class="quiet sm-btn" type="button" hidden>Retry loading</button>
+        <p id="app-settings-dirty" class="app-settings-dirty" role="status"></p>
+        <div class="dialog-actions">
+          <button id="restore-context-defaults" class="quiet" type="button" title="Stage default context values; save to apply" disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i><span>Restore defaults</span></button>
+          <div class="dialog-actions-right">
+            <button id="cancel-app-settings" class="quiet" type="button" title="Discard unsaved context changes and close Settings">Cancel</button>
+            <button id="save-app-settings" class="primary-btn" type="submit" disabled><i data-lucide="save" aria-hidden="true"></i><span id="save-app-settings-label">Save settings</span></button>
+          </div>
+        </div>
+      </form>
     </section>
 
     <section id="settings-connections" class="settings-panel" role="tabpanel" aria-labelledby="settings-connections-tab" tabindex="0" hidden>
