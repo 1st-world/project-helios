@@ -6,11 +6,12 @@ import { createWorkspace } from './workspace.js';
 import { initializeUI } from './ui.js';
 import { initializeSettings } from './settings.js';
 
-const workspace = createWorkspace();
+const workspace = createWorkspace({ getActiveProfileId: () => profiles.getActiveProfileId() });
 const profiles = createProfiles({ isGenerating: () => chat.isGenerating() });
 const chat = createChat({
   getActiveProfileId: profiles.getActiveProfileId,
-  getWorkspaceFiles: workspace.getWorkspaceFiles,
+  getAttachmentFiles: workspace.getAttachmentFiles,
+  onAttachmentMetadata: workspace.updateAttachmentMetadata,
   clearFocusFiles: workspace.clearFocusFiles,
   onGeneratingChange(value) {
     workspace.setGenerating(value);

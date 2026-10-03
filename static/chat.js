@@ -2,8 +2,9 @@
 
 import { $, closeMobileSidebar, escapeHtml, refreshIcons, toast } from './ui.js';
 import { describeContextWarning, describeRequestError } from './chat-feedback.js';
+import { describeAttachmentNotes } from './attachments.js';
 
-export function createChat({ getActiveProfileId, getWorkspaceFiles, clearFocusFiles, onGeneratingChange }) {
+export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmentMetadata, clearFocusFiles, onGeneratingChange }) {
   const state = {
     conversationId: null,
     conversationVersion: null,
@@ -434,7 +435,7 @@ export function createChat({ getActiveProfileId, getWorkspaceFiles, clearFocusFi
         body: JSON.stringify({
           prompt: text,
           conversation_id: state.conversationId,
-          workspace_files: getWorkspaceFiles(),
+          attachment_files: getAttachmentFiles(),
           profile_id: getActiveProfileId(),
           regenerate_message_index: options.regenerateMessageIndex,
           expected_conversation_version: options.expectedConversationVersion
@@ -463,6 +464,11 @@ export function createChat({ getActiveProfileId, getWorkspaceFiles, clearFocusFi
             if (!options.preserveDraft || state.conversationId === requestConversationId) onStart(event);
           }
           if (event.type === 'context_policy') contextPolicy = event;
+          if (event.type === 'attachments' && Array.isArray(event.files)) {
+            onAttachmentMetadata(event.files);
+            const notes = describeAttachmentNotes(event.files);
+            if (notes) addRequestFeedback(requestFeedback, 'info', notes);
+          }
           if (event.type === 'context_warning') {
             addRequestFeedback(requestFeedback, 'warning', describeContextWarning(event, contextPolicy));
           }
