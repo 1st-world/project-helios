@@ -697,6 +697,40 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:hover {
   text-align: left;
 }
 
+.chat-request-notices {
+  display: grid;
+  margin: 0 0 27px;
+  gap: 10px;
+  line-height: 1.5;
+}
+.chat-request-notices .chat-request-notice {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow-wrap: anywhere;
+}
+.chat-request-notices .chat-request-notice.warning {
+  border-color: var(--warning-border);
+  background: var(--warning-subtle);
+  color: var(--warning-text);
+}
+.chat-request-notices .chat-request-notice.error {
+  border-color: var(--danger-border);
+  background: var(--danger-subtle);
+  color: var(--danger-text);
+}
+.chat-request-notices .chat-request-notice strong {
+  font-size: 13px;
+}
+.chat-request-notices .chat-request-notice p {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+.chat-request-notices .chat-request-notice-details {
+  white-space: pre-line;
+}
+
 .typing {
   color: var(--text-muted);
   font-size: 12px;

@@ -1,6 +1,7 @@
-/* Own conversation state, render messages, and coordinate reply streaming and regeneration. */
+/* Own conversation state, render messages and request feedback, and coordinate reply streaming and regeneration. */
 
 import { $, closeMobileSidebar, escapeHtml, refreshIcons, toast } from './ui.js';
+import { describeContextWarning, describeRequestError } from './chat-feedback.js';
 
 export function createChat({ getActiveProfileId, getWorkspaceFiles, clearFocusFiles, onGeneratingChange }) {
   const state = {
@@ -8,13 +9,19 @@ export function createChat({ getActiveProfileId, getWorkspaceFiles, clearFocusFi
     conversationVersion: null,
     controller: null,
     generating: false,
-    showConversationUsage: true
+    showConversationUsage: true,
+    // Keep the latest request's feedback per conversation without storing estimates as transcript usage.
+    requestFeedback: new Map()
   };
 
   const chat = $('#chat');
   const prompt = $('#prompt');
   const send = $('#send');
   const stop = $('#stop');
+  const feedbackRegion = document.createElement('aside');
+  feedbackRegion.className = 'chat-request-notices';
+  feedbackRegion.setAttribute('aria-label', 'Latest request status');
+  feedbackRegion.setAttribute('aria-live', 'polite');
   const usageFooter = document.createElement('aside');
   usageFooter.className = 'conversation-usage';
   usageFooter.id = 'conversation-usage';
@@ -101,6 +108,42 @@ export function createChat({ getActiveProfileId, getWorkspaceFiles, clearFocusFi
     state.showConversationUsage = visible;
     updateConversationUsage();
     if (wasNearBottom) scrollDown(false);
+  }
+
+  function renderRequestFeedback() {
+    const items = state.requestFeedback.get(state.conversationId) || [];
+    feedbackRegion.replaceChildren();
+    if (!items.length) {
+      feedbackRegion.remove();
+      return;
+    }
+    items.forEach(({ type, title, message, details }) => {
+      const notice = document.createElement('div');
+      notice.className = `chat-request-notice ${type}`;
+      const heading = document.createElement('strong');
+      heading.textContent = title;
+      const text = document.createElement('p');
+      text.textContent = message;
+      notice.append(heading, text);
+      if (details.length) {
+        const explanation = document.createElement('p');
+        explanation.className = 'chat-request-notice-details';
+        explanation.textContent = details.join('\n');
+        notice.append(explanation);
+      }
+      feedbackRegion.append(notice);
+    });
+    chat.insertBefore(feedbackRegion, usageFooter.parentElement === chat ? usageFooter : null);
+  }
+
+  function addRequestFeedback(request, type, feedback) {
+    const wasNearBottom = isNearBottom();
+    request.items.push({ type, ...feedback });
+    state.requestFeedback.set(request.conversationId, request.items);
+    if (request.conversationId === state.conversationId) {
+      renderRequestFeedback();
+      if (wasNearBottom) scrollDown(false);
+    }
   }
 
   function formatMessageMeta(meta) {
@@ -206,7 +249,8 @@ export function createChat({ getActiveProfileId, getWorkspaceFiles, clearFocusFi
     };
     actionsEl.append(copy);
 
-    chat.insertBefore(el, usageFooter.parentElement === chat ? usageFooter : null);
+    const next = feedbackRegion.parentElement === chat ? feedbackRegion : usageFooter.parentElement === chat ? usageFooter : null;
+    chat.insertBefore(el, next);
     refreshIcons();
     if (shouldScroll) scrollDown(smooth);
     return { el, render, setMeta };
@@ -294,6 +338,7 @@ export function createChat({ getActiveProfileId, getWorkspaceFiles, clearFocusFi
         : null;
       appendMessage(message.role, message.content, index, false, false, message, regeneration);
     });
+    renderRequestFeedback();
     updateConversationUsage();
     if (preserveScroll && !wasNearBottom) { chat.scrollTop = savedScrollTop; }
     else scrollDown(false);
@@ -303,6 +348,7 @@ export function createChat({ getActiveProfileId, getWorkspaceFiles, clearFocusFi
   function newChat() {
     closeMobileSidebar();
     state.conversationId = null;
+    state.requestFeedback.delete(null);
     clearFocusFiles();
     chat.innerHTML = emptyChatMarkup;
     loadConversations();
@@ -326,6 +372,7 @@ export function createChat({ getActiveProfileId, getWorkspaceFiles, clearFocusFi
     if (!window.confirm(`Delete "${item.title}"? This cannot be undone.`)) return;
     const response = await fetch(`/api/conversations/${item.id}`, { method: 'DELETE' });
     if (!response.ok) return toast((await response.json()).detail || 'Could not delete conversation.', 'error');
+    state.requestFeedback.delete(item.id);
     if (state.conversationId === item.id) newChat();
     else loadConversations();
   }
@@ -347,33 +394,26 @@ export function createChat({ getActiveProfileId, getWorkspaceFiles, clearFocusFi
 
   async function readResponseError(response) {
     const status = `HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`;
-    let detail = '';
+    let payload = null;
     try {
       const body = await response.text();
       try {
-        const error = JSON.parse(body);
-        if (typeof error?.detail === 'string') detail = error.detail.trim();
-        else if (Array.isArray(error?.detail)) {
-          detail = error.detail.map((item) => {
-            const message = typeof item?.msg === 'string' ? item.msg.trim() : '';
-            if (!message) return '';
-            const location = Array.isArray(item.loc)
-              ? item.loc.filter((part) => typeof part === 'string' || typeof part === 'number').join('.') : '';
-            return location ? `${location}: ${message}` : message;
-          }).filter(Boolean).join('; ');
-        }
+        payload = JSON.parse(body);
       } catch {
-        if (response.headers.get('content-type')?.toLowerCase().startsWith('text/plain')) detail = body.trim();
+        if (response.headers.get('content-type')?.toLowerCase().startsWith('text/plain')) payload = body;
       }
     } catch (error) {
       if (error.name === 'AbortError') throw error;
     }
-    return `${detail || 'Request failed.'} (${status})`;
+    return describeRequestError(payload, 'Request failed.', status);
   }
 
   async function sendMessage(options = {}) {
     const text = options.prompt ?? prompt.value.trim();
     if (!text || state.generating) return;
+    const requestFeedback = { conversationId: state.conversationId, items: [] };
+    state.requestFeedback.delete(state.conversationId);
+    renderRequestFeedback();
     if (options.appendUser !== false) appendMessage('user', text);
     if (!options.preserveDraft) {
       prompt.value = '';
@@ -384,6 +424,8 @@ export function createChat({ getActiveProfileId, getWorkspaceFiles, clearFocusFi
     const assistant = appendMessage('assistant', '');
     assistant.el.querySelector('.message-text').innerHTML = '<span class="typing">Thinking</span>';
     const answer = { value: '' };
+    let contextPolicy = null;
+    let requestStarted = false;
     try {
       state.controller = new AbortController();
       const response = await fetch('/api/chat', {
@@ -399,7 +441,10 @@ export function createChat({ getActiveProfileId, getWorkspaceFiles, clearFocusFi
         }),
         signal: state.controller.signal
       });
-      if (!response.ok) throw new Error(await readResponseError(response));
+      if (!response.ok) {
+        const feedback = await readResponseError(response);
+        throw Object.assign(new Error(feedback.message), { feedback });
+      }
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       const buffer = { value: '' };
@@ -412,7 +457,15 @@ export function createChat({ getActiveProfileId, getWorkspaceFiles, clearFocusFi
         for (const frame of frames) {
           if (!frame.startsWith('data: ')) continue;
           const event = JSON.parse(frame.slice(6));
-          if (event.type === 'start' && (!options.preserveDraft || state.conversationId === requestConversationId)) onStart(event);
+          if (event.type === 'start') {
+            requestStarted = true;
+            requestFeedback.conversationId = event.conversation_id;
+            if (!options.preserveDraft || state.conversationId === requestConversationId) onStart(event);
+          }
+          if (event.type === 'context_policy') contextPolicy = event;
+          if (event.type === 'context_warning') {
+            addRequestFeedback(requestFeedback, 'warning', describeContextWarning(event, contextPolicy));
+          }
           if (event.type === 'delta') onDelta(event, assistant, answer);
           if (event.type === 'usage') {
             if (assistant.setMeta) {
@@ -435,14 +488,22 @@ export function createChat({ getActiveProfileId, getWorkspaceFiles, clearFocusFi
             }
           }
           if (event.type === 'done') onFinish();
-          if (event.type === 'error') throw new Error(event.message);
+          if (event.type === 'error') {
+            const feedback = describeRequestError(event, 'Unable to generate a response.');
+            throw Object.assign(new Error(feedback.message), { feedback });
+          }
         }
       }
     } catch (error) {
       if (error.name === 'AbortError') {
         onAbort(assistant, answer);
       } else {
+        if (!requestStarted && !options.preserveDraft && state.conversationId === requestConversationId && !prompt.value) {
+          prompt.value = text;
+          autoResize();
+        }
         assistant.render(answer.value || '_Unable to generate a response._');
+        addRequestFeedback(requestFeedback, 'error', error.feedback || describeRequestError({ message: error.message }));
         onError(error.message);
       }
     } finally {
