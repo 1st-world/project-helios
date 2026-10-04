@@ -5,6 +5,7 @@ import { createProfiles } from './profiles.js';
 import { createWorkspace } from './workspace.js';
 import { initializeUI } from './ui.js';
 import { initializeSettings } from './settings.js';
+import { createUsage } from './usage.js';
 
 const workspace = createWorkspace({ getActiveProfileId: () => profiles.getActiveProfileId() });
 const profiles = createProfiles({
@@ -18,14 +19,21 @@ const chat = createChat({
   getAttachmentFiles: workspace.getAttachmentFiles,
   onAttachmentMetadata: workspace.updateAttachmentMetadata,
   clearFocusFiles: workspace.clearFocusFiles,
+  onConversationChange(id) { usage.selectConversation(id); },
   onGeneratingChange(value) {
     workspace.setGenerating(value);
     profiles.setGenerating(value);
+    usage.setGenerating(value);
   }
 });
+const usage = createUsage({ footer: chat.usageFooter, renderFooter: chat.renderUsageContent });
+usage.init();
 
 const settings = initializeSettings({
-  onConversationUsageVisibilityChange: chat.setUsageVisibility,
+  onConversationUsageVisibilityChange(visible) {
+    chat.setUsageVisibility(visible);
+    usage.setFooterVisible(visible);
+  },
   hasUnsavedProfileChanges: profiles.hasUnsavedChanges,
   isProfileSaving: profiles.isSaving
 });

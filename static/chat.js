@@ -4,7 +4,7 @@ import { $, closeMobileSidebar, escapeHtml, refreshIcons, toast } from './ui.js'
 import { describeContextWarning, describeRequestError } from './chat-feedback.js';
 import { describeAttachmentNotes } from './attachments.js';
 
-export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmentMetadata, clearFocusFiles, onGeneratingChange }) {
+export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmentMetadata, clearFocusFiles, onGeneratingChange, onConversationChange }) {
   const state = {
     conversationId: null,
     conversationVersion: null,
@@ -26,17 +26,22 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
   const usageFooter = document.createElement('aside');
   usageFooter.className = 'conversation-usage';
   usageFooter.id = 'conversation-usage';
-  usageFooter.setAttribute('aria-label', 'Conversation usage preview');
+  usageFooter.setAttribute('aria-label', 'Recorded conversation usage');
   usageFooter.setAttribute('aria-live', 'off');
   usageFooter.innerHTML = `
-    <div class="conversation-usage-heading"><i data-lucide="chart-no-axes-combined"></i><strong>Conversation usage</strong><span>Preview</span></div>
+    <div class="conversation-usage-heading"><i data-lucide="chart-no-axes-combined"></i><strong>Conversation usage</strong><button class="quiet-btn" type="button" data-usage-refresh aria-label="Refresh conversation usage"><i data-lucide="refresh-cw"></i> Refresh</button></div>
+    <p data-usage-state role="status">Select a conversation to see recorded usage.</p>
     <dl class="conversation-usage-metrics">
-      <div><dt>Calls</dt><dd>—</dd></div>
-      <div><dt>Input / output</dt><dd>— / —</dd></div>
-      <div><dt>Total tokens</dt><dd>—</dd></div>
-      <div><dt>Estimated cost</dt><dd>—</dd></div>
+      <div><dt>Calls</dt><dd data-usage-field="calls">—</dd></div>
+      <div><dt>Input / output</dt><dd data-usage-field="input_output">— / —</dd></div>
+      <div><dt>Total tokens</dt><dd data-usage-field="total_tokens">—</dd></div>
+      <div><dt>Cache read / write</dt><dd data-usage-field="cache">— / —</dd></div>
+      <div><dt>Reasoning</dt><dd data-usage-field="reasoning_tokens">—</dd></div>
+      <div><dt>Memory-summary calls</dt><dd data-usage-field="summaries">—</dd></div>
+      <div><dt>Estimated cost (USD)</dt><dd data-usage-field="cost">—</dd></div>
     </dl>
-    <p>Cumulative totals, including regeneration and memory summaries, are not available yet.</p>
+    <p data-usage-completeness></p>
+    <details class="usage-details"><summary>Usage and coverage details</summary><p data-usage-notes></p></details>
   `;
   const emptyChatMarkup = `
     <div class="empty-state">
@@ -108,6 +113,12 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     const wasNearBottom = isNearBottom();
     state.showConversationUsage = visible;
     updateConversationUsage();
+    if (wasNearBottom) scrollDown(false);
+  }
+
+  function renderUsageContent(render) {
+    const wasNearBottom = isNearBottom();
+    render();
     if (wasNearBottom) scrollDown(false);
   }
 
@@ -341,6 +352,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     });
     renderRequestFeedback();
     updateConversationUsage();
+    onConversationChange(state.conversationId);
     if (preserveScroll && !wasNearBottom) { chat.scrollTop = savedScrollTop; }
     else scrollDown(false);
     loadConversations();
@@ -349,6 +361,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
   function newChat() {
     closeMobileSidebar();
     state.conversationId = null;
+    onConversationChange(null);
     state.requestFeedback.delete(null);
     clearFocusFiles();
     chat.innerHTML = emptyChatMarkup;
@@ -549,5 +562,5 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     };
   }
 
-  return { init, newChat, setUsageVisibility, isGenerating: () => state.generating };
+  return { init, newChat, setUsageVisibility, renderUsageContent, usageFooter, isGenerating: () => state.generating };
 }

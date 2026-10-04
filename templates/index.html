@@ -505,7 +505,7 @@
 
     <section id="settings-usage" class="settings-panel" role="tabpanel" aria-labelledby="settings-usage-tab" tabindex="0" hidden>
       <div class="settings-panel-heading"><h3>Usage & costs</h3></div>
-      <div class="info-callout"><i data-lucide="info"></i><p><strong>Preview.</strong> Usage totals and cost preferences are not available yet. Profile token prices currently use USD per 1M tokens.</p></div>
+      <div class="info-callout"><i data-lucide="info"></i><p>Recorded usage includes regeneration, memory summaries, and unsuccessful calls. Costs are estimates in USD using the rates saved with each call. Currency conversion and per-response visibility preferences remain a preview.</p></div>
       <div class="settings-preference-row">
         <div class="settings-preference-copy"><label for="display-currency">Display currency</label><small>Currency used to display estimated costs.</small></div>
         <select id="display-currency" disabled><option selected>USD · US Dollar</option></select>
@@ -519,22 +519,44 @@
         <input id="show-response-usage" type="checkbox" checked disabled>
       </div>
       <div class="settings-preference-row">
-        <div class="settings-preference-copy"><label for="show-conversation-usage">Conversation usage footer</label><small>Show the usage preview after the last message in each conversation.</small></div>
+        <div class="settings-preference-copy"><label for="show-conversation-usage">Conversation usage footer</label><small>Show recorded usage after the last message in each conversation.</small></div>
         <input id="show-conversation-usage" type="checkbox" checked>
       </div>
-      <div class="settings-usage-preview">
-        <div class="settings-panel-heading"><h4>Usage overview</h4><select disabled aria-label="Usage period"><option>This conversation</option></select></div>
+      <div id="settings-usage-overview" class="settings-usage-overview">
+        <div class="settings-panel-heading"><h4>Recorded usage</h4><button id="refresh-settings-usage" class="quiet-btn" type="button"><i data-lucide="refresh-cw"></i> Refresh</button></div>
+        <div class="usage-filters">
+          <label>Scope<select id="usage-scope"><option value="conversation">This conversation</option><option value="all">All conversations</option></select></label>
+          <label>Period<select id="usage-period"><option value="all">All recorded</option><option value="today">Today</option><option value="week">Last 7 days</option><option value="custom">Custom range</option></select></label>
+          <label>Call type<select id="usage-kind"><option value="">All calls</option><option value="chat">Chat</option><option value="regeneration">Regeneration</option><option value="summary">Memory summaries</option><option value="legacy_reply">Legacy replies</option></select></label>
+        </div>
+        <div id="usage-date-range" class="form-grid-2 usage-date-range" hidden>
+          <label>Start date<input id="usage-start-date" type="date"></label>
+          <label>End date<input id="usage-end-date" type="date"></label>
+        </div>
+        <p id="usage-timezone" class="field-hint"></p>
+        <p data-usage-state role="status">Select a conversation to see recorded usage.</p>
+        <p data-usage-completeness></p>
         <dl class="settings-usage-metrics">
-          <div><dt>API calls</dt><dd>—</dd></div>
-          <div><dt>Input / output tokens</dt><dd>— / —</dd></div>
-          <div><dt>Total tokens</dt><dd>—</dd></div>
-          <div><dt>Cache read / write</dt><dd>— / —</dd></div>
-          <div><dt>Memory-summary calls</dt><dd>—</dd></div>
-          <div><dt>Estimated cost</dt><dd>—</dd></div>
+          <div><dt>API calls</dt><dd data-usage-field="calls">—</dd></div>
+          <div><dt>Input / output tokens</dt><dd data-usage-field="input_output">— / —</dd></div>
+          <div><dt>Total tokens</dt><dd data-usage-field="total_tokens">—</dd></div>
+          <div><dt>Ordinary input tokens</dt><dd data-usage-field="uncached_input_tokens">—</dd></div>
+          <div><dt>Cache read / write</dt><dd data-usage-field="cache">— / —</dd></div>
+          <div><dt>Reasoning tokens</dt><dd data-usage-field="reasoning_tokens">—</dd></div>
+          <div><dt>Memory-summary calls</dt><dd data-usage-field="summaries">—</dd></div>
+          <div><dt>Estimated cost (USD)</dt><dd data-usage-field="cost">—</dd></div>
         </dl>
-        <p>Totals are not available yet. Cumulative usage is separate from the current context size.</p>
+        <details class="usage-details"><summary>Usage and coverage details</summary><p data-usage-notes></p></details>
+        <details id="usage-by-date">
+          <summary>Daily totals</summary>
+          <div class="usage-table-scroll" tabindex="0" aria-label="Daily recorded usage">
+            <table>
+              <thead><tr><th scope="col">Date</th><th scope="col">Calls</th><th scope="col">Input / output</th><th scope="col">Total tokens</th><th scope="col">Estimated cost (USD)</th><th scope="col">Status</th></tr></thead>
+              <tbody id="usage-daily-rows"></tbody>
+            </table>
+          </div>
+        </details>
       </div>
-      <div class="settings-estimate-preview"><strong>Estimate status preview</strong><div><span>Partial estimate</span><span>Pricing unavailable</span><span>Usage unavailable</span></div><p>Future estimates will identify missing rates and usage rather than treating them as free.</p></div>
     </section>
   </dialog>
 

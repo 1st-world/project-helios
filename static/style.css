@@ -826,10 +826,9 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:hover {
   font-weight: 500;
   font-size: 12px;
 }
-.conversation-usage .conversation-usage-heading span {
+.conversation-usage .conversation-usage-heading button {
   margin-left: auto;
-  color: var(--text-tertiary);
-  font-size: 10px;
+  line-height: 1;
 }
 .conversation-usage .conversation-usage-metrics {
   display: flex;
@@ -839,13 +838,17 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:hover {
 }
 .conversation-usage .conversation-usage-metrics > div {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: baseline;
+  max-width: 100%;
   gap: 6px;
 }
 .conversation-usage .conversation-usage-metrics dd {
+  max-width: 100%;
   margin: 0;
   color: var(--text-sub);
   font-family: var(--font-mono);
+  overflow-wrap: anywhere;
 }
 .conversation-usage p {
   margin: 8px 0 0;
@@ -1582,6 +1585,20 @@ textarea::placeholder {
   font-weight: 600;
   font-size: 14px;
 }
+.conversation-usage .usage-details {
+  margin-top: 12px;
+}
+.conversation-usage .usage-details summary {
+  cursor: pointer;
+}
+.conversation-usage [data-usage-notes],
+.conversation-usage [data-usage-state] {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.conversation-usage[data-state="error"] [data-usage-state] {
+  color: var(--danger);
+}
 .preferences-dialog .settings-group + .settings-group {
   margin-top: 20px;
 }
@@ -1806,19 +1823,45 @@ textarea::placeholder {
 .preferences-dialog .settings-panel :disabled {
   cursor: not-allowed;
 }
-.preferences-dialog .settings-usage-preview {
+.preferences-dialog .settings-usage-overview {
   margin-top: 20px;
   padding: 16px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg-surface);
 }
-.preferences-dialog .settings-usage-preview select {
-  width: 160px;
+.preferences-dialog .settings-usage-overview .usage-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 16px;
+  gap: 12px;
 }
-.preferences-dialog .settings-usage-preview p {
+.preferences-dialog .settings-usage-overview .usage-date-range {
+  margin-top: 12px;
+}
+.preferences-dialog .settings-usage-overview .usage-date-range[hidden] {
+  display: none;
+}
+.preferences-dialog .settings-usage-overview p {
   margin: 12px 0 0;
   font-size: 11px;
+}
+.preferences-dialog .settings-usage-overview [data-usage-notes],
+.preferences-dialog .settings-usage-overview [data-usage-state] {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.preferences-dialog .settings-usage-overview[data-state="error"] [data-usage-state] {
+  color: var(--danger);
+}
+.preferences-dialog .settings-usage-overview .usage-details,
+.preferences-dialog .settings-usage-overview #usage-by-date {
+  margin-top: 16px;
+}
+.preferences-dialog .settings-usage-overview summary {
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
 }
 .preferences-dialog .settings-usage-metrics {
   display: grid;
@@ -1835,31 +1878,33 @@ textarea::placeholder {
   color: var(--text-sub);
   font-size: 16px;
   font-family: var(--font-mono);
+  overflow-wrap: anywhere;
 }
-.preferences-dialog .settings-estimate-preview {
-  margin-top: 20px;
+.preferences-dialog .settings-usage-overview .usage-table-scroll {
+  max-height: 280px;
+  margin-top: 12px;
+  overflow: auto;
 }
-.preferences-dialog .settings-estimate-preview strong {
+.preferences-dialog .settings-usage-overview table {
+  width: 100%;
+  border-collapse: collapse;
   color: var(--text-sub);
+  font-size: 11px;
+}
+.preferences-dialog .settings-usage-overview th,
+.preferences-dialog .settings-usage-overview td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+.preferences-dialog .settings-usage-overview th {
   font-weight: 500;
-  font-size: 12px;
 }
-.preferences-dialog .settings-estimate-preview > div {
-  display: flex;
-  flex-wrap: wrap;
-  margin: 10px 0;
-  gap: 6px;
-}
-.preferences-dialog .settings-estimate-preview span {
-  padding: 4px 7px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-.preferences-dialog .settings-estimate-preview p {
-  margin: 0;
-  font-size: 11px;
+.preferences-dialog .settings-usage-overview td:last-child {
+  min-width: 160px;
+  white-space: normal;
 }
 .dialog-actions {
   display: flex;
@@ -2686,8 +2731,11 @@ button svg,
     width: 100%;
     justify-content: flex-end;
   }
-  .preferences-dialog .settings-usage-preview .settings-panel-heading {
+  .preferences-dialog .settings-usage-overview .settings-panel-heading {
     flex-wrap: wrap;
+  }
+  .preferences-dialog .settings-usage-overview .usage-filters {
+    grid-template-columns: 1fr;
   }
   .form-grid-2 {
     grid-template-columns: 1fr;
