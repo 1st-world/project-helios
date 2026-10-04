@@ -1,4 +1,4 @@
-/* Edit app-wide policy fields through the settings API while preserving drafts and explicit default restoration. */
+/* Edit app-wide context and attachment policies while keeping saved enforcement limits separate from drafts. */
 
 import { $, toast } from './ui.js';
 import { describeRequestError } from './chat-feedback.js';
@@ -8,7 +8,8 @@ export function createAppSettings({ hasUnsavedProfileChanges }) {
   const fields = new Map([...form.querySelectorAll('[data-app-setting]')].map(input => [input.dataset.appSetting, input]));
   const resetButtons = [...form.querySelectorAll('[data-reset-setting]')];
   const resetLabels = new Map(resetButtons.map(button => [button, button.getAttribute('aria-label')]));
-  const state = { saved: null, defaults: null, resets: new Set(), loading: false, saving: false, controller: null };
+  const effectiveLabels = [...form.querySelectorAll('[data-effective-setting]')];
+  const state = { saved: null, defaults: null, localLimits: null, providerLimits: null, resets: new Set(), loading: false, saving: false, controller: null };
   const modeHelp = {
     warn: 'Allows the request and reports approximate input overruns. Preflight estimates alone do not force history compaction.',
     block: 'Uses approximate estimates to reject oversized input or summarize history to fit. Estimates can differ from actual model usage.',
@@ -29,6 +30,22 @@ export function createAppSettings({ hasUnsavedProfileChanges }) {
     return Boolean(state.saved && (state.resets.size || [...fields].some(([name, input]) => valueOf(input) !== state.saved[name])));
   }
 
+  function showAttachmentLimits() {
+    for (const label of effectiveLabels) {
+      const value = state.localLimits?.[label.dataset.limitKey];
+      const configured = state.saved?.[label.dataset.effectiveSetting];
+      const clamped = Number.isSafeInteger(value) && value < configured;
+      label.textContent = Number.isSafeInteger(value) && value >= 1
+        ? `Saved effective local limit: ${value.toLocaleString()} ${label.dataset.unit}.${clamped ? ' The server applies a lower ceiling than the saved preference.' : ''}`
+        : 'Saved effective local limit: unavailable.';
+    }
+    const limits = state.providerLimits;
+    const values = [limits?.max_images, limits?.native_file_bytes_exclusive, limits?.native_category_total_bytes_exclusive];
+    $('#attachment-provider-limits').textContent = values.every(value => Number.isSafeInteger(value) && value >= 1)
+      ? `Server-enforced provider limits: at most ${values[0].toLocaleString()} images; each native image or PDF must be under ${values[1].toLocaleString()} bytes. Combined image bytes and combined PDF bytes must each stay under ${values[2].toLocaleString()} bytes. Local preferences cannot raise these limits.`
+      : 'Saved provider limits are unavailable. Local preferences cannot override provider restrictions.';
+  }
+
   function updateControls() {
     const busy = state.loading || state.saving;
     let defaultsDiffer = false;
@@ -40,7 +57,7 @@ export function createAppSettings({ hasUnsavedProfileChanges }) {
       button.hidden = !differs;
       button.disabled = busy || !state.saved || !differs;
     });
-    $('#restore-context-defaults').disabled = busy || !state.saved || !defaultsDiffer;
+    $('#restore-app-defaults').disabled = busy || !state.saved || !defaultsDiffer;
     $('#cancel-app-settings').disabled = state.saving;
     $('#save-app-settings').disabled = busy || !hasUnsavedChanges();
     $('#save-app-settings-label').textContent = state.saving ? 'Saving...' : 'Save settings';
@@ -49,6 +66,7 @@ export function createAppSettings({ hasUnsavedProfileChanges }) {
     $('#context-preflight-help').textContent = modeHelp[fields.get('context_preflight_mode').value] || 'Choose how local input estimates are used.';
     const budget = fields.get('context_token_budget').valueAsNumber - fields.get('context_output_reserve').valueAsNumber;
     $('#app-input-budget').textContent = `App input allowance before profile or request overrides: ${Number.isSafeInteger(budget) && budget >= 0 ? `${budget.toLocaleString()} tokens` : '—'}.`;
+    showAttachmentLimits();
   }
 
   function clearValidation() {
@@ -83,6 +101,8 @@ export function createAppSettings({ hasUnsavedProfileChanges }) {
     }
     state.saved = { ...data.settings };
     state.defaults = { ...data.defaults };
+    state.localLimits = { ...data.local_attachment_limits };
+    state.providerLimits = { ...data.provider_limits };
     fillSaved();
   }
 
@@ -148,7 +168,11 @@ export function createAppSettings({ hasUnsavedProfileChanges }) {
     for (const input of fields.values()) {
       if (!input.checkValidity()) input.setAttribute('aria-invalid', 'true');
     }
-    if (!form.reportValidity()) {
+    const invalid = [...fields.values()].find(input => !input.checkValidity());
+    if (invalid) {
+      const disclosure = invalid.closest('details');
+      if (disclosure) disclosure.open = true;
+      invalid.reportValidity();
       setStatus('Review the highlighted settings before saving.', 'error');
       return false;
     }
@@ -200,8 +224,8 @@ export function createAppSettings({ hasUnsavedProfileChanges }) {
       });
     }
     resetButtons.forEach(button => { button.onclick = () => restoreDefault(button.dataset.resetSetting); });
-    $('#restore-context-defaults').onclick = () => {
-      const restoreFocus = document.activeElement === $('#restore-context-defaults');
+    $('#restore-app-defaults').onclick = () => {
+      const restoreFocus = document.activeElement === $('#restore-app-defaults');
       for (const name of fields.keys()) restoreDefault(name);
       if (restoreFocus) $('#save-app-settings').focus({ preventScroll: true });
     };
@@ -219,6 +243,9 @@ export function createAppSettings({ hasUnsavedProfileChanges }) {
       state.loading = false;
       state.saved = null;
       state.defaults = null;
+      state.localLimits = null;
+      state.providerLimits = null;
+      $('#attachment-resource-settings').open = false;
       fillSaved();
       setStatus('');
     });

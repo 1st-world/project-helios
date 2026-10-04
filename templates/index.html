@@ -224,8 +224,8 @@
     </section>
 
     <section id="settings-context" class="settings-panel" role="tabpanel" aria-labelledby="settings-context-tab" tabindex="0" hidden>
-      <div class="settings-panel-heading"><h3>Context policies</h3></div>
-      <div class="info-callout"><i data-lucide="info"></i><p>App-wide defaults apply unless a profile or request overrides them. Saved changes apply to new requests; running requests keep their settings. Working budgets are separate from model capacity.</p></div>
+      <div class="settings-panel-heading"><h3>Context & attachment policies</h3></div>
+      <div class="info-callout"><i data-lucide="info"></i><p>Context defaults apply unless a profile or request overrides them. Attachment resource limits are app-wide. Saved changes apply to new requests; running requests keep their settings. Working budgets are separate from model capacity.</p></div>
       <form id="app-settings-form" class="app-settings-form" novalidate>
         <section class="settings-group" aria-labelledby="context-input-title">
           <div class="settings-panel-heading"><h4 id="context-input-title">Input & output</h4></div>
@@ -276,13 +276,81 @@
             </div>
           </div>
         </section>
+        <details id="attachment-resource-settings" class="settings-group settings-attachment-resources">
+          <summary class="settings-panel-heading"><h4>Attachment resource limits</h4><i data-lucide="chevron-down" aria-hidden="true"></i></summary>
+          <p class="settings-resource-note">These adjustable limits control local file reading and parsing. Defaults are provisional desktop policies, not model capacity limits. Byte values are exact bytes. Saved effective limits reflect the active server policy; edits apply only after saving.</p>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="attachment-max-files">Attachments per selection</label><small id="attachment-max-files-help">Counts distinct files of all supported types.<span data-effective-setting="attachment_max_files" data-limit-key="MAX_FILES" data-unit="files"></span></small></div>
+            <div class="settings-preference-control">
+              <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_files" aria-label="Restore default attachment count" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+              <input id="attachment-max-files" type="number" min="1" step="1" data-app-setting="attachment_max_files" aria-describedby="attachment-max-files-help" required disabled>
+            </div>
+          </div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="attachment-max-file-bytes">Original bytes per file</label><small id="attachment-max-file-bytes-help">Limits each local file read. The combined selection limit also applies.<span data-effective-setting="attachment_max_file_bytes" data-limit-key="MAX_FILE_BYTES" data-unit="bytes"></span></small></div>
+            <div class="settings-preference-control">
+              <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_file_bytes" aria-label="Restore default file byte limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+              <input id="attachment-max-file-bytes" type="number" min="1" step="1" data-app-setting="attachment_max_file_bytes" aria-describedby="attachment-max-file-bytes-help" required disabled>
+            </div>
+          </div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="attachment-max-total-bytes">Original bytes per selection</label><small id="attachment-max-total-bytes-help">Combined original file bytes across all attachment types. This does not bound peak memory use.<span data-effective-setting="attachment_max_total_bytes" data-limit-key="MAX_TOTAL_BYTES" data-unit="bytes"></span></small></div>
+            <div class="settings-preference-control">
+              <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_total_bytes" aria-label="Restore default combined byte limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+              <input id="attachment-max-total-bytes" type="number" min="1" step="1" data-app-setting="attachment_max_total_bytes" aria-describedby="attachment-max-total-bytes-help" required disabled>
+            </div>
+          </div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="attachment-max-text-bytes">Text bytes per file</label><small id="attachment-max-text-bytes-help">UTF-8 bytes retained from text files or Office extraction. Oversized text is rejected rather than truncated.<span data-effective-setting="attachment_max_text_bytes" data-limit-key="MAX_TEXT_BYTES" data-unit="bytes"></span></small></div>
+            <div class="settings-preference-control">
+              <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_text_bytes" aria-label="Restore default text byte limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+              <input id="attachment-max-text-bytes" type="number" min="1" step="1" data-app-setting="attachment_max_text_bytes" aria-describedby="attachment-max-text-bytes-help" required disabled>
+            </div>
+          </div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="attachment-max-zip-bytes">Expanded bytes per Office file</label><small id="attachment-max-zip-bytes-help">Combined uncompressed ZIP entries in DOCX, XLSX, or PPTX, independent of original file size.<span data-effective-setting="attachment_max_zip_bytes" data-limit-key="MAX_ZIP_BYTES" data-unit="bytes"></span></small></div>
+            <div class="settings-preference-control">
+              <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_zip_bytes" aria-label="Restore default expanded document byte limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+              <input id="attachment-max-zip-bytes" type="number" min="1" step="1" data-app-setting="attachment_max_zip_bytes" aria-describedby="attachment-max-zip-bytes-help" required disabled>
+            </div>
+          </div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="attachment-max-zip-members">ZIP entries per Office file</label><small id="attachment-max-zip-members-help">Counts container entries before the Office parser runs.<span data-effective-setting="attachment_max_zip_members" data-limit-key="MAX_ZIP_MEMBERS" data-unit="entries"></span></small></div>
+            <div class="settings-preference-control">
+              <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_zip_members" aria-label="Restore default document entry count" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+              <input id="attachment-max-zip-members" type="number" min="1" step="1" data-app-setting="attachment_max_zip_members" aria-describedby="attachment-max-zip-members-help" required disabled>
+            </div>
+          </div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="attachment-max-image-pixels">Decoded pixels per image</label><small id="attachment-max-image-pixels-help">Width multiplied by height. The server's image decoder may impose a lower ceiling.<span data-effective-setting="attachment_max_image_pixels" data-limit-key="MAX_IMAGE_PIXELS" data-unit="pixels"></span></small></div>
+            <div class="settings-preference-control">
+              <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_image_pixels" aria-label="Restore default image pixel limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+              <input id="attachment-max-image-pixels" type="number" min="1" step="1" data-app-setting="attachment_max_image_pixels" aria-describedby="attachment-max-image-pixels-help" required disabled>
+            </div>
+          </div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="attachment-max-pdf-pages">Inspected pages per PDF</label><small id="attachment-max-pdf-pages-help">Limits local page traversal, independently of the model's context capacity.<span data-effective-setting="attachment_max_pdf_pages" data-limit-key="MAX_PDF_PAGES" data-unit="pages"></span></small></div>
+            <div class="settings-preference-control">
+              <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_pdf_pages" aria-label="Restore default PDF page limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+              <input id="attachment-max-pdf-pages" type="number" min="1" step="1" data-app-setting="attachment_max_pdf_pages" aria-describedby="attachment-max-pdf-pages-help" required disabled>
+            </div>
+          </div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="attachment-max-sheet-cells">Stored cells per XLSX</label><small id="attachment-max-sheet-cells-help">Counts stored cells across all sheets; empty gaps do not count.<span data-effective-setting="attachment_max_sheet_cells" data-limit-key="MAX_SHEET_CELLS" data-unit="cells"></span></small></div>
+            <div class="settings-preference-control">
+              <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_sheet_cells" aria-label="Restore default spreadsheet cell limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+              <input id="attachment-max-sheet-cells" type="number" min="1" step="1" data-app-setting="attachment_max_sheet_cells" aria-describedby="attachment-max-sheet-cells-help" required disabled>
+            </div>
+          </div>
+          <p id="attachment-provider-limits" class="settings-resource-note">Saved provider limits are not loaded yet.</p>
+        </details>
         <p id="app-settings-status" class="app-settings-status" role="status"></p>
         <button id="retry-app-settings" class="quiet sm-btn" type="button" hidden>Retry loading</button>
         <p id="app-settings-dirty" class="app-settings-dirty" role="status"></p>
         <div class="dialog-actions">
-          <button id="restore-context-defaults" class="quiet" type="button" title="Stage default context values; save to apply" disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i><span>Restore defaults</span></button>
+          <button id="restore-app-defaults" class="quiet" type="button" title="Stage default context and attachment values; save to apply" disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i><span>Restore defaults</span></button>
           <div class="dialog-actions-right">
-            <button id="cancel-app-settings" class="quiet" type="button" title="Discard unsaved context changes and close Settings">Cancel</button>
+            <button id="cancel-app-settings" class="quiet" type="button" title="Discard unsaved context and attachment changes and close Settings">Cancel</button>
             <button id="save-app-settings" class="primary-btn" type="submit" disabled><i data-lucide="save" aria-hidden="true"></i><span id="save-app-settings-label">Save settings</span></button>
           </div>
         </div>

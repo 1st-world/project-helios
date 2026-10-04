@@ -1585,6 +1585,34 @@ textarea::placeholder {
 .preferences-dialog .settings-group + .settings-group {
   margin-top: 20px;
 }
+
+.preferences-dialog .settings-attachment-resources > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.preferences-dialog .settings-attachment-resources > summary::-webkit-details-marker {
+  display: none;
+}
+.preferences-dialog .settings-attachment-resources > summary svg {
+  width: 15px;
+  height: 15px;
+  transition: transform var(--motion-duration-fast) var(--motion-easing-default);
+}
+.preferences-dialog .settings-attachment-resources[open] > summary svg {
+  transform: rotate(180deg);
+}
+.preferences-dialog .settings-attachment-resources .settings-resource-note {
+  margin: 12px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.preferences-dialog .settings-attachment-resources [data-effective-setting] {
+  display: block;
+  margin-top: 5px;
+  color: var(--text-sub);
+}
+
 .preferences-dialog .app-settings-form .settings-preference-control {
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr);
