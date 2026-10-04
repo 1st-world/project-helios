@@ -450,11 +450,15 @@
               <div class="pricing-tier-block">
                 <div class="tier-header">
                   <span class="tier-pill standard"><span class="tier-indicator"></span>Standard context</span>
-                  <span class="tier-range" id="standard-range-label">&le; 128K tokens</span>
+                  <span class="tier-range" id="standard-range-label">&lt; 128K tokens</span>
                 </div>
                 <div class="form-grid-2">
                   <label>Input price ($ / 1M)<input id="azure-input-price" type="number" step="any" min="0" placeholder="e.g. 5.00"></label>
                   <label>Output price ($ / 1M)<input id="azure-output-price" type="number" step="any" min="0" placeholder="e.g. 30.00"></label>
+                </div>
+                <div class="form-grid-2">
+                  <label>Cache read price ($ / 1M)<input id="azure-cache-read-price" type="number" step="any" min="0" placeholder="Not configured" aria-describedby="cache-pricing-hint"></label>
+                  <label>Cache write price ($ / 1M)<input id="azure-cache-write-price" type="number" step="any" min="0" placeholder="Not configured" aria-describedby="cache-pricing-hint"></label>
                 </div>
               </div>
               <div class="tier-divider">
@@ -472,14 +476,19 @@
               <div class="pricing-tier-block">
                 <div class="tier-header">
                   <span class="tier-pill long"><span class="tier-indicator"></span>Long context</span>
-                  <span class="tier-range" id="long-range-label">&gt; 128K tokens</span>
+                  <span class="tier-range" id="long-range-label">&ge; 128K tokens</span>
                 </div>
                 <div class="form-grid-2">
                   <label>Long input price ($ / 1M)<input id="azure-long-input-price" type="number" step="any" min="0" placeholder="e.g. 10.00"></label>
                   <label>Long output price ($ / 1M)<input id="azure-long-output-price" type="number" step="any" min="0" placeholder="e.g. 45.00"></label>
                 </div>
+                <div class="form-grid-2">
+                  <label>Long cache read price ($ / 1M)<input id="azure-long-cache-read-price" type="number" step="any" min="0" placeholder="Use standard rate" aria-describedby="cache-pricing-hint long-pricing-hint"></label>
+                  <label>Long cache write price ($ / 1M)<input id="azure-long-cache-write-price" type="number" step="any" min="0" placeholder="Use standard rate" aria-describedby="cache-pricing-hint long-pricing-hint"></label>
+                </div>
               </div>
-              <span class="field-hint pricing-hint">Standard rates apply if long rates are blank or prompt is under threshold.</span>
+              <span id="cache-pricing-hint" class="field-hint pricing-hint">All rates are USD per 1M tokens. Blank standard cache rates are unknown; enter 0 only for a free category. Missing rates or unreported cache usage can leave estimates incomplete.</span>
+              <span id="long-pricing-hint" class="field-hint pricing-hint">Each blank long-context rate uses its corresponding standard rate. At or above the threshold, configured long-context rates apply.</span>
             </div>
           </details>
           <span class="field-hint">Optional. Configure token rates to calculate estimated conversation costs.</span>

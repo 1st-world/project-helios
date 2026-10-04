@@ -5,9 +5,48 @@ import { selectSettingsPanel } from './settings.js';
 import { createProfileContext } from './profile-context.js';
 import { describeRequestError } from './chat-feedback.js';
 
+const CACHE_PRICE_FIELDS = [
+  ['azure-cache-read-price', 'cache_read_price_per_million', 'clear_cache_read_price'],
+  ['azure-cache-write-price', 'cache_write_price_per_million', 'clear_cache_write_price'],
+  ['azure-long-cache-read-price', 'long_cache_read_price_per_million', 'clear_long_cache_read_price'],
+  ['azure-long-cache-write-price', 'long_cache_write_price_per_million', 'clear_long_cache_write_price'],
+];
+
 export function createProfiles({ isGenerating, closeSettings }) {
   const state = { activeProfileId: null, editingProfileId: null, profiles: [], formBaseline: null, saving: false };
   const profileContext = createProfileContext({ isSaving: () => state.saving });
+  let cachePriceBaseline = {};
+
+  function selectCachePrices(profile) {
+    cachePriceBaseline = {};
+    for (const [id, field] of CACHE_PRICE_FIELDS) {
+      const value = profile?.[field] ?? null;
+      cachePriceBaseline[field] = value;
+      const input = $(`#${id}`);
+      input.value = value ?? '';
+      input.setCustomValidity('');
+    }
+  }
+
+  function validateCachePrices() {
+    for (const [id] of CACHE_PRICE_FIELDS) {
+      const input = $(`#${id}`);
+      const invalid = input.validity.badInput || (input.value !== '' && (!Number.isFinite(input.valueAsNumber) || input.valueAsNumber < 0));
+      input.setCustomValidity(invalid ? 'Enter a finite price of 0 or greater, or leave this field blank.' : '');
+    }
+  }
+
+  function cachePriceChanges(editing) {
+    const changes = {};
+    for (const [id, field, clear] of CACHE_PRICE_FIELDS) {
+      const input = $(`#${id}`);
+      const value = input.value === '' ? null : input.valueAsNumber;
+      if (editing && value === cachePriceBaseline[field]) continue;
+      if (value !== null) changes[field] = value;
+      else if (editing) changes[clear] = true;
+    }
+    return changes;
+  }
 
   function snapshotProfileForm() {
     return JSON.stringify([...$('#azure-settings-form').querySelectorAll('input, select')]
@@ -61,6 +100,7 @@ export function createProfiles({ isGenerating, closeSettings }) {
     $('#azure-long-threshold').value = '';
     $('#azure-long-input-price').value = '';
     $('#azure-long-output-price').value = '';
+    selectCachePrices(null);
     profileContext.select(null);
     updateThresholdLabels();
     updatePricingStatus(false);
@@ -92,9 +132,10 @@ export function createProfiles({ isGenerating, closeSettings }) {
     $('#azure-long-threshold').value = profile.long_context_threshold !== null && profile.long_context_threshold !== undefined ? profile.long_context_threshold : '';
     $('#azure-long-input-price').value = profile.long_input_price_per_million !== null && profile.long_input_price_per_million !== undefined ? profile.long_input_price_per_million : '';
     $('#azure-long-output-price').value = profile.long_output_price_per_million !== null && profile.long_output_price_per_million !== undefined ? profile.long_output_price_per_million : '';
+    selectCachePrices(profile);
     profileContext.select(profile);
     updateThresholdLabels();
-    const hasPricing = profile.input_price_per_million != null || profile.output_price_per_million != null || profile.long_input_price_per_million != null || profile.long_output_price_per_million != null;
+    const hasPricing = profile.input_price_per_million != null || profile.output_price_per_million != null || profile.long_input_price_per_million != null || profile.long_output_price_per_million != null || CACHE_PRICE_FIELDS.some(([, field]) => profile[field] != null);
     updatePricingStatus(hasPricing);
     $('#delete-profile-btn').classList.remove('hidden');
     const toggleBtn = $('#toggle-api-key-btn');
@@ -283,8 +324,8 @@ export function createProfiles({ isGenerating, closeSettings }) {
     }
     const stdLabel = $('#standard-range-label');
     const longLabel = $('#long-range-label');
-    if (stdLabel) stdLabel.textContent = `≤ ${display} tokens`;
-    if (longLabel) longLabel.textContent = `> ${display} tokens`;
+    if (stdLabel) stdLabel.textContent = `< ${display} tokens`;
+    if (longLabel) longLabel.textContent = `≥ ${display} tokens`;
   }
 
   function setupPricingAccordionAnimation() {
@@ -349,6 +390,9 @@ export function createProfiles({ isGenerating, closeSettings }) {
 
   function init() {
     profileContext.init();
+    for (const [id] of CACHE_PRICE_FIELDS) {
+      $(`#${id}`).addEventListener('input', validateCachePrices);
+    }
     const modelPicker = $('#model-picker');
     if (modelPicker) {
       document.addEventListener('click', (event) => {
@@ -390,6 +434,7 @@ export function createProfiles({ isGenerating, closeSettings }) {
       event.preventDefault();
       if (state.saving) return;
       profileContext.validate();
+      validateCachePrices();
       const invalid = [...$('#azure-settings-form').querySelectorAll('input, select')].find(input => !input.checkValidity());
       if (invalid) {
         const disclosure = invalid.closest('details');
@@ -406,7 +451,7 @@ export function createProfiles({ isGenerating, closeSettings }) {
       if (!endpoint) return toast('Azure endpoint is required.', 'warning');
       if (!editingId && !api_key) return toast('API key is required when creating a new profile.', 'warning');
       if (!deployment) return toast('Deployment name is required.', 'warning');
-      const payload = { name, endpoint, deployment, ...profileContext.changes(Boolean(editingId)) };
+      const payload = { name, endpoint, deployment, ...profileContext.changes(Boolean(editingId)), ...cachePriceChanges(Boolean(editingId)) };
       if (api_key) payload.api_key = api_key;
       const inPriceVal = $('#azure-input-price').value.trim();
       const outPriceVal = $('#azure-output-price').value.trim();
