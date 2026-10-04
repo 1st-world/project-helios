@@ -1613,6 +1613,74 @@ textarea::placeholder {
   color: var(--text-sub);
 }
 
+.preferences-dialog .profile-context-settings {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-surface);
+}
+.preferences-dialog .profile-context-settings > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.preferences-dialog .profile-context-settings > summary::-webkit-details-marker {
+  display: none;
+}
+.preferences-dialog .profile-context-settings > summary h4 {
+  margin: 0;
+  font-weight: 600;
+  font-size: 12px;
+}
+.preferences-dialog .profile-context-settings > summary svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  transition: transform var(--motion-duration-fast) var(--motion-easing-default);
+}
+.preferences-dialog .profile-context-settings[open] > summary svg {
+  transform: rotate(180deg);
+}
+.preferences-dialog .profile-context-settings .profile-context-control {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  flex: none;
+  align-items: center;
+  width: 220px;
+  gap: 8px;
+}
+.preferences-dialog .profile-context-settings .profile-context-control input,
+.preferences-dialog .profile-context-settings .profile-context-control select {
+  grid-column: 2;
+  grid-row: 1;
+  width: 100%;
+}
+.preferences-dialog .profile-context-settings .profile-context-reset {
+  grid-column: 1;
+  grid-row: 1;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  line-height: 1;
+}
+.preferences-dialog .profile-context-settings .profile-context-note {
+  margin: 12px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-line;
+}
+.preferences-dialog .profile-context-settings button[hidden] {
+  display: none;
+}
+.preferences-dialog .profile-context-settings [aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
 .preferences-dialog .app-settings-form .settings-preference-control {
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr);
@@ -2606,6 +2674,9 @@ button svg,
     width: 100%;
   }
   .preferences-dialog .app-settings-form .settings-preference-control {
+    width: 100%;
+  }
+  .preferences-dialog .profile-context-settings .profile-context-control {
     width: 100%;
   }
   .preferences-dialog .app-settings-form .dialog-actions {

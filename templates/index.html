@@ -377,7 +377,7 @@
         <div id="profile-list-container" class="profile-list-container"></div>
       </div>
 
-      <form id="azure-settings-form">
+      <form id="azure-settings-form" novalidate>
         <input type="hidden" id="editing-profile-id" value="">
         <div class="form-title-row">
           <h3 id="profile-form-title">Edit profile</h3>
@@ -397,6 +397,48 @@
           </div>
           <span id="api-key-hint" class="field-hint">Leave blank to keep existing key</span>
         </label>
+        <details id="profile-context-settings" class="profile-context-settings">
+          <summary><h4>Context policy & model limits</h4><i data-lucide="chevron-down" aria-hidden="true"></i></summary>
+          <p class="profile-context-note">Optional overrides for this profile. Request overrides take priority over profile and app settings. Model limits are declarations you supply, not capacities inferred from deployment names. Save changes to apply them.</p>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="profile-context-preflight">Context preflight</label><small id="profile-context-preflight-help">Warn allows requests with estimate warnings; Block may reject estimates; Off skips input preflight. Output caps still apply.</small></div>
+            <div class="profile-context-control">
+              <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_preflight_mode" title="Use the app preflight setting" aria-label="Use the app preflight setting" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+              <select id="profile-context-preflight" data-profile-context="context_preflight_mode" aria-describedby="profile-context-preflight-help"><option value="">Use app setting</option><option value="warn">Warn</option><option value="block">Block</option><option value="off">Off</option></select>
+            </div>
+          </div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="profile-context-input-budget">Input estimate budget (tokens)</label><small id="profile-context-input-budget-help">Leave blank to use the app input allowance. This is the local preflight budget, separate from declared model limits.</small></div>
+            <div class="profile-context-control">
+              <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_input_budget" title="Use the app input allowance" aria-label="Use the app input allowance" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+              <input id="profile-context-input-budget" type="number" min="1" step="1" placeholder="Use app allowance" data-profile-context="context_input_budget" aria-describedby="profile-context-input-budget-help">
+            </div>
+          </div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="profile-model-context-window">Declared context window (tokens)</label><small id="profile-model-context-window-help">Combined input and output capacity. Leave blank if unknown. The saved declared input ceiling accounts for the output cap.</small></div>
+            <div class="profile-context-control">
+              <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_context_window" title="Clear the context window declaration" aria-label="Clear the context window declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+              <input id="profile-model-context-window" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_context_window" aria-describedby="profile-model-context-window-help">
+            </div>
+          </div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="profile-model-max-input">Declared maximum input (tokens)</label><small id="profile-model-max-input-help">Optional independent input ceiling. Leave blank if unknown; declared ceilings are considered alongside estimates in Warn and Block modes.</small></div>
+            <div class="profile-context-control">
+              <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_max_input_tokens" title="Clear the input limit declaration" aria-label="Clear the input limit declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+              <input id="profile-model-max-input" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_max_input_tokens" aria-describedby="profile-model-max-input-help">
+            </div>
+          </div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="profile-model-max-output">Declared maximum output (tokens)</label><small id="profile-model-max-output-help">Can lower the app output cap, including reasoning tokens. Leave blank if unknown; this value does not raise the app cap.</small></div>
+            <div class="profile-context-control">
+              <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_max_output_tokens" title="Clear the output limit declaration" aria-label="Clear the output limit declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+              <input id="profile-model-max-output" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_max_output_tokens" aria-describedby="profile-model-max-output-help">
+            </div>
+          </div>
+          <p class="profile-context-note">The policy below reflects saved settings, before per-request overrides. Editing these fields does not change it until saved. Unknown means no model capacity declaration is available.</p>
+          <p id="profile-context-effective" class="profile-context-note" role="status">Open this section to load the saved effective policy.</p>
+          <button id="profile-context-retry" class="quiet sm-btn" type="button" hidden>Retry loading policy</button>
+        </details>
         <div class="pricing-field-group">
           <details id="profile-pricing-accordion" class="pricing-accordion">
             <summary class="pricing-accordion-header">

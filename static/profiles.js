@@ -1,18 +1,34 @@
-/* Own connection profiles, model selection, and the settings and pricing controls. */
+/* Own connection profiles, model selection, and credential, context, and pricing editing. */
 
 import { $, closeMobileSidebar, escapeHtml, refreshIcons, toast } from './ui.js';
 import { selectSettingsPanel } from './settings.js';
+import { createProfileContext } from './profile-context.js';
+import { describeRequestError } from './chat-feedback.js';
 
 export function createProfiles({ isGenerating, closeSettings }) {
-  const state = { activeProfileId: null, editingProfileId: null, profiles: [], formBaseline: null };
+  const state = { activeProfileId: null, editingProfileId: null, profiles: [], formBaseline: null, saving: false };
+  const profileContext = createProfileContext({ isSaving: () => state.saving });
 
   function snapshotProfileForm() {
-    return JSON.stringify([...$('#azure-settings-form').querySelectorAll('input')]
+    return JSON.stringify([...$('#azure-settings-form').querySelectorAll('input, select')]
       .map((input) => [input.id, input.value, input.validity.badInput]));
   }
 
   function hasUnsavedChanges() {
     return state.formBaseline !== null && snapshotProfileForm() !== state.formBaseline;
+  }
+
+  function canDiscardProfileChanges() {
+    return !state.saving && (!hasUnsavedChanges() || window.confirm('Discard unsaved profile changes?'));
+  }
+
+  function setSaving(saving) {
+    state.saving = saving;
+    $('#azure-settings-form').querySelectorAll('input, select, button').forEach(control => { control.disabled = saving; });
+    $('#profile-list-container').querySelectorAll('button').forEach(button => { button.disabled = saving; });
+    $('#add-profile-btn').disabled = saving;
+    profileContext.updateControls();
+    $('#settings-dialog').dispatchEvent(new Event('profile-save-state-change'));
   }
 
   function updatePricingStatus(hasPricing) {
@@ -26,6 +42,7 @@ export function createProfiles({ isGenerating, closeSettings }) {
   }
 
   function resetProfileForm() {
+    if (state.saving) return;
     state.editingProfileId = null;
     $('#editing-profile-id').value = '';
     $('#profile-form-title').textContent = 'Add new profile';
@@ -44,6 +61,7 @@ export function createProfiles({ isGenerating, closeSettings }) {
     $('#azure-long-threshold').value = '';
     $('#azure-long-input-price').value = '';
     $('#azure-long-output-price').value = '';
+    profileContext.select(null);
     updateThresholdLabels();
     updatePricingStatus(false);
     $('#delete-profile-btn').classList.add('hidden');
@@ -55,6 +73,7 @@ export function createProfiles({ isGenerating, closeSettings }) {
   }
 
   function selectProfileForEditing(profile) {
+    if (state.saving) return;
     state.editingProfileId = profile.id;
     $('#editing-profile-id').value = profile.id;
     $('#profile-form-title').textContent = `Edit profile: ${profile.name}`;
@@ -73,6 +92,7 @@ export function createProfiles({ isGenerating, closeSettings }) {
     $('#azure-long-threshold').value = profile.long_context_threshold !== null && profile.long_context_threshold !== undefined ? profile.long_context_threshold : '';
     $('#azure-long-input-price').value = profile.long_input_price_per_million !== null && profile.long_input_price_per_million !== undefined ? profile.long_input_price_per_million : '';
     $('#azure-long-output-price').value = profile.long_output_price_per_million !== null && profile.long_output_price_per_million !== undefined ? profile.long_output_price_per_million : '';
+    profileContext.select(profile);
     updateThresholdLabels();
     const hasPricing = profile.input_price_per_million != null || profile.output_price_per_million != null || profile.long_input_price_per_million != null || profile.long_output_price_per_million != null;
     updatePricingStatus(hasPricing);
@@ -167,7 +187,7 @@ export function createProfiles({ isGenerating, closeSettings }) {
         item.dataset.profileId = p.id;
         item.title = 'Click to edit profile';
         item.onclick = (e) => {
-          if (!e.target.closest('button')) selectProfileForEditing(p);
+          if (!e.target.closest('button') && canDiscardProfileChanges()) selectProfileForEditing(p);
         };
         const info = document.createElement('div');
         info.className = 'profile-info';
@@ -328,6 +348,7 @@ export function createProfiles({ isGenerating, closeSettings }) {
   }
 
   function init() {
+    profileContext.init();
     const modelPicker = $('#model-picker');
     if (modelPicker) {
       document.addEventListener('click', (event) => {
@@ -351,7 +372,7 @@ export function createProfiles({ isGenerating, closeSettings }) {
         openSettingsDialog('connections');
       };
     }
-    $('#add-profile-btn').onclick = resetProfileForm;
+    $('#add-profile-btn').onclick = () => { if (canDiscardProfileChanges()) resetProfileForm(); };
     $('#cancel-profile-edit').onclick = closeSettings;
 
     const toggleKeyBtn = $('#toggle-api-key-btn');
@@ -367,6 +388,15 @@ export function createProfiles({ isGenerating, closeSettings }) {
 
     $('#azure-settings-form').onsubmit = async (event) => {
       event.preventDefault();
+      if (state.saving) return;
+      profileContext.validate();
+      const invalid = [...$('#azure-settings-form').querySelectorAll('input, select')].find(input => !input.checkValidity());
+      if (invalid) {
+        const disclosure = invalid.closest('details');
+        if (disclosure) disclosure.open = true;
+        invalid.reportValidity();
+        return;
+      }
       const editingId = $('#editing-profile-id').value;
       const name = $('#profile-name').value.trim();
       const endpoint = $('#azure-endpoint').value.trim();
@@ -376,7 +406,7 @@ export function createProfiles({ isGenerating, closeSettings }) {
       if (!endpoint) return toast('Azure endpoint is required.', 'warning');
       if (!editingId && !api_key) return toast('API key is required when creating a new profile.', 'warning');
       if (!deployment) return toast('Deployment name is required.', 'warning');
-      const payload = { name, endpoint, deployment };
+      const payload = { name, endpoint, deployment, ...profileContext.changes(Boolean(editingId)) };
       if (api_key) payload.api_key = api_key;
       const inPriceVal = $('#azure-input-price').value.trim();
       const outPriceVal = $('#azure-output-price').value.trim();
@@ -413,6 +443,7 @@ export function createProfiles({ isGenerating, closeSettings }) {
       }
       const url = editingId ? `/api/profiles/${editingId}` : '/api/profiles';
       const method = editingId ? 'PUT' : 'POST';
+      setSaving(true);
       try {
         const response = await fetch(url, {
           method,
@@ -421,12 +452,14 @@ export function createProfiles({ isGenerating, closeSettings }) {
         });
         if (!response.ok) {
           const err = await response.json();
-          throw new Error(Array.isArray(err.detail) ? err.detail[0]?.msg : (err.detail || 'Could not save profile.'));
+          const feedback = describeRequestError(err, 'Could not save profile.', `HTTP ${response.status}`);
+          throw new Error([feedback.message, ...feedback.details].join('\n'));
         }
         const data = await response.json();
         $('#azure-api-key').value = '';
         renderProfiles(data);
         health();
+        setSaving(false);
         if (!editingId) {
           resetProfileForm();
           toast('Connection profile created.', 'success');
@@ -437,6 +470,8 @@ export function createProfiles({ isGenerating, closeSettings }) {
         }
       } catch (err) {
         toast(err.message, 'error');
+      } finally {
+        setSaving(false);
       }
     };
 
@@ -468,5 +503,5 @@ export function createProfiles({ isGenerating, closeSettings }) {
     setupPricingAccordionAnimation();
   }
 
-  return { init, load: loadProfiles, checkHealth: health, setGenerating, hasUnsavedChanges, getActiveProfileId: () => state.activeProfileId };
+  return { init, load: loadProfiles, checkHealth: health, setGenerating, hasUnsavedChanges, isSaving: () => state.saving, getActiveProfileId: () => state.activeProfileId };
 }

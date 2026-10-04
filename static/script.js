@@ -26,7 +26,8 @@ const chat = createChat({
 
 const settings = initializeSettings({
   onConversationUsageVisibilityChange: chat.setUsageVisibility,
-  hasUnsavedProfileChanges: profiles.hasUnsavedChanges
+  hasUnsavedProfileChanges: profiles.hasUnsavedChanges,
+  isProfileSaving: profiles.isSaving
 });
 initializeUI({
   beforeDialogClose(dialog) {

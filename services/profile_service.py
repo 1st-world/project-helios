@@ -182,8 +182,8 @@ class ProfileService:
         if set(changes) - set(CONTEXT_FIELDS):
             raise ValueError("Unknown context setting.")
         validated = replace(profile, **changes)
-        for name in changes:
-            setattr(profile, name, getattr(validated, name))
+        for field_name in changes:
+            setattr(profile, field_name, getattr(validated, field_name))
         if name is not None and name.strip():
             profile.name = name.strip()
         if endpoint is not None:

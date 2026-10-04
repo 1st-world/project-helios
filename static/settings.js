@@ -21,8 +21,8 @@ export function selectSettingsPanel(name, focus = false) {
   $('#settings-dialog').dispatchEvent(new CustomEvent('settings-panel-change', { detail: { name } }));
 }
 
-export function initializeSettings({ onConversationUsageVisibilityChange, hasUnsavedProfileChanges }) {
-  const appSettings = createAppSettings({ hasUnsavedProfileChanges });
+export function initializeSettings({ onConversationUsageVisibilityChange, hasUnsavedProfileChanges, isProfileSaving }) {
+  const appSettings = createAppSettings({ hasUnsavedProfileChanges, isProfileSaving });
   appSettings.init();
   const tabs = [...document.querySelectorAll('[data-settings-tab]')];
   tabs.forEach((tab, index) => {
