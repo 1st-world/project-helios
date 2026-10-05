@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import mimetypes
 from contextlib import aclosing, asynccontextmanager
 from datetime import date
 from logging.handlers import RotatingFileHandler
@@ -136,6 +137,9 @@ async def lifespan(_: FastAPI):
     await ai_service.close()
     logger.info("Helios stopped")
 
+
+# Serve WOFF2 consistently when the host does not register its MIME type.
+mimetypes.add_type("font/woff2", ".woff2")
 
 app = FastAPI(title="Helios BYOK AI Assistant", lifespan=lifespan)
 app.mount(

@@ -1,0 +1,5 @@
+# Preserve the original bytes and recorded hashes of bundled frontend dependencies.
+/static/vendor/** -text
+/static/vendor/README.md text eol=lf
+/static/vendor/manifest.json text eol=lf
+/static/fonts/pretendard/** -text

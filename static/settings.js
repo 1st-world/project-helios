@@ -1,7 +1,8 @@
-/* Navigate settings categories and connect app policy editing and conversation usage visibility. */
+/* Navigate settings categories and connect font preferences, app policy editing, and conversation usage visibility. */
 
 import { $ } from './ui.js';
 import { createAppSettings } from './app-settings.js';
+import { initializeFontSettings } from './font-settings.js';
 
 export function selectSettingsPanel(name, focus = false) {
   const tabs = [...document.querySelectorAll('[data-settings-tab]')];
@@ -22,6 +23,7 @@ export function selectSettingsPanel(name, focus = false) {
 }
 
 export function initializeSettings({ onConversationUsageVisibilityChange, hasUnsavedProfileChanges, isProfileSaving }) {
+  initializeFontSettings();
   const appSettings = createAppSettings({ hasUnsavedProfileChanges, isProfileSaving });
   appSettings.init();
   const tabs = [...document.querySelectorAll('[data-settings-tab]')];

@@ -6,10 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Helios · BYOK AI Assistant</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Mono&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css">
+  <link rel="stylesheet" href="/static/vendor/highlight.js/11.11.1/github-dark.min.css">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -189,9 +186,22 @@
     </div>
 
     <section id="settings-general" class="settings-panel" role="tabpanel" aria-labelledby="settings-general-tab" tabindex="0">
-      <div class="info-callout"><i data-lucide="info"></i><p><strong>Preview.</strong> Appearance, language, timezone, and notification preferences are not available yet.</p></div>
+      <div class="info-callout"><i data-lucide="info"></i><p><strong>Preview.</strong> Theme, language, timezone, and notification preferences are not available yet.</p></div>
       <section class="settings-group" aria-labelledby="settings-appearance-title">
         <div class="settings-panel-heading"><h3 id="settings-appearance-title">Appearance & language</h3></div>
+        <div id="font-settings" class="font-settings">
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="ui-font-source">Interface font</label><small>Applied immediately and saved in this browser. Code keeps its monospace font.</small></div>
+            <select id="ui-font-source"><option value="default">Default (Pretendard)</option><option value="system">System font</option><option value="installed">Installed font</option></select>
+          </div>
+          <div id="font-settings-local" class="font-settings-local" hidden>
+            <label for="ui-font-family">Font family name</label>
+            <input id="ui-font-family" type="text" list="installed-font-families" maxlength="200" autocomplete="off" placeholder="e.g. Malgun Gothic" aria-describedby="installed-fonts-status font-settings-status">
+            <datalist id="installed-font-families"></datalist>
+            <p id="installed-fonts-status" class="font-settings-note" role="status"></p>
+          </div>
+          <p id="font-settings-status" class="font-settings-error" role="status"></p>
+        </div>
         <div class="settings-preference-row">
           <div class="settings-preference-copy"><strong id="theme-label">Theme</strong><small>Choose a light, dark, or system appearance.</small></div>
           <div class="settings-theme-options" role="radiogroup" aria-labelledby="theme-label"><button type="button" role="radio" disabled aria-checked="false">Light</button><button type="button" role="radio" disabled aria-checked="true">Dark</button><button type="button" role="radio" disabled aria-checked="false">System</button></div>
@@ -582,11 +592,11 @@
     </section>
   </dialog>
 
-  <script src="https://cdn.jsdelivr.net/npm/marked@18.0.14/lib/marked.umd.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/marked-highlight@2.2.4/lib/index.umd.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.4/purify.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
-  <script src="https://unpkg.com/lucide@1.48.0/dist/umd/lucide.min.js"></script>
+  <script src="/static/vendor/marked/18.0.14/marked.umd.js"></script>
+  <script src="/static/vendor/marked-highlight/2.2.4/index.umd.js"></script>
+  <script src="/static/vendor/dompurify/3.2.4/purify.min.js"></script>
+  <script src="/static/vendor/highlight.js/11.11.1/highlight.min.js"></script>
+  <script src="/static/vendor/lucide/1.48.0/lucide.min.js"></script>
   <script type="module" src="/static/script.js"></script>
 </body>
 </html>
