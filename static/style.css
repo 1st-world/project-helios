@@ -1906,6 +1906,96 @@ textarea::placeholder {
   min-width: 160px;
   white-space: normal;
 }
+
+.preferences-dialog .usage-call-history {
+  margin-top: 16px;
+}
+.preferences-dialog .usage-call-history p {
+  overflow-wrap: anywhere;
+}
+.preferences-dialog .usage-call-history .usage-history-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  gap: 12px;
+}
+.preferences-dialog .usage-call-history .usage-history-toolbar p {
+  margin: 0;
+  white-space: pre-line;
+}
+.preferences-dialog .usage-call-history .usage-history-toolbar button {
+  flex-shrink: 0;
+}
+.preferences-dialog .usage-call-history[data-state="error"] #usage-calls-state {
+  color: var(--danger);
+}
+.preferences-dialog .usage-call-history .usage-calls-scroll {
+  max-height: 420px;
+  margin-top: 12px;
+  overflow: auto;
+}
+.preferences-dialog .usage-call-history ul {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  gap: 8px;
+  list-style: none;
+}
+.preferences-dialog .usage-call-history .usage-call {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-app);
+}
+.preferences-dialog .usage-call-history .usage-call > summary {
+  overflow-wrap: anywhere;
+}
+.preferences-dialog .usage-call-history .usage-call > summary strong {
+  color: var(--text-sub);
+  font-weight: 500;
+}
+.preferences-dialog .usage-call-history .usage-call > summary span {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+.preferences-dialog .usage-call-history .usage-call-body > details {
+  margin-top: 12px;
+}
+.preferences-dialog .usage-call-history .usage-call-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 12px 0 0;
+  gap: 12px;
+}
+.preferences-dialog .usage-call-history .usage-call-fields dt {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.preferences-dialog .usage-call-history .usage-call-fields dd {
+  margin: 5px 0 0;
+  color: var(--text-sub);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.preferences-dialog .usage-call-history .usage-history-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  gap: 8px;
+}
+.preferences-dialog .usage-call-history .usage-history-pagination span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 .dialog-actions {
   display: flex;
   align-items: center;
@@ -2282,6 +2372,14 @@ textarea::placeholder {
 .pricing-accordion-status.configured svg {
   color: var(--success);
 }
+.pricing-accordion .pricing-accordion-status.partial {
+  border-color: var(--warning-border);
+  background: var(--warning-subtle);
+  color: var(--warning-text);
+}
+.pricing-accordion .pricing-accordion-status.partial svg {
+  color: var(--warning);
+}
 .pricing-chevron {
   flex-shrink: 0;
   width: 14px;
@@ -2299,6 +2397,19 @@ textarea::placeholder {
   gap: 2px;
   border-top: 1px solid var(--border);
   background: var(--bg-surface);
+}
+.pricing-accordion .pricing-completeness {
+  margin-bottom: 10px;
+  color: var(--text-sub);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.pricing-accordion .pricing-completeness p {
+  margin: 0;
+}
+.pricing-accordion #pricing-invalid-status {
+  color: var(--warning-text);
 }
 .pricing-tier-block {
   display: flex;
@@ -2735,6 +2846,9 @@ button svg,
     flex-wrap: wrap;
   }
   .preferences-dialog .settings-usage-overview .usage-filters {
+    grid-template-columns: 1fr;
+  }
+  .preferences-dialog .usage-call-history .usage-call-fields {
     grid-template-columns: 1fr;
   }
   .form-grid-2 {

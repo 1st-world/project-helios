@@ -12,6 +12,19 @@ const CACHE_PRICE_FIELDS = [
   ['azure-long-cache-write-price', 'long_cache_write_price_per_million', 'clear_long_cache_write_price'],
 ];
 
+const PRICE_CATEGORIES = [
+  ['input', 'azure-input-price', 'azure-long-input-price'],
+  ['output', 'azure-output-price', 'azure-long-output-price'],
+  ['cache read', 'azure-cache-read-price', 'azure-long-cache-read-price'],
+  ['cache write', 'azure-cache-write-price', 'azure-long-cache-write-price'],
+];
+
+function readPrice(id) {
+  const input = $(`#${id}`);
+  const invalid = input.validity.badInput || (input.value !== '' && (!Number.isFinite(input.valueAsNumber) || input.valueAsNumber < 0));
+  return { value: input.value === '' || invalid ? null : input.valueAsNumber, invalid };
+}
+
 export function createProfiles({ isGenerating, closeSettings }) {
   const state = { activeProfileId: null, editingProfileId: null, profiles: [], formBaseline: null, saving: false };
   const profileContext = createProfileContext({ isSaving: () => state.saving });
@@ -70,13 +83,39 @@ export function createProfiles({ isGenerating, closeSettings }) {
     $('#settings-dialog').dispatchEvent(new Event('profile-save-state-change'));
   }
 
-  function updatePricingStatus(hasPricing) {
+  function updatePricingStatus() {
     const statusEl = $('#pricing-accordion-status');
     if (!statusEl) return;
-    statusEl.classList.toggle('configured', Boolean(hasPricing));
-    statusEl.innerHTML = hasPricing
-      ? '<i data-lucide="check"></i> Configured'
-      : '<i data-lucide="circle-dashed"></i> Not configured';
+    const rates = PRICE_CATEGORIES.map(([name, standardId, longId]) => ({ name, standard: readPrice(standardId), long: readPrice(longId) }));
+    const invalid = rates.flatMap(rate => [
+      ...(rate.standard.invalid ? [`standard ${rate.name}`] : []),
+      ...(rate.long.invalid ? [`long-context ${rate.name}`] : []),
+    ]);
+    const missingStandard = rates.filter(rate => rate.standard.value === null).map(rate => rate.name);
+    // A blank long rate inherits independently; an invalid draft must not appear configured.
+    const missingLong = rates.filter(rate => (rate.long.invalid ? null : rate.long.value ?? rate.standard.value) === null).map(rate => rate.name);
+    const fallback = rates.filter(rate => !rate.long.invalid && rate.long.value === null && rate.standard.value !== null).map(rate => rate.name);
+    const hasPricing = rates.some(rate => rate.standard.value !== null || rate.long.value !== null);
+    const state = invalid.length ? 'invalid' : !hasPricing ? 'empty' : missingStandard.length || missingLong.length ? 'partial' : 'configured';
+    const labels = { empty: 'Not configured', partial: 'Partial pricing', configured: 'Configured', invalid: 'Check rates' };
+    const icons = { empty: 'circle-dashed', partial: 'triangle-alert', configured: 'check', invalid: 'triangle-alert' };
+    const standardText = missingStandard.length
+      ? `${rates.some(rate => rate.standard.invalid) ? 'Unavailable' : 'Missing'} standard rates: ${missingStandard.join(', ')}.`
+      : 'All standard rates are configured.';
+    const longText = [
+      ...(missingLong.length ? [`${invalid.length ? 'Unavailable' : 'Missing'} effective long-context rates: ${missingLong.join(', ')}.`] : []),
+      ...(fallback.length ? [`Long-context fallback to standard rates: ${fallback.join(', ')}.`] : []),
+    ].join(' ') || 'All long-context rates are configured.';
+    const invalidText = invalid.length ? `Enter a finite price of 0 or greater, or leave blank: ${invalid.join(', ')}.` : '';
+    $('#pricing-standard-status').textContent = standardText;
+    $('#pricing-long-status').textContent = longText;
+    $('#pricing-invalid-status').textContent = invalidText;
+    $('#pricing-invalid-status').hidden = !invalid.length;
+    statusEl.dataset.state = state;
+    statusEl.classList.toggle('configured', state === 'configured');
+    statusEl.classList.toggle('partial', state === 'partial' || state === 'invalid');
+    statusEl.innerHTML = `<i data-lucide="${icons[state]}" aria-hidden="true"></i> ${labels[state]}`;
+    statusEl.title = [standardText, longText, invalidText].filter(Boolean).join(' ');
     refreshIcons();
   }
 
@@ -103,7 +142,7 @@ export function createProfiles({ isGenerating, closeSettings }) {
     selectCachePrices(null);
     profileContext.select(null);
     updateThresholdLabels();
-    updatePricingStatus(false);
+    updatePricingStatus();
     $('#delete-profile-btn').classList.add('hidden');
     const toggleBtn = $('#toggle-api-key-btn');
     if (toggleBtn) toggleBtn.innerHTML = '<i data-lucide="eye"></i>';
@@ -135,8 +174,7 @@ export function createProfiles({ isGenerating, closeSettings }) {
     selectCachePrices(profile);
     profileContext.select(profile);
     updateThresholdLabels();
-    const hasPricing = profile.input_price_per_million != null || profile.output_price_per_million != null || profile.long_input_price_per_million != null || profile.long_output_price_per_million != null || CACHE_PRICE_FIELDS.some(([, field]) => profile[field] != null);
-    updatePricingStatus(hasPricing);
+    updatePricingStatus();
     $('#delete-profile-btn').classList.remove('hidden');
     const toggleBtn = $('#toggle-api-key-btn');
     if (toggleBtn) toggleBtn.innerHTML = '<i data-lucide="eye"></i>';
@@ -392,6 +430,11 @@ export function createProfiles({ isGenerating, closeSettings }) {
     profileContext.init();
     for (const [id] of CACHE_PRICE_FIELDS) {
       $(`#${id}`).addEventListener('input', validateCachePrices);
+    }
+    for (const [, standardId, longId] of PRICE_CATEGORIES) {
+      for (const id of [standardId, longId]) {
+        $(`#${id}`).addEventListener('input', updatePricingStatus);
+      }
     }
     const modelPicker = $('#model-picker');
     if (modelPicker) {

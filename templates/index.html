@@ -447,6 +447,11 @@
               <i data-lucide="chevron-down" class="pricing-chevron"></i>
             </summary>
             <div class="pricing-accordion-body">
+              <div class="pricing-completeness" role="status" aria-atomic="true">
+                <p id="pricing-standard-status"></p>
+                <p id="pricing-long-status"></p>
+                <p id="pricing-invalid-status" hidden></p>
+              </div>
               <div class="pricing-tier-block">
                 <div class="tier-header">
                   <span class="tier-pill standard"><span class="tier-indicator"></span>Standard context</span>
@@ -487,7 +492,7 @@
                   <label>Long cache write price ($ / 1M)<input id="azure-long-cache-write-price" type="number" step="any" min="0" placeholder="Use standard rate" aria-describedby="cache-pricing-hint long-pricing-hint"></label>
                 </div>
               </div>
-              <span id="cache-pricing-hint" class="field-hint pricing-hint">All rates are USD per 1M tokens. Blank standard cache rates are unknown; enter 0 only for a free category. Missing rates or unreported cache usage can leave estimates incomplete.</span>
+              <span id="cache-pricing-hint" class="field-hint pricing-hint">All rates are USD per 1M tokens. Blank standard cache rates are unknown; enter 0 only for a free category. Missing rates affect estimates only when that category is used; unreported usage can also leave estimates incomplete. The pricing status reflects this form; save to apply changes.</span>
               <span id="long-pricing-hint" class="field-hint pricing-hint">Each blank long-context rate uses its corresponding standard rate. At or above the threshold, configured long-context rates apply.</span>
             </div>
           </details>
@@ -555,6 +560,23 @@
               <tbody id="usage-daily-rows"></tbody>
             </table>
           </div>
+        </details>
+        <details id="usage-call-history" class="usage-call-history">
+          <summary>Call history</summary>
+          <div class="usage-history-toolbar">
+            <p id="usage-calls-state" role="status">Open to load recorded calls.</p>
+            <button id="refresh-usage-calls" class="quiet-btn" type="button"><i data-lucide="refresh-cw"></i> Refresh</button>
+          </div>
+          <p>Uses the scope, period, and call type above. Newest first; new calls can shift pages. Refresh returns to the newest records.</p>
+          <p>Cache tokens are included in input; reasoning tokens are included in output. Stored costs use the rates saved with each call. Imported records may have unknown dates or prices.</p>
+          <div class="usage-calls-scroll" tabindex="0" aria-label="Recorded API calls">
+            <ul id="usage-calls-list"></ul>
+          </div>
+          <nav class="usage-history-pagination" aria-label="Call history pages">
+            <button id="usage-calls-previous" class="quiet-btn" type="button" disabled><i data-lucide="chevron-left"></i> Previous</button>
+            <span id="usage-calls-page"></span>
+            <button id="usage-calls-next" class="quiet-btn" type="button" disabled>Next <i data-lucide="chevron-right"></i></button>
+          </nav>
         </details>
       </div>
     </section>

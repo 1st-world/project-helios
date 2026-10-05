@@ -1,7 +1,8 @@
-/* Display ledger aggregates in conversation footers and Settings without estimating missing usage or repricing history. */
+/* Coordinate ledger aggregates and filtered call history without estimating missing usage or repricing history. */
 
 import { $, refreshIcons } from './ui.js';
 import { describeRequestError } from './chat-feedback.js';
+import { createUsageHistory } from './usage-history.js';
 
 const TOKEN_FIELDS = ['input_tokens', 'output_tokens', 'total_tokens', 'uncached_input_tokens', 'cache_read_tokens', 'cache_write_tokens', 'reasoning_tokens'];
 const MISSING_FIELDS = ['unknown_usage_calls', 'unknown_cost_calls', 'partial_cost_calls', 'unknown_cost_completeness_calls', 'unknown_timestamp_calls', 'legacy_calls'];
@@ -84,6 +85,7 @@ export function createUsage({ footer, renderFooter }) {
   let conversationId = null;
   let generating = false;
   let footerVisible = true;
+  const history = createUsageHistory({ timezone, isVisible: settingsVisible });
 
   function settingsVisible() {
     return dialog.open && !$('#settings-usage').hidden;
@@ -192,7 +194,10 @@ export function createUsage({ footer, renderFooter }) {
 
   function refreshSettings() {
     cancel(views.settings);
-    if (!settingsVisible()) return;
+    if (!settingsVisible()) {
+      history.suspend();
+      return;
+    }
     const custom = $('#usage-period').value === 'custom';
     $('#usage-date-range').hidden = !custom;
     const start = $('#usage-start-date');
@@ -207,11 +212,15 @@ export function createUsage({ footer, renderFooter }) {
     if (invalid) {
       invalid.setAttribute('aria-invalid', 'true');
       showState(views.settings, 'Choose valid start and end dates, with the end on or after the start.', 'error');
+      history.select(null, 'Choose valid dates above to view recorded calls.');
       return;
     }
     const params = new URLSearchParams({ timezone });
     if ($('#usage-scope').value === 'conversation') {
-      if (!conversationId) return showState(views.settings, 'Select a conversation or choose All conversations.', 'empty');
+      if (!conversationId) {
+        history.select(null, 'Select a conversation or choose All conversations.');
+        return showState(views.settings, 'Select a conversation or choose All conversations.', 'empty');
+      }
       params.set('conversation_id', conversationId);
     }
     if ($('#usage-kind').value) params.set('kind', $('#usage-kind').value);
@@ -225,6 +234,7 @@ export function createUsage({ footer, renderFooter }) {
       if (period === 'week') today.setDate(today.getDate() - 6);
       params.set('start_date', localDate(today));
     }
+    history.select(params);
     load(views.settings, params);
   }
 
@@ -249,6 +259,7 @@ export function createUsage({ footer, renderFooter }) {
   }
 
   function init() {
+    history.init();
     const today = localDate(new Date());
     $('#usage-start-date').value = today;
     $('#usage-end-date').value = today;
@@ -257,7 +268,10 @@ export function createUsage({ footer, renderFooter }) {
     views.settings.refresh.onclick = refreshSettings;
     for (const id of ['usage-scope', 'usage-period', 'usage-kind', 'usage-start-date', 'usage-end-date']) $(`#${id}`).addEventListener('change', refreshSettings);
     dialog.addEventListener('settings-panel-change', refreshSettings);
-    dialog.addEventListener('close', () => cancel(views.settings));
+    dialog.addEventListener('close', () => {
+      cancel(views.settings);
+      history.suspend();
+    });
     refreshIcons();
   }
 
