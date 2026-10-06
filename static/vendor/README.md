@@ -37,6 +37,8 @@ Only `pre`, `code`, `kbd`, and `samp` use `--font-mono`. This token uses install
 
 Settings > General immediately applies and saves the UI family as the user selects system fonts or enters a named installed font. The system choice uses the operating system's interface fonts rather than the browser's default document font. The preference is saved per browser origin in local storage; font files and discovered font lists are not uploaded or stored. Selecting Installed font automatically attempts discovery in supported secure browser contexts, preserving user activation for the permission request. Restoring a saved choice during page startup does not request permission. Manual family entry remains available, with Pretendard and system fallbacks when a selected font is unavailable or blocked. Selecting Pretendard restores the default, and code keeps the shared monospace token.
 
+Text size immediately scales UI and code text through `--ui-font-scale`. Its preference is stored separately from the font family, restored on startup, and synchronized across tabs of the same origin. Icons retain their dimensions, and the composer adjusts its height when the text scale changes.
+
 Successful changes and font discovery do not display separate notices. Feedback appears only while discovery is pending or when discovery, input validation, or preference storage needs attention.
 
 ## Updates

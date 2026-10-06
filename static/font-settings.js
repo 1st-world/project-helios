@@ -1,8 +1,9 @@
-/* Manage browser-local UI font preferences and optional installed font discovery. */
+/* Manage browser-local font family and text size preferences, with optional installed font discovery. */
 
 import { $ } from './ui.js';
 
 const STORAGE_KEY = 'helios.uiFont';
+const SCALE_STORAGE_KEY = 'helios.uiFontScale';
 const DEFAULT_FONT = { source: 'default', family: '' };
 
 function normalizePreference(value) {
@@ -21,6 +22,48 @@ function readPreference() {
 
 function quoteFamily(family) {
   return `"${family.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+export function initializeFontSizeSettings() {
+  const root = document.documentElement;
+  const size = $('#ui-font-scale');
+  const status = $('#font-size-settings-status');
+  const allowedScales = new Set([...size.options].map(option => Number(option.value)));
+
+  function readScale() {
+    try {
+      const scale = Number(localStorage.getItem(SCALE_STORAGE_KEY));
+      return allowedScales.has(scale) ? scale : 1;
+    } catch { return 1; }
+  }
+
+  function applyScale(scale) {
+    if (scale === 1) root.style.removeProperty('--ui-font-scale');
+    else root.style.setProperty('--ui-font-scale', String(scale));
+    size.value = String(scale);
+    status.textContent = '';
+    document.dispatchEvent(new Event('text-size-change'));
+  }
+
+  size.addEventListener('change', () => {
+    const value = Number(size.value);
+    const scale = allowedScales.has(value) ? value : 1;
+    applyScale(scale);
+    try {
+      if (scale === 1) localStorage.removeItem(SCALE_STORAGE_KEY);
+      else localStorage.setItem(SCALE_STORAGE_KEY, String(scale));
+    } catch {
+      status.textContent = 'Your browser could not save the text size preference. It applies for this session only.';
+    }
+  });
+  window.addEventListener('storage', event => {
+    if (event.key === SCALE_STORAGE_KEY || event.key === null) applyScale(readScale());
+  });
+  $('#settings-dialog').addEventListener('close', () => {
+    if (!$('#settings-dialog').open) status.textContent = '';
+  });
+
+  applyScale(readScale());
 }
 
 export function initializeFontSettings() {

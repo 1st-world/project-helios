@@ -202,9 +202,13 @@
           </div>
           <p id="font-settings-status" class="font-settings-error" role="status"></p>
         </div>
+        <div class="settings-preference-row font-size-settings">
+          <div class="settings-preference-copy"><label for="ui-font-scale">Text size</label><small id="font-size-help">Applied immediately to all text and saved in this browser.</small><p id="font-size-settings-status" class="font-size-settings-error" role="status"></p></div>
+          <select id="ui-font-scale" aria-describedby="font-size-help font-size-settings-status"><option value="0.9">Small (90%)</option><option value="1" selected>Default (100%)</option><option value="1.1">Large (110%)</option><option value="1.25">Larger (125%)</option></select>
+        </div>
         <div class="settings-preference-row">
-          <div class="settings-preference-copy"><strong id="theme-label">Theme</strong><small>Choose a light, dark, or system appearance.</small></div>
-          <div class="settings-theme-options" role="radiogroup" aria-labelledby="theme-label"><button type="button" role="radio" disabled aria-checked="false">Light</button><button type="button" role="radio" disabled aria-checked="true">Dark</button><button type="button" role="radio" disabled aria-checked="false">System</button></div>
+          <div class="settings-preference-copy"><label id="theme-label" for="ui-theme">Theme</label><small>Choose a light, dark, or system appearance.</small></div>
+          <select id="ui-theme" disabled><option value="light">Light</option><option value="dark" selected>Dark</option><option value="system">System</option></select>
         </div>
         <div class="settings-preference-row">
           <div class="settings-preference-copy"><label for="ui-language">Interface language</label><small>Language of menus and controls.</small></div>

@@ -2,7 +2,7 @@
 
 import { $ } from './ui.js';
 import { createAppSettings } from './app-settings.js';
-import { initializeFontSettings } from './font-settings.js';
+import { initializeFontSettings, initializeFontSizeSettings } from './font-settings.js';
 
 export function selectSettingsPanel(name, focus = false) {
   const tabs = [...document.querySelectorAll('[data-settings-tab]')];
@@ -24,6 +24,7 @@ export function selectSettingsPanel(name, focus = false) {
 
 export function initializeSettings({ onConversationUsageVisibilityChange, hasUnsavedProfileChanges, isProfileSaving }) {
   initializeFontSettings();
+  initializeFontSizeSettings();
   const appSettings = createAppSettings({ hasUnsavedProfileChanges, isProfileSaving });
   appSettings.init();
   const tabs = [...document.querySelectorAll('[data-settings-tab]')];

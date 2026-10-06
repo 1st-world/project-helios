@@ -554,6 +554,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     send.onclick = () => sendMessage();
     stop.onclick = () => state.controller?.abort();
     prompt.oninput = autoResize;
+    document.addEventListener('text-size-change', autoResize);
     prompt.onkeydown = (event) => {
       if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
         event.preventDefault();
