@@ -203,7 +203,8 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
       });
       acceptResponse(await readResponse(response));
       $('#settings-dialog').dispatchEvent(new Event('app-settings-saved'));
-      setStatus('Changes saved.', 'success');
+      setStatus('');
+      toast('Changes saved.', 'success');
     } catch (error) {
       setStatus(`${error.message || 'Could not confirm the save.'}\nYour edits are kept. Reopen Settings to check saved values if the connection was interrupted.`, 'error');
     } finally {

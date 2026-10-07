@@ -1695,6 +1695,89 @@ textarea::placeholder {
   font-size: var(--font-size-title-group);
 }
 
+/* Include padding and borders explicitly because native select line boxes differ from text inputs. */
+.preferences-dialog input:not([type="checkbox"]):not([type="hidden"]):not(#azure-long-threshold),
+.preferences-dialog select {
+  height: calc(var(--font-size-control) * var(--line-height-input) + 20px);
+  min-height: 36px;
+  line-height: var(--line-height-input);
+}
+.preferences-dialog input::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+.preferences-dialog .settings-disclosure {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-surface);
+}
+.preferences-dialog .settings-disclosure[open] {
+  border-color: var(--border-strong);
+}
+.preferences-dialog .settings-disclosure-header {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 10px 12px;
+  gap: 8px;
+  list-style: none;
+  cursor: pointer;
+  transition: background-color var(--motion-duration-fast) var(--motion-easing-default);
+  user-select: none;
+}
+.preferences-dialog .settings-disclosure-header::-webkit-details-marker {
+  display: none;
+}
+.preferences-dialog .settings-disclosure-header:hover {
+  background: var(--bg-element-hover);
+}
+.preferences-dialog .settings-disclosure-header:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+}
+.preferences-dialog .settings-disclosure-title {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  gap: 6px;
+  color: var(--text-sub);
+  font-weight: var(--font-weight-heading);
+  line-height: var(--line-height-heading);
+  overflow-wrap: anywhere;
+}
+.preferences-dialog h3.settings-disclosure-title {
+  font-size: var(--font-size-title-section);
+}
+.preferences-dialog h4.settings-disclosure-title {
+  font-size: var(--font-size-title-group);
+}
+.preferences-dialog .settings-disclosure-title svg,
+.preferences-dialog .settings-disclosure-chevron {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.preferences-dialog .settings-disclosure-title svg {
+  color: var(--accent);
+}
+.preferences-dialog .settings-disclosure-chevron {
+  color: var(--text-muted);
+  transition: transform var(--motion-duration) var(--motion-easing);
+}
+.preferences-dialog .settings-disclosure[open]:not([data-expanded="false"]) > summary .settings-disclosure-chevron {
+  transform: rotate(180deg);
+}
+.preferences-dialog .settings-disclosure-body {
+  padding: 12px;
+  border-top: 1px solid var(--border);
+}
+.preferences-dialog .settings-disclosure .settings-disclosure-body > :first-child {
+  margin-top: 0;
+}
+
 .preferences-dialog .settings-editor-panel {
   overflow: hidden;
   scrollbar-gutter: auto;
@@ -1715,9 +1798,9 @@ textarea::placeholder {
   scrollbar-gutter: stable;
 }
 .preferences-dialog .settings-editor-footer {
-  flex: none;
   container-name: settings-actions;
   container-type: inline-size;
+  flex: none;
   padding-top: 12px;
   border-top: 1px solid var(--border);
 }
@@ -1753,9 +1836,6 @@ textarea::placeholder {
 .preferences-dialog .settings-editor-footer .settings-editor-status[data-state="error"] {
   color: var(--danger-text);
 }
-.preferences-dialog .settings-editor-footer .settings-editor-status[data-state="success"] {
-  color: var(--success-text);
-}
 .preferences-dialog .settings-editor-footer .settings-editor-status:empty {
   display: none;
 }
@@ -1781,21 +1861,6 @@ textarea::placeholder {
   margin-top: 20px;
 }
 
-.preferences-dialog .settings-attachment-resources > summary {
-  list-style: none;
-  cursor: pointer;
-}
-.preferences-dialog .settings-attachment-resources > summary::-webkit-details-marker {
-  display: none;
-}
-.preferences-dialog .settings-attachment-resources > summary svg {
-  width: 15px;
-  height: 15px;
-  transition: transform var(--motion-duration-fast) var(--motion-easing-default);
-}
-.preferences-dialog .settings-attachment-resources[open] > summary svg {
-  transform: rotate(180deg);
-}
 .preferences-dialog .settings-attachment-resources .settings-resource-note {
   margin: 12px 0 0;
   color: var(--text-muted);
@@ -1808,38 +1873,6 @@ textarea::placeholder {
   color: var(--text-sub);
 }
 
-.preferences-dialog .profile-context-settings {
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-surface);
-}
-.preferences-dialog .profile-context-settings > summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  list-style: none;
-  cursor: pointer;
-}
-.preferences-dialog .profile-context-settings > summary::-webkit-details-marker {
-  display: none;
-}
-.preferences-dialog .profile-context-settings > summary h4 {
-  margin: 0;
-  font-weight: var(--font-weight-heading);
-  font-size: var(--font-size-title-group);
-  line-height: var(--line-height-heading);
-}
-.preferences-dialog .profile-context-settings > summary svg {
-  flex: none;
-  width: 15px;
-  height: 15px;
-  transition: transform var(--motion-duration-fast) var(--motion-easing-default);
-}
-.preferences-dialog .profile-context-settings[open] > summary svg {
-  transform: rotate(180deg);
-}
 .preferences-dialog .profile-context-settings .profile-context-control {
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr);
@@ -1994,9 +2027,13 @@ textarea::placeholder {
   border: 1px solid var(--border-strong);
   border-radius: 6px;
   background: var(--bg-app);
-  color: var(--text-muted);
+  color: var(--text-main);
   font-weight: var(--font-weight-regular);
   font-size: var(--font-size-control);
+}
+.preferences-dialog select:disabled,
+.preferences-dialog .settings-preference-row input:disabled {
+  color: var(--text-muted);
 }
 .preferences-dialog .settings-preference-row input[type="checkbox"] {
   flex: none;
@@ -2022,10 +2059,33 @@ textarea::placeholder {
   margin-top: 16px;
   gap: 12px;
 }
-.preferences-dialog .settings-usage-overview .usage-date-range {
+.preferences-dialog .settings-usage-overview .usage-filters label {
+  min-width: 0;
+  margin: 0;
+}
+.preferences-dialog .settings-usage-overview .usage-filters select {
+  width: 100%;
+}
+.preferences-dialog .usage-date-range {
   margin-top: 12px;
 }
 .preferences-dialog .settings-usage-overview .usage-date-range[hidden] {
+  display: none;
+}
+.preferences-dialog .usage-date-range .usage-date-field {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+.preferences-dialog .usage-date-range .usage-date-field > label {
+  margin: 0;
+}
+.preferences-dialog .usage-date-range input {
+  min-width: 0;
+  color-scheme: dark;
+}
+.preferences-dialog .usage-date-range .date-picker-input::-webkit-calendar-picker-indicator {
+  /* Hide the Chromium/WebKit indicator only after the separate picker button is available. */
   display: none;
 }
 .preferences-dialog .settings-usage-overview p {
@@ -2066,6 +2126,20 @@ textarea::placeholder {
   font-size: var(--font-size-metric);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
+}
+.preferences-dialog .settings-usage-primary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.preferences-dialog .settings-usage-primary > div {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-app);
+}
+.preferences-dialog .settings-usage-overview > details > summary {
+  padding: 8px 0;
+  color: var(--text-sub);
+  font-weight: var(--font-weight-label);
 }
 .preferences-dialog .settings-usage-overview .usage-table-scroll {
   max-height: 280px;
@@ -2284,7 +2358,7 @@ textarea::placeholder {
   margin: 0;
   color: var(--text-main);
   font-weight: var(--font-weight-heading);
-  font-size: var(--font-size-title-group);
+  font-size: var(--font-size-title-section);
   line-height: var(--line-height-heading);
 }
 
@@ -2324,34 +2398,51 @@ textarea::placeholder {
 }
 .profile-item {
   display: flex;
+  position: relative;
   align-items: center;
   justify-content: space-between;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-surface);
-  cursor: pointer;
   transition:
     border-color 0.15s ease,
     background 0.15s ease;
 }
-.profile-item:hover {
+.profile-item:not(.editing):hover:has(.profile-info:not(:disabled)) {
   border-color: var(--border-focus);
-  background: var(--bg-surface-elevated);
+}
+.profile-item:has(.profile-info:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .profile-item.active {
   background: var(--bg-surface-active);
 }
 .profile-item.editing {
   border-color: var(--accent);
-  background: var(--bg-surface-active);
 }
 .profile-info {
   display: flex;
+  flex: 1;
   flex-direction: column;
   min-width: 0;
-  overflow: hidden;
+  padding: 0;
   gap: 2px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  font-weight: var(--font-weight-regular);
+  text-align: left;
+}
+.profile-info::after {
+  /* Extend the native edit button across the row beneath independent actions. */
+  position: absolute;
+  inset: 0;
+  content: "";
+}
+.profile-info:focus-visible {
+  outline: 0;
 }
 .profile-info strong {
   overflow: hidden;
@@ -2369,24 +2460,28 @@ textarea::placeholder {
 }
 .profile-actions {
   display: flex;
+  z-index: 1;
+  position: relative;
   flex-shrink: 0;
   align-items: center;
   margin-left: 10px;
   gap: 6px;
+  pointer-events: none;
+}
+.profile-actions button {
+  pointer-events: auto;
 }
 .active-badge {
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 22px;
   padding: 0 8px;
   border: 1px solid transparent;
   border-radius: 4px;
   background: var(--accent);
   color: var(--accent-fg);
   font-weight: var(--font-weight-strong);
-  font-size: var(--font-size-badge);
   line-height: var(--line-height-control);
 }
 
@@ -2411,16 +2506,31 @@ textarea::placeholder {
     color var(--motion-duration-fast) var(--motion-easing-default),
     border-color var(--motion-duration-fast) var(--motion-easing-default);
 }
-.quiet-btn:hover {
+.quiet-btn:hover:not(:disabled) {
   border-color: var(--border-focus);
   background: var(--bg-element-hover);
   color: var(--text-main);
+}
+.quiet-btn:disabled {
+  opacity: 0.45;
+}
+.preferences-dialog .quiet-btn,
+.preferences-dialog .active-badge {
+  height: 28px;
+  font-size: var(--font-size-control);
 }
 
 .preferences-dialog .profile-editor-fields {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+.preferences-dialog .profile-key-field {
+  display: grid;
+  gap: 6px;
+}
+.preferences-dialog .profile-key-field > label {
+  margin: 0;
 }
 #azure-settings-form label {
   margin: 0;
@@ -2486,48 +2596,6 @@ textarea::placeholder {
   flex-direction: column;
   gap: 6px;
 }
-.pricing-accordion {
-  margin: 0;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-surface-elevated);
-  transition: border-color var(--motion-duration-fast) var(--motion-easing-default);
-}
-.pricing-accordion[open] {
-  border-color: var(--border-strong);
-}
-.pricing-accordion-header {
-  display: flex;
-  align-items: center;
-  padding: 9px 12px;
-  gap: 8px;
-  list-style: none;
-  cursor: pointer;
-  transition: background-color var(--motion-duration-fast) var(--motion-easing-default);
-  user-select: none;
-}
-.pricing-accordion-header::-webkit-details-marker {
-  display: none;
-}
-.pricing-accordion-header:hover {
-  background: var(--bg-element-hover);
-}
-.pricing-accordion-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-sub);
-  font-weight: var(--font-weight-heading);
-  font-size: var(--font-size-title-group);
-  line-height: var(--line-height-heading);
-}
-.pricing-accordion-title svg {
-  flex-shrink: 0;
-  width: 14px;
-  height: 14px;
-  color: var(--accent);
-}
 .pricing-accordion-status {
   display: inline-flex;
   align-items: center;
@@ -2567,23 +2635,10 @@ textarea::placeholder {
 .pricing-accordion .pricing-accordion-status.partial svg {
   color: var(--warning);
 }
-.pricing-chevron {
-  flex-shrink: 0;
-  width: 14px;
-  height: 14px;
-  color: var(--text-tertiary);
-  transition: transform var(--motion-duration) var(--motion-easing);
-}
-.pricing-accordion[open] .pricing-chevron {
-  transform: rotate(180deg);
-}
 .pricing-accordion-body {
   display: flex;
   flex-direction: column;
-  padding: 12px 14px 14px;
   gap: 2px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-surface);
 }
 .pricing-accordion .pricing-completeness {
   margin-bottom: 10px;
@@ -2619,17 +2674,16 @@ textarea::placeholder {
   font-size: var(--font-size-title-group);
   line-height: var(--line-height-heading);
 }
+.tier-pill svg {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+}
 .tier-pill.standard {
   color: var(--success);
 }
 .tier-pill.long {
   color: var(--warning);
-}
-.tier-indicator {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
 }
 .tier-range {
   color: var(--text-tertiary);
@@ -2665,10 +2719,13 @@ textarea::placeholder {
   height: 13px;
   color: var(--accent);
 }
-.threshold-tag {
+.pricing-accordion .threshold-tag {
+  display: block;
+  margin: 0;
   color: var(--text-muted);
   font-weight: var(--font-weight-label);
   font-size: var(--font-size-meta);
+  line-height: var(--line-height-meta);
   white-space: nowrap;
 }
 .threshold-input-wrap {
@@ -3021,8 +3078,8 @@ button svg,
   }
   .preferences-dialog .settings-editor-form .settings-preference-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 32px;
     grid-template-rows: minmax(32px, auto) auto auto;
+    grid-template-columns: minmax(0, 1fr) 32px;
     gap: 0 12px;
   }
   .preferences-dialog .settings-editor-form .settings-preference-copy,
@@ -3059,6 +3116,27 @@ button svg,
   .preferences-dialog .settings-usage-overview .usage-filters {
     grid-template-columns: 1fr;
   }
+  .preferences-dialog .settings-usage-primary {
+    grid-template-columns: 1fr;
+  }
+  .preferences-dialog .settings-disclosure-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .preferences-dialog .settings-disclosure-chevron {
+    grid-row: 1;
+    grid-column: 2;
+  }
+  .preferences-dialog .settings-disclosure-header .pricing-accordion-status {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    justify-self: start;
+    margin-left: 0;
+  }
+  .preferences-dialog .usage-call-history .usage-calls-scroll,
+  .preferences-dialog .settings-usage-overview .usage-table-scroll {
+    max-height: none;
+  }
   .preferences-dialog .usage-call-history .usage-call-fields {
     grid-template-columns: 1fr;
   }
@@ -3069,6 +3147,17 @@ button svg,
   .tier-divider {
     flex-direction: column;
     gap: 6px;
+  }
+  .tier-header {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .tier-threshold-pill {
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 100%;
+    gap: 6px 8px;
+    border-radius: 6px;
   }
   .tier-divider-line {
     width: 100%;
@@ -3106,6 +3195,10 @@ button svg,
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .preferences-dialog .settings-disclosure-header,
+  .preferences-dialog .settings-disclosure-chevron {
+    transition: none;
+  }
   .sidebar,
   .sidebar-backdrop,
   .brand,

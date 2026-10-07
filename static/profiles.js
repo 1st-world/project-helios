@@ -133,6 +133,15 @@ export function createProfiles({ isGenerating }) {
     refreshIcons();
   }
 
+  function setKeyVisibility(visible) {
+    $('#azure-api-key').type = visible ? 'text' : 'password';
+    const button = $('#toggle-api-key-btn');
+    const label = visible ? 'Hide API key' : 'Show API key';
+    button.title = label;
+    button.setAttribute('aria-label', label);
+    button.innerHTML = `<i data-lucide="${visible ? 'eye-off' : 'eye'}" aria-hidden="true"></i>`;
+  }
+
   function resetProfileForm() {
     if (state.saving) return;
     state.editingProfileId = null;
@@ -141,7 +150,7 @@ export function createProfiles({ isGenerating }) {
     $('#profile-name').value = '';
     $('#azure-endpoint').value = '';
     $('#azure-api-key').value = '';
-    $('#azure-api-key').type = 'password';
+    setKeyVisibility(false);
     $('#azure-api-key').placeholder = 'Enter your Azure OpenAI API key';
     const hint = $('#api-key-hint');
     if (hint) hint.textContent = 'API key is required for new connection profiles.';
@@ -156,9 +165,10 @@ export function createProfiles({ isGenerating }) {
     updateThresholdLabels();
     updatePricingStatus();
     $('#delete-profile-btn').classList.add('hidden');
-    const toggleBtn = $('#toggle-api-key-btn');
-    if (toggleBtn) toggleBtn.innerHTML = '<i data-lucide="eye"></i>';
-    document.querySelectorAll('.profile-item').forEach((item) => item.classList.remove('editing'));
+    document.querySelectorAll('.profile-item').forEach((item) => {
+      item.classList.remove('editing');
+      item.querySelector('.profile-info').setAttribute('aria-pressed', 'false');
+    });
     refreshIcons();
     state.formBaseline = snapshotProfileForm();
     setStatus('');
@@ -172,7 +182,7 @@ export function createProfiles({ isGenerating }) {
     $('#profile-name').value = profile.name;
     $('#azure-endpoint').value = profile.endpoint;
     $('#azure-api-key').value = '';
-    $('#azure-api-key').type = 'password';
+    setKeyVisibility(false);
     $('#azure-api-key').placeholder = 'Leave blank to keep existing key';
     const hint = $('#api-key-hint');
     if (hint) hint.textContent = 'Optional. Leave blank to keep current key, or enter a new key to update.';
@@ -187,10 +197,10 @@ export function createProfiles({ isGenerating }) {
     updateThresholdLabels();
     updatePricingStatus();
     $('#delete-profile-btn').classList.remove('hidden');
-    const toggleBtn = $('#toggle-api-key-btn');
-    if (toggleBtn) toggleBtn.innerHTML = '<i data-lucide="eye"></i>';
     document.querySelectorAll('.profile-item').forEach((item) => {
-      item.classList.toggle('editing', item.dataset.profileId === profile.id);
+      const editing = item.dataset.profileId === profile.id;
+      item.classList.toggle('editing', editing);
+      item.querySelector('.profile-info').setAttribute('aria-pressed', String(editing));
     });
     refreshIcons();
     state.formBaseline = snapshotProfileForm();
@@ -276,12 +286,13 @@ export function createProfiles({ isGenerating }) {
         const item = document.createElement('div');
         item.className = `profile-item ${p.id === state.activeProfileId ? 'active' : ''} ${p.id === state.editingProfileId ? 'editing' : ''}`;
         item.dataset.profileId = p.id;
-        item.title = 'Click to edit profile';
-        item.onclick = (e) => {
-          if (!e.target.closest('button') && canDiscardProfileChanges()) selectProfileForEditing(p);
-        };
-        const info = document.createElement('div');
+        const info = document.createElement('button');
+        info.type = 'button';
         info.className = 'profile-info';
+        info.title = `Edit profile: ${p.name}`;
+        info.setAttribute('aria-label', `Edit profile: ${p.name}`);
+        info.setAttribute('aria-pressed', String(p.id === state.editingProfileId));
+        info.onclick = () => { if (canDiscardProfileChanges()) selectProfileForEditing(p); };
         info.innerHTML = `<strong>${escapeHtml(p.name)}</strong><span class="profile-meta" title="${escapeHtml(p.endpoint)}">${escapeHtml(p.deployment)} · ${escapeHtml(p.endpoint)}</span>`;
         const actions = document.createElement('div');
         actions.className = 'profile-actions';
@@ -348,7 +359,8 @@ export function createProfiles({ isGenerating }) {
     }
   }
 
-  async function openSettingsDialog(panelName = 'general') {
+  async function openSettingsDialog(panelName) {
+    const selectedPanel = panelName || $('#settings-dialog [data-settings-tab][aria-selected="true"]')?.dataset.settingsTab || 'general';
     closeMobileSidebar();
     await loadProfiles();
     const accordion = $('#profile-pricing-accordion');
@@ -360,7 +372,7 @@ export function createProfiles({ isGenerating }) {
       resetProfileForm();
     }
     $('#settings-dialog').showModal();
-    selectSettingsPanel(panelName, true);
+    selectSettingsPanel(selectedPanel, true);
   }
 
   function updateThresholdLabels() {
@@ -376,56 +388,6 @@ export function createProfiles({ isGenerating }) {
     const longLabel = $('#long-range-label');
     if (stdLabel) stdLabel.textContent = `< ${display} tokens`;
     if (longLabel) longLabel.textContent = `≥ ${display} tokens`;
-  }
-
-  function setupPricingAccordionAnimation() {
-    const el = $('#profile-pricing-accordion');
-    if (!el) return;
-    const summary = el.querySelector('summary');
-    const body = el.querySelector('.pricing-accordion-body');
-    if (!summary || !body) return;
-    const thresholdInput = $('#azure-long-threshold');
-    if (thresholdInput) {
-      thresholdInput.addEventListener('input', updateThresholdLabels);
-    }
-    let isAnimating = false;
-    summary.addEventListener('click', (e) => {
-      e.preventDefault();
-      if (isAnimating) return;
-      if (el.open) {
-        isAnimating = true;
-        const startHeight = `${el.offsetHeight}px`;
-        const endHeight = `${summary.offsetHeight}px`;
-        el.style.overflow = 'hidden';
-        const anim = el.animate(
-          { height: [startHeight, endHeight] },
-          { duration: 200, easing: 'cubic-bezier(0.2, 0, 0, 1)' }
-        );
-        body.animate({ opacity: [1, 0] }, { duration: 150 });
-        anim.onfinish = () => {
-          el.open = false;
-          el.style.height = '';
-          el.style.overflow = '';
-          isAnimating = false;
-        };
-      } else {
-        el.open = true;
-        isAnimating = true;
-        const startHeight = `${summary.offsetHeight}px`;
-        const endHeight = `${el.offsetHeight}px`;
-        el.style.overflow = 'hidden';
-        const anim = el.animate(
-          { height: [startHeight, endHeight] },
-          { duration: 220, easing: 'cubic-bezier(0, 0, 0.2, 1)' }
-        );
-        body.animate({ opacity: [0, 1] }, { duration: 180, delay: 20 });
-        anim.onfinish = () => {
-          el.style.height = '';
-          el.style.overflow = '';
-          isAnimating = false;
-        };
-      }
-    });
   }
 
   function setGenerating(value) {
@@ -484,10 +446,7 @@ export function createProfiles({ isGenerating }) {
     const toggleKeyBtn = $('#toggle-api-key-btn');
     if (toggleKeyBtn) {
       toggleKeyBtn.onclick = () => {
-        const input = $('#azure-api-key');
-        const isPassword = input.type === 'password';
-        input.type = isPassword ? 'text' : 'password';
-        toggleKeyBtn.innerHTML = `<i data-lucide="${isPassword ? 'eye-off' : 'eye'}"></i>`;
+        setKeyVisibility($('#azure-api-key').type === 'password');
         refreshIcons();
       };
     }
@@ -574,11 +533,11 @@ export function createProfiles({ isGenerating }) {
         setSaving(false);
         if (!editingId) {
           resetProfileForm();
-          setStatus('Profile created.', 'success');
+          toast('Profile created.', 'success');
         } else {
           const updated = (data.profiles || []).find((p) => p.id === editingId);
           if (updated) selectProfileForEditing(updated);
-          setStatus('Changes saved.', 'success');
+          toast('Changes saved.', 'success');
         }
       } catch (err) {
         setStatus(`${err.message || 'Could not confirm the save.'}\nYour edits are kept.`, 'error');
@@ -598,7 +557,7 @@ export function createProfiles({ isGenerating }) {
         renderProfiles(data);
         health();
         resetProfileForm();
-        setStatus('Profile deleted.', 'success');
+        toast('Profile deleted.', 'success');
       } catch (err) {
         setStatus(err.message || 'Could not delete profile.', 'error');
       }
@@ -612,7 +571,7 @@ export function createProfiles({ isGenerating }) {
       if (accordion) accordion.open = false;
     });
 
-    setupPricingAccordionAnimation();
+    $('#azure-long-threshold').addEventListener('input', updateThresholdLabels);
   }
 
   return { init, load: loadProfiles, checkHealth: health, setGenerating, hasUnsavedChanges, isSaving: () => state.saving, getActiveProfileId: () => state.activeProfileId };

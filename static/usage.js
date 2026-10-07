@@ -267,6 +267,18 @@ export function createUsage({ footer, renderFooter }) {
     views.footer.refresh.onclick = refreshFooter;
     views.settings.refresh.onclick = refreshSettings;
     for (const id of ['usage-scope', 'usage-period', 'usage-kind', 'usage-start-date', 'usage-end-date']) $(`#${id}`).addEventListener('change', refreshSettings);
+
+    for (const button of overview.querySelectorAll('[data-date-picker]')) {
+      const input = $(`#${button.dataset.datePicker}`);
+      if (typeof input.showPicker !== 'function') continue;
+      button.classList.remove('hidden');
+      input.classList.add('date-picker-input');
+      button.onclick = () => {
+        input.focus({ preventScroll: true });
+        input.showPicker();
+      };
+    }
+
     dialog.addEventListener('settings-panel-change', refreshSettings);
     dialog.addEventListener('close', () => {
       cancel(views.settings);
