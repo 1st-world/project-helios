@@ -15,7 +15,7 @@ export function selectSettingsPanel(name, focus = false) {
     tab.tabIndex = selected ? 0 : -1;
     const panel = $(`#${tab.getAttribute('aria-controls')}`);
     panel.hidden = !selected;
-    if (selected) panel.scrollTop = 0;
+    if (selected) (panel.querySelector('.settings-editor-body') || panel).scrollTop = 0;
   });
 
   if (focus) selectedTab.focus();

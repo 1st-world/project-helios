@@ -9,7 +9,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   const resetButtons = [...form.querySelectorAll('[data-reset-setting]')];
   const resetLabels = new Map(resetButtons.map(button => [button, button.getAttribute('aria-label')]));
   const effectiveLabels = [...form.querySelectorAll('[data-effective-setting]')];
-  const state = { saved: null, defaults: null, localLimits: null, providerLimits: null, resets: new Set(), loading: false, saving: false, controller: null };
+  const state = { saved: null, defaults: null, localLimits: null, providerLimits: null, resets: new Set(), loading: false, saving: false, controller: null, feedback: null };
   const modeHelp = {
     warn: 'Allows the request and reports approximate input overruns. Preflight estimates alone do not force history compaction.',
     block: 'Uses approximate estimates to reject oversized input or summarize history to fit. Estimates can differ from actual model usage.',
@@ -17,9 +17,15 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   };
 
   function setStatus(message, type = 'info') {
+    state.feedback = message ? { message, type } : null;
+    renderStatus();
+  }
+
+  function renderStatus() {
     const status = $('#app-settings-status');
-    status.textContent = message;
-    status.dataset.state = type;
+    const dirty = hasUnsavedChanges();
+    status.textContent = state.feedback?.message || (dirty ? 'Unsaved changes' : '');
+    status.dataset.state = state.feedback?.type || (dirty ? 'dirty' : 'idle');
   }
 
   function valueOf(input) {
@@ -27,7 +33,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   }
 
   function hasUnsavedChanges() {
-    return Boolean(state.saved && (state.resets.size || [...fields].some(([name, input]) => valueOf(input) !== state.saved[name])));
+    return Boolean(state.saved && [...fields].some(([name, input]) => valueOf(input) !== state.saved[name]));
   }
 
   function showAttachmentLimits() {
@@ -58,11 +64,11 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
       button.disabled = busy || !state.saved || !differs;
     });
     $('#restore-app-defaults').disabled = busy || !state.saved || !defaultsDiffer;
-    $('#cancel-app-settings').disabled = state.saving || isProfileSaving();
+    $('#discard-app-settings').disabled = busy || !hasUnsavedChanges();
     $('#save-app-settings').disabled = busy || !hasUnsavedChanges();
-    $('#save-app-settings-label').textContent = state.saving ? 'Saving...' : 'Save settings';
+    $('#save-app-settings-label').textContent = state.saving ? 'Saving...' : 'Save changes';
     $('#retry-app-settings').hidden = Boolean(state.saved) || state.loading;
-    $('#app-settings-dirty').textContent = hasUnsavedChanges() ? 'Unsaved changes' : '';
+    renderStatus();
     $('#context-preflight-help').textContent = modeHelp[fields.get('context_preflight_mode').value] || 'Choose how local input estimates are used.';
     const budget = fields.get('context_token_budget').valueAsNumber - fields.get('context_output_reserve').valueAsNumber;
     $('#app-input-budget').textContent = `App input allowance before profile or request overrides: ${Number.isSafeInteger(budget) && budget >= 0 ? `${budget.toLocaleString()} tokens` : '—'}.`;
@@ -129,7 +135,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
       const data = await readResponse(response);
       if (state.controller !== controller || !$('#settings-dialog').open) return;
       acceptResponse(data);
-      setStatus('Saved app settings loaded.');
+      setStatus('');
     } catch (error) {
       if (error.name !== 'AbortError' && state.controller === controller) setStatus(error.message || 'Could not load app settings.', 'error');
     } finally {
@@ -146,9 +152,10 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     const input = fields.get(name);
     const restoreFocus = document.activeElement?.dataset.resetSetting === name;
     input.value = state.defaults[name];
-    state.resets.add(name);
+    if (valueOf(input) !== state.saved[name]) state.resets.add(name);
+    else state.resets.delete(name);
     clearValidation();
-    setStatus('Default values are staged. Save settings to apply them.');
+    setStatus('');
     updateControls();
     if (restoreFocus) input.focus({ preventScroll: true });
   }
@@ -184,11 +191,11 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     if (!state.saved || state.loading || state.saving || isProfileSaving() || !hasUnsavedChanges() || !validate()) return;
     const changes = {};
     for (const [name, input] of fields) {
-      if (state.resets.has(name)) changes[name] = null;
-      else if (valueOf(input) !== state.saved[name]) changes[name] = valueOf(input);
+      const value = valueOf(input);
+      if (value !== state.saved[name]) changes[name] = state.resets.has(name) ? null : value;
     }
     state.saving = true;
-    setStatus('Saving app settings...');
+    setStatus('Saving changes...');
     updateControls();
     try {
       const response = await fetch('/api/settings', {
@@ -196,7 +203,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
       });
       acceptResponse(await readResponse(response));
       $('#settings-dialog').dispatchEvent(new Event('app-settings-saved'));
-      setStatus('Settings saved. Changes apply to new requests; running requests keep their settings.', 'success');
+      setStatus('Changes saved.', 'success');
     } catch (error) {
       setStatus(`${error.message || 'Could not confirm the save.'}\nYour edits are kept. Reopen Settings to check saved values if the connection was interrupted.`, 'error');
     } finally {
@@ -205,12 +212,12 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     }
   }
 
-  function beforeDialogClose({ discardProfile = false, discardContext = false } = {}) {
+  function beforeDialogClose() {
     if (state.saving || isProfileSaving()) {
       toast('Wait for the Settings save to finish before closing.', 'info');
       return false;
     }
-    if ((discardContext || !hasUnsavedChanges()) && (discardProfile || !hasUnsavedProfileChanges())) return true;
+    if (!hasUnsavedChanges() && !hasUnsavedProfileChanges()) return true;
     return window.confirm('Discard unsaved Settings changes and close?');
   }
 
@@ -220,7 +227,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
       input.addEventListener('input', () => {
         state.resets.delete(name);
         clearValidation();
-        setStatus(hasUnsavedChanges() ? 'Changes are not saved yet.' : 'Saved values restored.');
+        setStatus('');
         updateControls();
       });
     }
@@ -230,8 +237,11 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
       for (const name of fields.keys()) restoreDefault(name);
       if (restoreFocus) $('#save-app-settings').focus({ preventScroll: true });
     };
-    $('#cancel-app-settings').onclick = () => {
-      if (beforeDialogClose({ discardContext: true })) $('#settings-dialog').close();
+    $('#discard-app-settings').onclick = () => {
+      if (!state.saved || state.loading || state.saving || isProfileSaving()) return;
+      fillSaved();
+      setStatus('');
+      $('#settings-context-tab').focus({ preventScroll: true });
     };
     $('#retry-app-settings').onclick = load;
     $('#settings-dialog').addEventListener('profile-save-state-change', updateControls);

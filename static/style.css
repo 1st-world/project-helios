@@ -23,7 +23,7 @@
   --font-size-body: calc(14px * var(--ui-font-scale));
   --font-size-control: calc(12px * var(--ui-font-scale));
   --font-size-label: calc(12px * var(--ui-font-scale));
-  --font-size-description: calc(11px * var(--ui-font-scale));
+  --font-size-description: calc(12px * var(--ui-font-scale));
   --font-size-meta: calc(11px * var(--ui-font-scale));
   --font-size-badge: calc(11px * var(--ui-font-scale));
   --font-size-caption: calc(10px * var(--ui-font-scale));
@@ -1672,7 +1672,7 @@ textarea::placeholder {
 .preferences-dialog .settings-panel[hidden] {
   display: none;
 }
-.preferences-dialog .settings-panel > * {
+.preferences-dialog .settings-panel > :not(.settings-editor-form) {
   flex: none;
 }
 .preferences-dialog .settings-panel-heading {
@@ -1694,6 +1694,75 @@ textarea::placeholder {
 .preferences-dialog .settings-panel-heading h4 {
   font-size: var(--font-size-title-group);
 }
+
+.preferences-dialog .settings-editor-panel {
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
+.preferences-dialog .settings-editor-form {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.preferences-dialog .settings-editor-body {
+  flex: 1;
+  min-height: 0;
+  padding-bottom: 16px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.preferences-dialog .settings-editor-footer {
+  flex: none;
+  container-name: settings-actions;
+  container-type: inline-size;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.preferences-dialog .settings-editor-footer .dialog-actions {
+  flex-wrap: nowrap;
+  margin-top: 0;
+}
+.preferences-dialog .settings-editor-footer .dialog-actions button {
+  flex: none;
+  white-space: nowrap;
+}
+.preferences-dialog .settings-editor-footer .dialog-actions svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.preferences-dialog .settings-editor-footer .settings-action-short {
+  display: none;
+}
+.preferences-dialog .settings-editor-footer .settings-editor-status {
+  max-height: 96px;
+  margin: 0 0 10px;
+  overflow-y: auto;
+  color: var(--text-muted);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.preferences-dialog .settings-editor-footer .settings-editor-status[data-state="dirty"] {
+  color: var(--warning-text);
+}
+.preferences-dialog .settings-editor-footer .settings-editor-status[data-state="error"] {
+  color: var(--danger-text);
+}
+.preferences-dialog .settings-editor-footer .settings-editor-status[data-state="success"] {
+  color: var(--success-text);
+}
+.preferences-dialog .settings-editor-footer .settings-editor-status:empty {
+  display: none;
+}
+.preferences-dialog .settings-editor-footer #retry-app-settings {
+  margin-bottom: 10px;
+}
+
 .conversation-usage .usage-details {
   margin-top: 12px;
 }
@@ -1837,28 +1906,11 @@ textarea::placeholder {
 .preferences-dialog .app-settings-form [aria-invalid="true"] {
   border-color: var(--danger);
 }
-.preferences-dialog .app-settings-form .app-settings-budget,
-.preferences-dialog .app-settings-form .app-settings-status {
+.preferences-dialog .app-settings-form .app-settings-budget {
   margin: 12px 0 0;
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
   white-space: pre-line;
-}
-.preferences-dialog .app-settings-form .app-settings-status[data-state="error"] {
-  color: var(--danger-text);
-}
-.preferences-dialog .app-settings-form .app-settings-status[data-state="success"] {
-  color: var(--success-text);
-}
-.preferences-dialog .app-settings-form .app-settings-dirty {
-  margin: 12px 0 0;
-  color: var(--warning-text);
-  font-size: var(--font-size-description);
-  line-height: var(--line-height-description);
-}
-.preferences-dialog .app-settings-form .app-settings-status:empty,
-.preferences-dialog .app-settings-form .app-settings-dirty:empty {
-  display: none;
 }
 
 .preferences-dialog .font-settings {
@@ -2365,7 +2417,7 @@ textarea::placeholder {
   color: var(--text-main);
 }
 
-#azure-settings-form {
+.preferences-dialog .profile-editor-fields {
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -2423,7 +2475,7 @@ textarea::placeholder {
 
 .field-hint,
 .settings-dialog .field-hint {
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   font-weight: var(--font-weight-regular);
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
@@ -2658,9 +2710,6 @@ textarea::placeholder {
   align-items: center;
   margin-left: auto;
   gap: 8px;
-}
-#azure-settings-form .dialog-actions {
-  margin-top: 8px;
 }
 
 /* Workspace & Agent Context Modal */
@@ -2970,18 +3019,39 @@ button svg,
   .preferences-dialog .settings-preference-row input[type="number"] {
     width: 100%;
   }
-  .preferences-dialog .app-settings-form .settings-preference-control {
-    width: 100%;
+  .preferences-dialog .settings-editor-form .settings-preference-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 32px;
+    grid-template-rows: minmax(32px, auto) auto auto;
+    gap: 0 12px;
   }
+  .preferences-dialog .settings-editor-form .settings-preference-copy,
+  .preferences-dialog .app-settings-form .settings-preference-control,
   .preferences-dialog .profile-context-settings .profile-context-control {
-    width: 100%;
+    display: contents;
   }
-  .preferences-dialog .app-settings-form .dialog-actions {
-    flex-wrap: wrap;
+  .preferences-dialog .settings-editor-form .settings-preference-copy label {
+    grid-row: 1;
+    grid-column: 1;
+    align-self: center;
   }
-  .preferences-dialog .app-settings-form .dialog-actions-right {
-    justify-content: flex-end;
-    width: 100%;
+  .preferences-dialog .settings-editor-form .settings-preference-copy small {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    margin-top: 5px;
+  }
+  .preferences-dialog .app-settings-form .settings-preference-control input,
+  .preferences-dialog .app-settings-form .settings-preference-control select,
+  .preferences-dialog .profile-context-settings .profile-context-control input,
+  .preferences-dialog .profile-context-settings .profile-context-control select {
+    grid-row: 3;
+    grid-column: 1 / -1;
+    margin-top: 12px;
+  }
+  .preferences-dialog .app-settings-form .settings-default-reset,
+  .preferences-dialog .profile-context-settings .profile-context-reset {
+    grid-row: 1;
+    grid-column: 2;
   }
   .preferences-dialog .settings-usage-overview .settings-panel-heading {
     flex-wrap: wrap;
@@ -3002,6 +3072,29 @@ button svg,
   }
   .tier-divider-line {
     width: 100%;
+  }
+}
+
+@container settings-actions (max-width: 480px) {
+  .preferences-dialog .settings-editor-footer .dialog-actions button {
+    min-width: 32px;
+    padding: 0 8px;
+  }
+  .preferences-dialog .settings-editor-footer .settings-action-label {
+    display: none;
+  }
+  .preferences-dialog .settings-editor-footer .settings-action-short {
+    display: inline;
+  }
+}
+
+@container settings-actions (max-width: 240px) {
+  .preferences-dialog .settings-editor-footer .dialog-actions button {
+    width: 32px;
+    padding: 0;
+  }
+  .preferences-dialog .settings-editor-footer .settings-action-short {
+    display: none;
   }
 }
 

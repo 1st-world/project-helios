@@ -8,12 +8,7 @@ import { initializeSettings } from './settings.js';
 import { createUsage } from './usage.js';
 
 const workspace = createWorkspace({ getActiveProfileId: () => profiles.getActiveProfileId() });
-const profiles = createProfiles({
-  isGenerating: () => chat.isGenerating(),
-  closeSettings() {
-    if (settings.beforeDialogClose({ discardProfile: true })) document.querySelector('#settings-dialog').close();
-  }
-});
+const profiles = createProfiles({ isGenerating: () => chat.isGenerating() });
 const chat = createChat({
   getActiveProfileId: profiles.getActiveProfileId,
   getAttachmentFiles: workspace.getAttachmentFiles,

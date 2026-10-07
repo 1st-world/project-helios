@@ -25,8 +25,8 @@ function readPrice(id) {
   return { value: input.value === '' || invalid ? null : input.valueAsNumber, invalid };
 }
 
-export function createProfiles({ isGenerating, closeSettings }) {
-  const state = { activeProfileId: null, editingProfileId: null, profiles: [], formBaseline: null, saving: false };
+export function createProfiles({ isGenerating }) {
+  const state = { activeProfileId: null, editingProfileId: null, profiles: [], formBaseline: null, saving: false, feedback: null };
   const profileContext = createProfileContext({ isSaving: () => state.saving });
   let cachePriceBaseline = {};
 
@@ -74,12 +74,26 @@ export function createProfiles({ isGenerating, closeSettings }) {
     return !state.saving && (!hasUnsavedChanges() || window.confirm('Discard unsaved profile changes?'));
   }
 
+  function setStatus(message, type = 'info') {
+    state.feedback = message ? { message, type } : null;
+    updateEditorControls();
+  }
+
+  function updateEditorControls() {
+    const dirty = hasUnsavedChanges();
+    const status = $('#profile-settings-status');
+    status.textContent = state.feedback?.message || (state.saving ? 'Saving changes...' : dirty ? 'Unsaved changes' : '');
+    status.dataset.state = state.feedback?.type || (state.saving ? 'info' : dirty ? 'dirty' : 'idle');
+    $('#save-profile-btn').disabled = state.saving || !dirty;
+    $('#discard-profile-edit').disabled = state.saving || !dirty;
+    $('#save-profile-label').textContent = state.saving ? 'Saving...' : 'Save changes';
+  }
+
   function setSaving(saving) {
     state.saving = saving;
     $('#azure-settings-form').querySelectorAll('input, select, button').forEach(control => { control.disabled = saving; });
-    $('#profile-list-container').querySelectorAll('button').forEach(button => { button.disabled = saving; });
-    $('#add-profile-btn').disabled = saving;
     profileContext.updateControls();
+    updateEditorControls();
     $('#settings-dialog').dispatchEvent(new Event('profile-save-state-change'));
   }
 
@@ -124,8 +138,6 @@ export function createProfiles({ isGenerating, closeSettings }) {
     state.editingProfileId = null;
     $('#editing-profile-id').value = '';
     $('#profile-form-title').textContent = 'Add new profile';
-    const saveLabel = $('#save-profile-label');
-    if (saveLabel) saveLabel.textContent = 'Add profile';
     $('#profile-name').value = '';
     $('#azure-endpoint').value = '';
     $('#azure-api-key').value = '';
@@ -149,6 +161,7 @@ export function createProfiles({ isGenerating, closeSettings }) {
     document.querySelectorAll('.profile-item').forEach((item) => item.classList.remove('editing'));
     refreshIcons();
     state.formBaseline = snapshotProfileForm();
+    setStatus('');
   }
 
   function selectProfileForEditing(profile) {
@@ -156,8 +169,6 @@ export function createProfiles({ isGenerating, closeSettings }) {
     state.editingProfileId = profile.id;
     $('#editing-profile-id').value = profile.id;
     $('#profile-form-title').textContent = `Edit profile: ${profile.name}`;
-    const saveLabel = $('#save-profile-label');
-    if (saveLabel) saveLabel.textContent = 'Save changes';
     $('#profile-name').value = profile.name;
     $('#azure-endpoint').value = profile.endpoint;
     $('#azure-api-key').value = '';
@@ -183,6 +194,7 @@ export function createProfiles({ isGenerating, closeSettings }) {
     });
     refreshIcons();
     state.formBaseline = snapshotProfileForm();
+    setStatus('');
   }
 
   function renderProfiles(data) {
@@ -460,7 +472,14 @@ export function createProfiles({ isGenerating, closeSettings }) {
       };
     }
     $('#add-profile-btn').onclick = () => { if (canDiscardProfileChanges()) resetProfileForm(); };
-    $('#cancel-profile-edit').onclick = closeSettings;
+    $('#discard-profile-edit').onclick = () => {
+      if (state.saving) return;
+      const profile = state.profiles.find(item => item.id === state.editingProfileId);
+      if (profile) selectProfileForEditing(profile);
+      else resetProfileForm();
+      $('#settings-connections-tab').focus({ preventScroll: true });
+    };
+    $('#azure-settings-form').addEventListener('input', () => setStatus(''));
 
     const toggleKeyBtn = $('#toggle-api-key-btn');
     if (toggleKeyBtn) {
@@ -475,7 +494,7 @@ export function createProfiles({ isGenerating, closeSettings }) {
 
     $('#azure-settings-form').onsubmit = async (event) => {
       event.preventDefault();
-      if (state.saving) return;
+      if (state.saving || !hasUnsavedChanges()) return;
       profileContext.validate();
       validateCachePrices();
       const invalid = [...$('#azure-settings-form').querySelectorAll('input, select')].find(input => !input.checkValidity());
@@ -483,6 +502,7 @@ export function createProfiles({ isGenerating, closeSettings }) {
         const disclosure = invalid.closest('details');
         if (disclosure) disclosure.open = true;
         invalid.reportValidity();
+        setStatus(invalid.validationMessage || 'Review the highlighted fields before saving.', 'error');
         return;
       }
       const editingId = $('#editing-profile-id').value;
@@ -490,10 +510,13 @@ export function createProfiles({ isGenerating, closeSettings }) {
       const endpoint = $('#azure-endpoint').value.trim();
       const api_key = $('#azure-api-key').value.trim();
       const deployment = $('#azure-deployment').value.trim();
-      if (!name) return toast('Profile name is required.', 'warning');
-      if (!endpoint) return toast('Azure endpoint is required.', 'warning');
-      if (!editingId && !api_key) return toast('API key is required when creating a new profile.', 'warning');
-      if (!deployment) return toast('Deployment name is required.', 'warning');
+      if (!name) return setStatus('Profile name is required.', 'error');
+      if (!endpoint) return setStatus('Azure endpoint is required.', 'error');
+      if (!editingId && !api_key) {
+        $('#azure-api-key').focus();
+        return setStatus('API key is required when creating a new profile.', 'error');
+      }
+      if (!deployment) return setStatus('Deployment name is required.', 'error');
       const payload = { name, endpoint, deployment, ...profileContext.changes(Boolean(editingId)), ...cachePriceChanges(Boolean(editingId)) };
       if (api_key) payload.api_key = api_key;
       const inPriceVal = $('#azure-input-price').value.trim();
@@ -531,6 +554,7 @@ export function createProfiles({ isGenerating, closeSettings }) {
       }
       const url = editingId ? `/api/profiles/${editingId}` : '/api/profiles';
       const method = editingId ? 'PUT' : 'POST';
+      setStatus('');
       setSaving(true);
       try {
         const response = await fetch(url, {
@@ -550,14 +574,14 @@ export function createProfiles({ isGenerating, closeSettings }) {
         setSaving(false);
         if (!editingId) {
           resetProfileForm();
-          toast('Connection profile created.', 'success');
+          setStatus('Profile created.', 'success');
         } else {
-          toast('Connection profile saved.', 'success');
           const updated = (data.profiles || []).find((p) => p.id === editingId);
           if (updated) selectProfileForEditing(updated);
+          setStatus('Changes saved.', 'success');
         }
       } catch (err) {
-        toast(err.message, 'error');
+        setStatus(`${err.message || 'Could not confirm the save.'}\nYour edits are kept.`, 'error');
       } finally {
         setSaving(false);
       }
@@ -574,9 +598,9 @@ export function createProfiles({ isGenerating, closeSettings }) {
         renderProfiles(data);
         health();
         resetProfileForm();
-        toast('Profile deleted.', 'success');
+        setStatus('Profile deleted.', 'success');
       } catch (err) {
-        toast(err.message, 'error');
+        setStatus(err.message || 'Could not delete profile.', 'error');
       }
     };
 
