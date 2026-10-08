@@ -76,7 +76,6 @@ export function createUsageHistory({ timezone, isVisible }) {
   const root = $('#usage-call-history');
   const list = $('#usage-calls-list');
   const message = $('#usage-calls-state');
-  const refresh = $('#refresh-usage-calls');
   const previous = $('#usage-calls-previous');
   const next = $('#usage-calls-next');
   let query = null;
@@ -87,7 +86,6 @@ export function createUsageHistory({ timezone, isVisible }) {
 
   function updateControls() {
     root.setAttribute('aria-busy', String(Boolean(controller)));
-    refresh.disabled = !query || Boolean(controller);
     previous.disabled = Boolean(controller) || !hasPage || offset === 0;
     next.disabled = Boolean(controller) || !hasPage || !hasNext;
   }
@@ -101,6 +99,7 @@ export function createUsageHistory({ timezone, isVisible }) {
   function clear(state, description) {
     root.dataset.state = state;
     message.textContent = description;
+    message.hidden = !description;
     list.replaceChildren();
     hasPage = false;
     hasNext = false;
@@ -173,7 +172,8 @@ export function createUsageHistory({ timezone, isVisible }) {
       hasPage = true;
       hasNext = data.calls.length > PAGE_SIZE;
       root.dataset.state = 'ready';
-      message.textContent = calls.length ? 'Recorded calls. Expand a call for saved usage and pricing.' : 'No records on this page. Refresh to check the newest records.';
+      message.textContent = calls.length ? '' : 'No records on this page. Refresh to check the newest records.';
+      message.hidden = !message.textContent;
       $('#usage-calls-page').textContent = calls.length ? `${offset + 1}–${offset + calls.length}` : 'No records';
       root.querySelector('.usage-calls-scroll').scrollTop = 0;
     } catch (error) {
@@ -187,7 +187,7 @@ export function createUsageHistory({ timezone, isVisible }) {
     }
   }
 
-  function select(params, description = 'Open to load recorded calls.') {
+  function select(params, description = '') {
     cancel();
     query = params ? params.toString() : null;
     offset = 0;
@@ -197,11 +197,10 @@ export function createUsageHistory({ timezone, isVisible }) {
 
   function suspend() {
     cancel();
-    clear('empty', 'Open to load recorded calls.');
+    clear('empty', '');
   }
 
   function init() {
-    refresh.onclick = () => loadPage();
     previous.onclick = () => loadPage(Math.max(0, offset - PAGE_SIZE));
     next.onclick = () => loadPage(offset + PAGE_SIZE);
     root.addEventListener('toggle', () => {

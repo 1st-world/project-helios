@@ -8,6 +8,11 @@ export function createProfileContext({ isSaving }) {
   const fields = new Map([...disclosure.querySelectorAll('[data-profile-context]')].map(input => [input.dataset.profileContext, input]));
   const resets = [...disclosure.querySelectorAll('[data-clear-profile-context]')];
   const state = { profile: null, controller: null, loaded: false };
+  const modeHelp = {
+    warn: 'Allows requests with estimated input-limit warnings. Warnings alone do not force history summaries.',
+    block: 'May summarize history or reject requests when input estimates exceed limits. Estimates can differ from actual usage.',
+    off: 'Skips input estimates. Output caps, attachment checks, provider limits, and background memory summaries still apply.'
+  };
 
   function updateControls() {
     resets.forEach(button => {
@@ -15,6 +20,8 @@ export function createProfileContext({ isSaving }) {
       button.hidden = !input.value && !input.validity.badInput;
       button.disabled = isSaving() || button.hidden;
     });
+    $('#profile-context-preflight-help').textContent = modeHelp[fields.get('context_preflight_mode').value]
+      || 'Uses the app preflight mode. Output caps still apply.';
   }
 
   function invalidate() {
@@ -23,8 +30,8 @@ export function createProfileContext({ isSaving }) {
     state.loaded = false;
     $('#profile-context-retry').hidden = true;
     $('#profile-context-effective').textContent = state.profile
-      ? 'Open this section to load the saved effective policy.'
-      : 'Save a profile before viewing its effective policy.';
+      ? 'Saved policy is not loaded.'
+      : 'No saved policy for this new profile.';
   }
 
   function select(profile) {
@@ -61,7 +68,6 @@ export function createProfileContext({ isSaving }) {
         throw new Error('Could not read the saved effective policy.');
       }
       $('#profile-context-effective').textContent = [
-        'Saved effective policy, before request overrides:',
         `Preflight: ${data.mode.charAt(0).toUpperCase() + data.mode.slice(1)}.`,
         `Input estimate budget: ${data.input_budget.toLocaleString()} tokens.`,
         `Declared input ceiling: ${data.declared_model_input_limit === null ? 'Unknown' : `${data.declared_model_input_limit.toLocaleString()} tokens`}.`,

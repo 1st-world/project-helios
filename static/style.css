@@ -1867,7 +1867,7 @@ textarea::placeholder {
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
 }
-.preferences-dialog .settings-attachment-resources [data-effective-setting] {
+.preferences-dialog .settings-attachment-resources [data-effective-setting]:not([hidden]) {
   display: block;
   margin-top: 5px;
   color: var(--text-sub);
@@ -2174,19 +2174,8 @@ textarea::placeholder {
 .preferences-dialog .usage-call-history p {
   overflow-wrap: anywhere;
 }
-.preferences-dialog .usage-call-history .usage-history-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 12px;
-  gap: 12px;
-}
-.preferences-dialog .usage-call-history .usage-history-toolbar p {
-  margin: 0;
+.preferences-dialog .usage-call-history #usage-calls-state {
   white-space: pre-line;
-}
-.preferences-dialog .usage-call-history .usage-history-toolbar button {
-  flex-shrink: 0;
 }
 .preferences-dialog .usage-call-history[data-state="error"] #usage-calls-state {
   color: var(--danger);
@@ -2639,6 +2628,14 @@ textarea::placeholder {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+.pricing-accordion .pricing-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pricing-accordion .pricing-overview > .field-hint {
+  margin: 0;
 }
 .pricing-accordion .pricing-completeness {
   margin-bottom: 10px;

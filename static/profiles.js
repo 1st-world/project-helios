@@ -151,9 +151,9 @@ export function createProfiles({ isGenerating }) {
     $('#azure-endpoint').value = '';
     $('#azure-api-key').value = '';
     setKeyVisibility(false);
-    $('#azure-api-key').placeholder = 'Enter your Azure OpenAI API key';
+    $('#azure-api-key').placeholder = 'Enter an API key';
     const hint = $('#api-key-hint');
-    if (hint) hint.textContent = 'API key is required for new connection profiles.';
+    if (hint) hint.textContent = 'An API key is required for a new profile.';
     $('#azure-deployment').value = '';
     $('#azure-input-price').value = '';
     $('#azure-output-price').value = '';
@@ -183,9 +183,9 @@ export function createProfiles({ isGenerating }) {
     $('#azure-endpoint').value = profile.endpoint;
     $('#azure-api-key').value = '';
     setKeyVisibility(false);
-    $('#azure-api-key').placeholder = 'Leave blank to keep existing key';
+    $('#azure-api-key').placeholder = 'New key (optional)';
     const hint = $('#api-key-hint');
-    if (hint) hint.textContent = 'Optional. Leave blank to keep current key, or enter a new key to update.';
+    if (hint) hint.textContent = 'Blank keeps the saved key; a new value replaces it.';
     $('#azure-deployment').value = profile.deployment;
     $('#azure-input-price').value = profile.input_price_per_million !== null && profile.input_price_per_million !== undefined ? profile.input_price_per_million : '';
     $('#azure-output-price').value = profile.output_price_per_million !== null && profile.output_price_per_million !== undefined ? profile.output_price_per_million : '';

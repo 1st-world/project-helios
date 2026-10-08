@@ -186,7 +186,7 @@
     </div>
 
     <section id="settings-general" class="settings-panel" role="tabpanel" aria-labelledby="settings-general-tab" tabindex="0">
-      <div class="info-callout"><i data-lucide="info"></i><p><strong>Preview.</strong> Theme, language, timezone, and notification preferences are not available yet.</p></div>
+      <div class="info-callout"><i data-lucide="info"></i><p>Theme, language, timezone, and notification preferences are not available yet.</p></div>
       <section class="settings-group" aria-labelledby="settings-appearance-title">
         <div class="settings-panel-heading"><h3 id="settings-appearance-title">Appearance & language</h3></div>
         <div id="font-settings" class="font-settings">
@@ -207,11 +207,11 @@
           <select id="ui-font-scale" aria-describedby="font-size-help font-size-settings-status"><option value="0.9">Small (90%)</option><option value="1" selected>Default (100%)</option><option value="1.1">Large (110%)</option><option value="1.25">Larger (125%)</option></select>
         </div>
         <div class="settings-preference-row">
-          <div class="settings-preference-copy"><label id="theme-label" for="ui-theme">Theme</label><small>Choose a light, dark, or system appearance.</small></div>
+          <div class="settings-preference-copy"><label id="theme-label" for="ui-theme">Theme</label><small>Light, dark, or system appearance.</small></div>
           <select id="ui-theme" disabled><option value="light">Light</option><option value="dark" selected>Dark</option><option value="system">System</option></select>
         </div>
         <div class="settings-preference-row">
-          <div class="settings-preference-copy"><label for="ui-language">Interface language</label><small>Language of menus and controls.</small></div>
+          <div class="settings-preference-copy"><label for="ui-language">Interface language</label><small>Menus and controls are currently in English.</small></div>
           <select id="ui-language" disabled><option selected>English</option></select>
         </div>
         <div class="settings-preference-row">
@@ -223,15 +223,15 @@
       <section id="settings-notifications" class="settings-group" aria-labelledby="settings-notifications-title">
         <div class="settings-panel-heading"><h3 id="settings-notifications-title">Notifications</h3></div>
         <div class="settings-preference-row">
-          <div class="settings-preference-copy"><label for="notify-response">Response completion</label><small>Notify you when an assistant response finishes.</small></div>
+          <div class="settings-preference-copy"><label for="notify-response">Response completion</label><small>Alerts when an assistant response finishes.</small></div>
           <input id="notify-response" type="checkbox" disabled>
         </div>
         <div class="settings-preference-row">
-          <div class="settings-preference-copy"><label for="notify-sound">Notification sound</label><small>Play a sound with notifications.</small></div>
+          <div class="settings-preference-copy"><label for="notify-sound">Notification sound</label><small>Sound accompanying notifications.</small></div>
           <input id="notify-sound" type="checkbox" disabled>
         </div>
         <div class="settings-preference-row">
-          <div class="settings-preference-copy"><label for="notify-desktop">Desktop notifications</label><small>Browser permission will be required when available.</small></div>
+          <div class="settings-preference-copy"><label for="notify-desktop">Desktop notifications</label><small>System notifications; browser permission required.</small></div>
           <input id="notify-desktop" type="checkbox" disabled>
         </div>
       </section>
@@ -240,18 +240,18 @@
     <section id="settings-context" class="settings-panel settings-editor-panel" role="tabpanel" aria-labelledby="settings-context-tab" tabindex="0" hidden>
       <form id="app-settings-form" class="app-settings-form settings-editor-form" novalidate>
         <div class="settings-editor-body">
-          <div class="info-callout"><i data-lucide="info"></i><p>Context defaults apply unless a profile or request overrides them. Attachment resource limits are app-wide. Saved changes apply to new requests; running requests keep their settings. Working budgets are separate from model capacity.</p></div>
+          <div class="info-callout"><i data-lucide="info"></i><p>Context defaults can be overridden by a profile or request. Attachment limits apply app-wide. Saved changes affect new requests; running requests keep their settings.</p></div>
           <section class="settings-group" aria-labelledby="context-input-title">
             <div class="settings-panel-heading"><h3 id="context-input-title">Input & output</h3></div>
             <div class="settings-preference-row">
-              <div class="settings-preference-copy"><label for="context-preflight-mode">Context preflight</label><small id="context-preflight-help">Choose how local input estimates are used.</small></div>
+              <div class="settings-preference-copy"><label for="context-preflight-mode">Context preflight</label><small id="context-preflight-help">How local input estimates affect requests.</small></div>
               <div class="settings-preference-control">
                 <button class="quiet settings-default-reset" type="button" data-reset-setting="context_preflight_mode" aria-label="Restore default context preflight" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                 <select id="context-preflight-mode" data-app-setting="context_preflight_mode" aria-describedby="context-preflight-help" required disabled><option value="" disabled selected>Select a mode</option><option value="warn">Warn</option><option value="block">Block</option><option value="off">Off</option></select>
               </div>
             </div>
             <div class="settings-preference-row">
-              <div class="settings-preference-copy"><label for="context-token-budget">Working context budget (tokens)</label><small id="context-token-budget-help">Includes the output reserve. Keep at least 1,024 tokens available for input.</small></div>
+              <div class="settings-preference-copy"><label for="context-token-budget">Working context budget (tokens)</label><small id="context-token-budget-help">Local budget including the output reserve, separate from model capacity. At least 1,024 tokens must remain for input.</small></div>
               <div class="settings-preference-control">
                 <button class="quiet settings-default-reset" type="button" data-reset-setting="context_token_budget" aria-label="Restore default working context budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                 <input id="context-token-budget" type="number" min="1025" step="1" data-app-setting="context_token_budget" aria-describedby="context-token-budget-help app-input-budget" required disabled>
@@ -264,26 +264,27 @@
                 <input id="context-output-reserve" type="number" min="1" step="1" data-app-setting="context_output_reserve" aria-describedby="context-output-reserve-help app-input-budget" required disabled>
               </div>
             </div>
-            <p id="app-input-budget" class="app-settings-budget">App input allowance before profile or request overrides: —.</p>
+            <p id="app-input-budget" class="app-settings-budget">Draft input allowance, before profile or request overrides: —.</p>
           </section>
           <section class="settings-group" aria-labelledby="context-summary-title">
             <div class="settings-panel-heading"><h3 id="context-summary-title">Memory summaries</h3></div>
+            <p class="field-hint">Memory summaries make model calls and consume tokens.</p>
             <div class="settings-preference-row">
-              <div class="settings-preference-copy"><label for="max-context-messages">Summary trigger (messages)</label><small id="max-context-messages-help">Summarize after more than this many unsummarized messages. Counts messages, not turns.</small></div>
+              <div class="settings-preference-copy"><label for="max-context-messages">Summary trigger (messages)</label><small id="max-context-messages-help">Summaries start when unsummarized messages exceed this count. Counts messages, not turns.</small></div>
               <div class="settings-preference-control">
                 <button class="quiet settings-default-reset" type="button" data-reset-setting="max_context_messages" aria-label="Restore default summary trigger" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                 <input id="max-context-messages" type="number" min="3" step="1" data-app-setting="max_context_messages" aria-describedby="max-context-messages-help" required disabled>
               </div>
             </div>
             <div class="settings-preference-row">
-              <div class="settings-preference-copy"><label for="keep-recent-messages">Keep recent messages</label><small id="keep-recent-messages-help">Keep at least 2 recent messages and fewer than the summary trigger. Complete turns are preserved.</small></div>
+              <div class="settings-preference-copy"><label for="keep-recent-messages">Keep recent messages</label><small id="keep-recent-messages-help">Recent messages retained outside summaries, preserving complete turns. Must be at least 2 and below the summary trigger.</small></div>
               <div class="settings-preference-control">
                 <button class="quiet settings-default-reset" type="button" data-reset-setting="keep_recent_messages" aria-label="Restore default recent message count" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                 <input id="keep-recent-messages" type="number" min="2" step="1" data-app-setting="keep_recent_messages" aria-describedby="keep-recent-messages-help" required disabled>
               </div>
             </div>
             <div class="settings-preference-row">
-              <div class="settings-preference-copy"><label for="max-summary-calls">Calls per summary job</label><small id="max-summary-calls-help">Maximum API calls in one summary job. Summaries use your model and consume tokens.</small></div>
+              <div class="settings-preference-copy"><label for="max-summary-calls">Calls per summary job</label><small id="max-summary-calls-help">Maximum API calls allowed in one summary job.</small></div>
               <div class="settings-preference-control">
                 <button class="quiet settings-default-reset" type="button" data-reset-setting="max_summary_calls" aria-label="Restore default summary call budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                 <input id="max-summary-calls" type="number" min="1" step="1" data-app-setting="max_summary_calls" aria-describedby="max-summary-calls-help" required disabled>
@@ -293,65 +294,65 @@
           <details id="attachment-resource-settings" class="settings-group settings-attachment-resources settings-disclosure">
             <summary class="settings-disclosure-header"><h3 class="settings-disclosure-title">Attachment resource limits</h3><i data-lucide="chevron-down" class="settings-disclosure-chevron" aria-hidden="true"></i></summary>
             <div class="settings-disclosure-body">
-              <p class="settings-resource-note">These adjustable limits control local file reading and parsing. Defaults are provisional desktop policies, not model capacity limits. Byte values are exact bytes. Saved effective limits reflect the active server policy; edits apply only after saving.</p>
+              <p class="settings-resource-note">Limits for local file reading and extraction, separate from model capacity. Byte values are exact. Server ceilings may lower these limits.</p>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="attachment-max-files">Attachments per selection</label><small id="attachment-max-files-help">Counts distinct files of all supported types.<span data-effective-setting="attachment_max_files" data-limit-key="MAX_FILES" data-unit="files"></span></small></div>
+                <div class="settings-preference-copy"><label for="attachment-max-files">Attachments per selection</label><small id="attachment-max-files-help">Distinct files across all supported types.<span data-effective-setting="attachment_max_files" data-limit-key="MAX_FILES" data-unit="files" hidden></span></small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_files" aria-label="Restore default attachment count" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="attachment-max-files" type="number" min="1" step="1" data-app-setting="attachment_max_files" aria-describedby="attachment-max-files-help" required disabled>
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="attachment-max-file-bytes">Original bytes per file</label><small id="attachment-max-file-bytes-help">Limits each local file read. The combined selection limit also applies.<span data-effective-setting="attachment_max_file_bytes" data-limit-key="MAX_FILE_BYTES" data-unit="bytes"></span></small></div>
+                <div class="settings-preference-copy"><label for="attachment-max-file-bytes">Original bytes per file</label><small id="attachment-max-file-bytes-help">Original size of each file. The selection total also applies.<span data-effective-setting="attachment_max_file_bytes" data-limit-key="MAX_FILE_BYTES" data-unit="bytes" hidden></span></small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_file_bytes" aria-label="Restore default file byte limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="attachment-max-file-bytes" type="number" min="1" step="1" data-app-setting="attachment_max_file_bytes" aria-describedby="attachment-max-file-bytes-help" required disabled>
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="attachment-max-total-bytes">Original bytes per selection</label><small id="attachment-max-total-bytes-help">Combined original file bytes across all attachment types. This does not bound peak memory use.<span data-effective-setting="attachment_max_total_bytes" data-limit-key="MAX_TOTAL_BYTES" data-unit="bytes"></span></small></div>
+                <div class="settings-preference-copy"><label for="attachment-max-total-bytes">Original bytes per selection</label><small id="attachment-max-total-bytes-help">Combined original size of all selected files. Memory use may exceed this total.<span data-effective-setting="attachment_max_total_bytes" data-limit-key="MAX_TOTAL_BYTES" data-unit="bytes" hidden></span></small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_total_bytes" aria-label="Restore default combined byte limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="attachment-max-total-bytes" type="number" min="1" step="1" data-app-setting="attachment_max_total_bytes" aria-describedby="attachment-max-total-bytes-help" required disabled>
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="attachment-max-text-bytes">Text bytes per file</label><small id="attachment-max-text-bytes-help">UTF-8 bytes retained from text files or Office extraction. Oversized text is rejected rather than truncated.<span data-effective-setting="attachment_max_text_bytes" data-limit-key="MAX_TEXT_BYTES" data-unit="bytes"></span></small></div>
+                <div class="settings-preference-copy"><label for="attachment-max-text-bytes">Text bytes per file</label><small id="attachment-max-text-bytes-help">UTF-8 size of text read or extracted from each file. Oversized text is rejected, not truncated.<span data-effective-setting="attachment_max_text_bytes" data-limit-key="MAX_TEXT_BYTES" data-unit="bytes" hidden></span></small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_text_bytes" aria-label="Restore default text byte limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="attachment-max-text-bytes" type="number" min="1" step="1" data-app-setting="attachment_max_text_bytes" aria-describedby="attachment-max-text-bytes-help" required disabled>
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="attachment-max-zip-bytes">Expanded bytes per Office file</label><small id="attachment-max-zip-bytes-help">Combined uncompressed ZIP entries in DOCX, XLSX, or PPTX, independent of original file size.<span data-effective-setting="attachment_max_zip_bytes" data-limit-key="MAX_ZIP_BYTES" data-unit="bytes"></span></small></div>
+                <div class="settings-preference-copy"><label for="attachment-max-zip-bytes">Expanded bytes per Office file</label><small id="attachment-max-zip-bytes-help">Combined uncompressed ZIP entries in DOCX, XLSX, or PPTX, independent of original file size.<span data-effective-setting="attachment_max_zip_bytes" data-limit-key="MAX_ZIP_BYTES" data-unit="bytes" hidden></span></small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_zip_bytes" aria-label="Restore default expanded document byte limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="attachment-max-zip-bytes" type="number" min="1" step="1" data-app-setting="attachment_max_zip_bytes" aria-describedby="attachment-max-zip-bytes-help" required disabled>
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="attachment-max-zip-members">ZIP entries per Office file</label><small id="attachment-max-zip-members-help">Counts container entries before the Office parser runs.<span data-effective-setting="attachment_max_zip_members" data-limit-key="MAX_ZIP_MEMBERS" data-unit="entries"></span></small></div>
+                <div class="settings-preference-copy"><label for="attachment-max-zip-members">ZIP entries per Office file</label><small id="attachment-max-zip-members-help">Entries inside a DOCX, XLSX, or PPTX archive.<span data-effective-setting="attachment_max_zip_members" data-limit-key="MAX_ZIP_MEMBERS" data-unit="entries" hidden></span></small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_zip_members" aria-label="Restore default document entry count" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="attachment-max-zip-members" type="number" min="1" step="1" data-app-setting="attachment_max_zip_members" aria-describedby="attachment-max-zip-members-help" required disabled>
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="attachment-max-image-pixels">Decoded pixels per image</label><small id="attachment-max-image-pixels-help">Width multiplied by height. The server's image decoder may impose a lower ceiling.<span data-effective-setting="attachment_max_image_pixels" data-limit-key="MAX_IMAGE_PIXELS" data-unit="pixels"></span></small></div>
+                <div class="settings-preference-copy"><label for="attachment-max-image-pixels">Decoded pixels per image</label><small id="attachment-max-image-pixels-help">Width multiplied by height. The image decoder may impose a lower limit.<span data-effective-setting="attachment_max_image_pixels" data-limit-key="MAX_IMAGE_PIXELS" data-unit="pixels" hidden></span></small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_image_pixels" aria-label="Restore default image pixel limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="attachment-max-image-pixels" type="number" min="1" step="1" data-app-setting="attachment_max_image_pixels" aria-describedby="attachment-max-image-pixels-help" required disabled>
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="attachment-max-pdf-pages">Inspected pages per PDF</label><small id="attachment-max-pdf-pages-help">Limits local page traversal, independently of the model's context capacity.<span data-effective-setting="attachment_max_pdf_pages" data-limit-key="MAX_PDF_PAGES" data-unit="pages"></span></small></div>
+                <div class="settings-preference-copy"><label for="attachment-max-pdf-pages">Inspected pages per PDF</label><small id="attachment-max-pdf-pages-help">Maximum pages processed locally in each PDF.<span data-effective-setting="attachment_max_pdf_pages" data-limit-key="MAX_PDF_PAGES" data-unit="pages" hidden></span></small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_pdf_pages" aria-label="Restore default PDF page limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="attachment-max-pdf-pages" type="number" min="1" step="1" data-app-setting="attachment_max_pdf_pages" aria-describedby="attachment-max-pdf-pages-help" required disabled>
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="attachment-max-sheet-cells">Stored cells per XLSX</label><small id="attachment-max-sheet-cells-help">Counts stored cells across all sheets; empty gaps do not count.<span data-effective-setting="attachment_max_sheet_cells" data-limit-key="MAX_SHEET_CELLS" data-unit="cells"></span></small></div>
+                <div class="settings-preference-copy"><label for="attachment-max-sheet-cells">Stored cells per XLSX</label><small id="attachment-max-sheet-cells-help">Counts stored cells across all sheets; empty gaps do not count.<span data-effective-setting="attachment_max_sheet_cells" data-limit-key="MAX_SHEET_CELLS" data-unit="cells" hidden></span></small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_sheet_cells" aria-label="Restore default spreadsheet cell limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="attachment-max-sheet-cells" type="number" min="1" step="1" data-app-setting="attachment_max_sheet_cells" aria-describedby="attachment-max-sheet-cells-help" required disabled>
@@ -380,7 +381,7 @@
         <div class="settings-editor-body">
           <div class="info-callout">
             <i data-lucide="shield-check"></i>
-            <p>Connection profiles are saved locally in <code>profiles.json</code> and ignored by version control. API keys are never returned to the browser.</p>
+            <p>Profiles and API keys are saved locally in <code>profiles.json</code>. Saved keys are never returned to the browser.</p>
           </div>
 
           <div class="section-title-row">
@@ -391,7 +392,7 @@
           <div class="profile-manager">
             <div id="profile-empty-state" class="profile-empty-state hidden">
               <i data-lucide="inbox"></i>
-              <span>No profiles configured yet. Create one below.</span>
+              <span>No connection profiles yet.</span>
             </div>
             <div id="profile-list-container" class="profile-list-container"></div>
           </div>
@@ -409,54 +410,55 @@
             <div class="profile-key-field">
               <label for="azure-api-key">API key</label>
               <div class="input-with-action">
-                <input id="azure-api-key" type="password" placeholder="Leave blank to keep existing key" autocomplete="off" aria-describedby="api-key-hint">
+                <input id="azure-api-key" type="password" placeholder="New key (optional)" autocomplete="off" aria-describedby="api-key-hint">
                 <button id="toggle-api-key-btn" class="input-action-btn" type="button" title="Show API key" aria-label="Show API key">
                   <i data-lucide="eye" aria-hidden="true"></i>
                 </button>
               </div>
-              <span id="api-key-hint" class="field-hint">Leave blank to keep existing key</span>
+              <span id="api-key-hint" class="field-hint">Blank keeps the saved key; a new value replaces it.</span>
             </div>
             <details id="profile-context-settings" class="profile-context-settings settings-disclosure">
               <summary class="settings-disclosure-header"><h4 class="settings-disclosure-title">Context policy & model limits</h4><i data-lucide="chevron-down" class="settings-disclosure-chevron" aria-hidden="true"></i></summary>
               <div class="settings-disclosure-body">
-                <p class="profile-context-note">Optional overrides for this profile. Request overrides take priority over profile and app settings. Model limits are declarations you supply, not capacities inferred from deployment names. Save changes to apply them.</p>
+                <p class="profile-context-note">Optional context overrides for this profile. Priority: request, profile, then app settings.</p>
                 <div class="settings-preference-row">
-                  <div class="settings-preference-copy"><label for="profile-context-preflight">Context preflight</label><small id="profile-context-preflight-help">Warn allows requests with estimate warnings; Block may reject estimates; Off skips input preflight. Output caps still apply.</small></div>
+                  <div class="settings-preference-copy"><label for="profile-context-preflight">Context preflight</label><small id="profile-context-preflight-help">Uses the app preflight mode. Output caps still apply.</small></div>
                   <div class="profile-context-control">
                     <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_preflight_mode" title="Use the app preflight setting" aria-label="Use the app preflight setting" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                     <select id="profile-context-preflight" data-profile-context="context_preflight_mode" aria-describedby="profile-context-preflight-help"><option value="">Use app setting</option><option value="warn">Warn</option><option value="block">Block</option><option value="off">Off</option></select>
                   </div>
                 </div>
                 <div class="settings-preference-row">
-                  <div class="settings-preference-copy"><label for="profile-context-input-budget">Input estimate budget (tokens)</label><small id="profile-context-input-budget-help">Leave blank to use the app input allowance. This is the local preflight budget, separate from declared model limits.</small></div>
+                  <div class="settings-preference-copy"><label for="profile-context-input-budget">Input estimate budget (tokens)</label><small id="profile-context-input-budget-help">Local preflight budget, separate from model capacity. Blank uses the app input allowance.</small></div>
                   <div class="profile-context-control">
                     <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_input_budget" title="Use the app input allowance" aria-label="Use the app input allowance" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                     <input id="profile-context-input-budget" type="number" min="1" step="1" placeholder="Use app allowance" data-profile-context="context_input_budget" aria-describedby="profile-context-input-budget-help">
                   </div>
                 </div>
+                <p class="profile-context-note">Model limits are supplied declarations, not inferred from deployment names. Blank means unknown.</p>
                 <div class="settings-preference-row">
-                  <div class="settings-preference-copy"><label for="profile-model-context-window">Declared context window (tokens)</label><small id="profile-model-context-window-help">Combined input and output capacity. Leave blank if unknown. The saved declared input ceiling accounts for the output cap.</small></div>
+                  <div class="settings-preference-copy"><label for="profile-model-context-window">Declared context window (tokens)</label><small id="profile-model-context-window-help">Combined input and output capacity. The input ceiling subtracts the effective output cap.</small></div>
                   <div class="profile-context-control">
                     <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_context_window" title="Clear the context window declaration" aria-label="Clear the context window declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                     <input id="profile-model-context-window" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_context_window" aria-describedby="profile-model-context-window-help">
                   </div>
                 </div>
                 <div class="settings-preference-row">
-                  <div class="settings-preference-copy"><label for="profile-model-max-input">Declared maximum input (tokens)</label><small id="profile-model-max-input-help">Optional independent input ceiling. Leave blank if unknown; declared ceilings are considered alongside estimates in Warn and Block modes.</small></div>
+                  <div class="settings-preference-copy"><label for="profile-model-max-input">Declared maximum input (tokens)</label><small id="profile-model-max-input-help">Independent input ceiling, considered alongside the context window and input estimates in Warn and Block modes.</small></div>
                   <div class="profile-context-control">
                     <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_max_input_tokens" title="Clear the input limit declaration" aria-label="Clear the input limit declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                     <input id="profile-model-max-input" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_max_input_tokens" aria-describedby="profile-model-max-input-help">
                   </div>
                 </div>
                 <div class="settings-preference-row">
-                  <div class="settings-preference-copy"><label for="profile-model-max-output">Declared maximum output (tokens)</label><small id="profile-model-max-output-help">Can lower the app output cap, including reasoning tokens. Leave blank if unknown; this value does not raise the app cap.</small></div>
+                  <div class="settings-preference-copy"><label for="profile-model-max-output">Declared maximum output (tokens)</label><small id="profile-model-max-output-help">Lowers the app output cap when smaller, including reasoning tokens. Cannot raise the app cap.</small></div>
                   <div class="profile-context-control">
                     <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_max_output_tokens" title="Clear the output limit declaration" aria-label="Clear the output limit declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                     <input id="profile-model-max-output" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_max_output_tokens" aria-describedby="profile-model-max-output-help">
                   </div>
                 </div>
-                <p class="profile-context-note">The policy below reflects saved settings, before per-request overrides. Editing these fields does not change it until saved. Unknown means no model capacity declaration is available.</p>
-                <p id="profile-context-effective" class="profile-context-note" role="status">Open this section to load the saved effective policy.</p>
+                <p class="profile-context-note">Saved effective policy, before request overrides. Values below exclude unsaved edits.</p>
+                <p id="profile-context-effective" class="profile-context-note" role="status">Saved policy is not loaded.</p>
                 <button id="profile-context-retry" class="quiet sm-btn" type="button" hidden>Retry loading policy</button>
               </div>
             </details>
@@ -468,10 +470,13 @@
                   <i data-lucide="chevron-down" class="settings-disclosure-chevron" aria-hidden="true"></i>
                 </summary>
                 <div class="pricing-accordion-body settings-disclosure-body">
-                  <div class="pricing-completeness" role="status" aria-atomic="true">
-                    <p id="pricing-standard-status"></p>
-                    <p id="pricing-long-status"></p>
-                    <p id="pricing-invalid-status" hidden></p>
+                  <div class="pricing-overview">
+                    <p class="field-hint">Optional rates for estimating costs of new calls. Rates are USD per 1M tokens; status reflects the current form.</p>
+                    <div class="pricing-completeness" role="status" aria-atomic="true">
+                      <p id="pricing-standard-status"></p>
+                      <p id="pricing-long-status"></p>
+                      <p id="pricing-invalid-status" hidden></p>
+                    </div>
                   </div>
                   <div class="pricing-tier-block">
                     <div class="tier-header">
@@ -486,6 +491,7 @@
                       <label>Cache read price ($ / 1M)<input id="azure-cache-read-price" type="number" step="any" min="0" placeholder="Not configured" aria-describedby="cache-pricing-hint"></label>
                       <label>Cache write price ($ / 1M)<input id="azure-cache-write-price" type="number" step="any" min="0" placeholder="Not configured" aria-describedby="cache-pricing-hint"></label>
                     </div>
+                    <span id="cache-pricing-hint" class="field-hint pricing-hint">A blank standard rate is unknown; 0 means free. Missing rates matter only for categories used. Unreported usage can leave estimates incomplete.</span>
                   </div>
                   <div class="tier-divider">
                     <div class="tier-divider-line"></div>
@@ -513,11 +519,9 @@
                       <label>Long cache write price ($ / 1M)<input id="azure-long-cache-write-price" type="number" step="any" min="0" placeholder="Use standard rate" aria-describedby="cache-pricing-hint long-pricing-hint"></label>
                     </div>
                   </div>
-                  <span id="cache-pricing-hint" class="field-hint pricing-hint">All rates are USD per 1M tokens. Blank standard cache rates are unknown; enter 0 only for a free category. Missing rates affect estimates only when that category is used; unreported usage can also leave estimates incomplete. The pricing status reflects this form; save to apply changes.</span>
-                  <span id="long-pricing-hint" class="field-hint pricing-hint">Each blank long-context rate uses its corresponding standard rate. At or above the threshold, configured long-context rates apply.</span>
+                  <span id="long-pricing-hint" class="field-hint pricing-hint">Long-context rates apply when input tokens, including cache tokens, reach the threshold. Each blank rate uses its corresponding standard rate.</span>
                 </div>
               </details>
-              <span class="field-hint">Optional. Configure token rates to calculate estimated conversation costs.</span>
             </div>
           </div>
         </div>
@@ -535,26 +539,27 @@
     </section>
 
     <section id="settings-usage" class="settings-panel" role="tabpanel" aria-labelledby="settings-usage-tab" tabindex="0" hidden>
-      <div class="info-callout"><i data-lucide="info"></i><p>Recorded usage includes regeneration, memory summaries, and unsuccessful calls. Costs are estimates in USD using the rates saved with each call. Currency conversion and per-response visibility preferences remain a preview.</p></div>
+      <div class="info-callout"><i data-lucide="info"></i><p>Currency, conversion, and per-response visibility controls are not available yet. Recorded costs remain in USD.</p></div>
       <div class="settings-panel-heading"><h3>Display preferences</h3></div>
       <div class="settings-preference-row">
         <div class="settings-preference-copy"><label for="display-currency">Display currency</label><small>Currency used to display estimated costs.</small></div>
         <select id="display-currency" disabled><option selected>USD · US Dollar</option></select>
       </div>
       <div class="settings-preference-row">
-        <div class="settings-preference-copy"><label for="conversion-rate">Conversion rate (1 USD)</label><small>For display in another currency. Conversion is planned.</small></div>
+        <div class="settings-preference-copy"><label for="conversion-rate">Conversion rate (1 USD)</label><small>Value of 1 USD in the display currency.</small></div>
         <input id="conversion-rate" type="number" step="any" min="0" placeholder="Not configured" disabled>
       </div>
       <div class="settings-preference-row">
-        <div class="settings-preference-copy"><label for="show-response-usage">Per-response usage</label><small>Show tokens, response time, and estimated cost.</small></div>
+        <div class="settings-preference-copy"><label for="show-response-usage">Per-response usage</label><small>Tokens, response time, and estimated cost alongside each response.</small></div>
         <input id="show-response-usage" type="checkbox" checked disabled>
       </div>
       <div class="settings-preference-row">
-        <div class="settings-preference-copy"><label for="show-conversation-usage">Conversation usage footer</label><small>Show recorded usage after the last message in each conversation.</small></div>
+        <div class="settings-preference-copy"><label for="show-conversation-usage">Conversation usage footer</label><small>Recorded usage below the last message in each conversation.</small></div>
         <input id="show-conversation-usage" type="checkbox" checked>
       </div>
       <div id="settings-usage-overview" class="settings-usage-overview">
         <div class="settings-panel-heading"><h3>Recorded usage</h3><button id="refresh-settings-usage" class="quiet-btn" type="button"><i data-lucide="refresh-cw"></i> Refresh</button></div>
+        <p class="field-hint">Totals and call history share the filters below and include regeneration, memory summaries, and unsuccessful calls. Costs use the rates saved with each call.</p>
         <div class="usage-filters">
           <label>Scope<select id="usage-scope"><option value="conversation">This conversation</option><option value="all">All conversations</option></select></label>
           <label>Call type<select id="usage-kind"><option value="">All calls</option><option value="chat">Chat</option><option value="regeneration">Regeneration</option><option value="summary">Memory summaries</option><option value="legacy_reply">Legacy replies</option></select></label>
@@ -606,12 +611,8 @@
         </details>
         <details id="usage-call-history" class="usage-call-history">
           <summary>Call history</summary>
-          <div class="usage-history-toolbar">
-            <p id="usage-calls-state" role="status">Open to load recorded calls.</p>
-            <button id="refresh-usage-calls" class="quiet-btn" type="button"><i data-lucide="refresh-cw"></i> Refresh</button>
-          </div>
-          <p>Uses the scope, period, and call type above. Newest first; new calls can shift pages. Refresh returns to the newest records.</p>
-          <p>Cache tokens are included in input; reasoning tokens are included in output. Stored costs use the rates saved with each call. Imported records may have unknown dates or prices.</p>
+          <p>Newest calls first. New calls can shift pages; Refresh returns to the newest records.</p>
+          <p id="usage-calls-state" role="status" hidden></p>
           <div class="usage-calls-scroll" tabindex="0" aria-label="Recorded API calls">
             <ul id="usage-calls-list"></ul>
           </div>

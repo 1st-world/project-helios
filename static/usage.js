@@ -147,7 +147,7 @@ export function createUsage({ footer, renderFooter }) {
     };
     view.render(() => {
       view.root.dataset.state = 'ready';
-      view.root.querySelector('[data-usage-state]').textContent = 'Recorded totals. Refresh to include calls still finishing.';
+      view.root.querySelector('[data-usage-state]').textContent = view === views.settings ? '' : 'Recorded totals. Refresh to include calls still finishing.';
       view.root.querySelector('[data-usage-completeness]').textContent = completeness(total);
       view.root.querySelectorAll('[data-usage-field]').forEach(field => { field.textContent = values[field.dataset.usageField]; });
       view.root.querySelector('[data-usage-notes]').textContent = reportNotes(report);
@@ -263,7 +263,7 @@ export function createUsage({ footer, renderFooter }) {
     const today = localDate(new Date());
     $('#usage-start-date').value = today;
     $('#usage-end-date').value = today;
-    $('#usage-timezone').textContent = `Dates use ${timezone} (browser timezone) and call start times. Both ends of a date range are included.`;
+    $('#usage-timezone').textContent = `Dates use call start times in ${timezone}, the browser timezone. Both range endpoints are included.`;
     views.footer.refresh.onclick = refreshFooter;
     views.settings.refresh.onclick = refreshSettings;
     for (const id of ['usage-scope', 'usage-period', 'usage-kind', 'usage-start-date', 'usage-end-date']) $(`#${id}`).addEventListener('change', refreshSettings);

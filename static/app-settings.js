@@ -11,9 +11,9 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   const effectiveLabels = [...form.querySelectorAll('[data-effective-setting]')];
   const state = { saved: null, defaults: null, localLimits: null, providerLimits: null, resets: new Set(), loading: false, saving: false, controller: null, feedback: null };
   const modeHelp = {
-    warn: 'Allows the request and reports approximate input overruns. Preflight estimates alone do not force history compaction.',
-    block: 'Uses approximate estimates to reject oversized input or summarize history to fit. Estimates can differ from actual model usage.',
-    off: 'Skips input preflight estimates. Local file checks, provider limits, and background memory summaries still apply.'
+    warn: 'Allows requests with estimated input-limit warnings. Warnings alone do not force history summaries.',
+    block: 'May summarize history or reject requests when input estimates exceed limits. Estimates can differ from actual usage.',
+    off: 'Skips input estimates. Output caps, attachment checks, provider limits, and background memory summaries still apply.'
   };
 
   function setStatus(message, type = 'info') {
@@ -40,15 +40,17 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     for (const label of effectiveLabels) {
       const value = state.localLimits?.[label.dataset.limitKey];
       const configured = state.saved?.[label.dataset.effectiveSetting];
-      const clamped = Number.isSafeInteger(value) && value < configured;
-      label.textContent = Number.isSafeInteger(value) && value >= 1
-        ? `Saved effective local limit: ${value.toLocaleString()} ${label.dataset.unit}.${clamped ? ' The server applies a lower ceiling than the saved preference.' : ''}`
-        : 'Saved effective local limit: unavailable.';
+      const available = Number.isSafeInteger(value) && value >= 1;
+      const input = fields.get(label.dataset.effectiveSetting);
+      const clamped = available && value < configured && value < valueOf(input);
+      label.textContent = clamped ? `Server ceiling: ${value.toLocaleString()} ${label.dataset.unit}.`
+        : state.saved && !available ? 'Effective limit unavailable.' : '';
+      label.hidden = !label.textContent;
     }
     const limits = state.providerLimits;
     const values = [limits?.max_images, limits?.native_file_bytes_exclusive, limits?.native_category_total_bytes_exclusive];
     $('#attachment-provider-limits').textContent = values.every(value => Number.isSafeInteger(value) && value >= 1)
-      ? `Server-enforced provider limits: at most ${values[0].toLocaleString()} images; each native image or PDF must be under ${values[1].toLocaleString()} bytes. Combined image bytes and combined PDF bytes must each stay under ${values[2].toLocaleString()} bytes. Local preferences cannot raise these limits.`
+      ? `Provider limits: at most ${values[0].toLocaleString()} images. Each native image or PDF must be under ${values[1].toLocaleString()} bytes. Image totals and PDF totals must each be under ${values[2].toLocaleString()} bytes. Local settings cannot raise these limits.`
       : 'Saved provider limits are unavailable. Local preferences cannot override provider restrictions.';
   }
 
@@ -69,9 +71,9 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     $('#save-app-settings-label').textContent = state.saving ? 'Saving...' : 'Save changes';
     $('#retry-app-settings').hidden = Boolean(state.saved) || state.loading;
     renderStatus();
-    $('#context-preflight-help').textContent = modeHelp[fields.get('context_preflight_mode').value] || 'Choose how local input estimates are used.';
+    $('#context-preflight-help').textContent = modeHelp[fields.get('context_preflight_mode').value] || 'How local input estimates affect requests.';
     const budget = fields.get('context_token_budget').valueAsNumber - fields.get('context_output_reserve').valueAsNumber;
-    $('#app-input-budget').textContent = `App input allowance before profile or request overrides: ${Number.isSafeInteger(budget) && budget >= 0 ? `${budget.toLocaleString()} tokens` : '—'}.`;
+    $('#app-input-budget').textContent = `Draft input allowance, before profile or request overrides: ${Number.isSafeInteger(budget) && budget >= 0 ? `${budget.toLocaleString()} tokens` : '—'}.`;
     showAttachmentLimits();
   }
 
