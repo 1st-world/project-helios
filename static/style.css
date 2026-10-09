@@ -1720,7 +1720,8 @@ textarea::placeholder {
   line-height: var(--line-height-description);
 }
 .preferences-dialog .settings-group-body > .settings-preference-row:first-child,
-.preferences-dialog .settings-group-body > .font-settings:first-child .settings-preference-row:first-child {
+.preferences-dialog .settings-group-body > .font-settings:first-child .settings-preference-row:first-child,
+.preferences-dialog .settings-field-group > .settings-preference-row:first-child {
   /* Body padding supplies the outer spacing once; rows supply spacing toward adjacent content. */
   padding-top: 0;
 }
@@ -1768,19 +1769,6 @@ textarea::placeholder {
   margin-top: var(--settings-content-spacing);
   padding-top: var(--settings-content-spacing);
   border-top: 1px solid var(--border);
-}
-.preferences-dialog .settings-field-group > legend {
-  width: 100%;
-  padding: 0;
-  /* Place subgroup boundaries above legends instead of splitting native fieldset borders around them. */
-  float: left;
-  color: var(--text-sub);
-  font-weight: var(--font-weight-label);
-  font-size: var(--font-size-label);
-  line-height: var(--line-height-compact);
-}
-.preferences-dialog .settings-field-group > legend + * {
-  clear: both;
 }
 
 /* Include padding and borders explicitly because native select line boxes differ from text inputs. */
@@ -1983,8 +1971,7 @@ textarea::placeholder {
   line-height: var(--line-height-control);
 }
 .preferences-dialog .profile-context-settings .profile-context-note {
-  margin: 0;
-  padding-top: 8px;
+  margin: 0 0 var(--settings-content-spacing);
   color: var(--text-muted);
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
@@ -2128,10 +2115,35 @@ textarea::placeholder {
   cursor: not-allowed;
 }
 
+.preferences-dialog .settings-usage-overview > .settings-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--settings-content-spacing);
+}
+.preferences-dialog .settings-usage-overview > .settings-group-body > *,
+.preferences-dialog .settings-usage-overview .usage-filter-controls > *,
+.preferences-dialog .settings-usage-overview .usage-summary-feedback > *,
+.preferences-dialog .settings-usage-overview .settings-usage-details > .settings-disclosure-body > * {
+  /* Each content container owns its spacing through gap instead of child margins. */
+  margin: 0;
+}
+.preferences-dialog .settings-usage-overview .usage-filter-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.preferences-dialog .settings-usage-overview .usage-summary-feedback {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.preferences-dialog .settings-usage-overview .usage-summary-feedback:not(:has(> p:not(:empty))),
+.preferences-dialog .settings-usage-overview .usage-summary-feedback > p:empty {
+  display: none;
+}
 .preferences-dialog .settings-usage-overview .usage-filters {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 16px;
   gap: 12px;
 }
 .preferences-dialog .settings-usage-overview .usage-filters label {
@@ -2140,9 +2152,6 @@ textarea::placeholder {
 }
 .preferences-dialog .settings-usage-overview .usage-filters select {
   width: 100%;
-}
-.preferences-dialog .usage-date-range {
-  margin-top: 12px;
 }
 .preferences-dialog .settings-usage-overview .usage-date-range[hidden] {
   display: none;
@@ -2176,9 +2185,12 @@ textarea::placeholder {
 .preferences-dialog .settings-usage-overview[data-state="error"] [data-usage-state] {
   color: var(--danger);
 }
-.preferences-dialog .settings-usage-overview .settings-usage-details {
-  margin-top: 16px;
-  border-top: 1px solid var(--border);
+.preferences-dialog .settings-usage-overview .settings-usage-details > .settings-disclosure-body {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 0 0;
+  gap: 12px;
+  border-top: 0;
 }
 .preferences-dialog .settings-usage-overview summary {
   color: var(--text-muted);
@@ -2188,7 +2200,6 @@ textarea::placeholder {
 .preferences-dialog .settings-usage-metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 12px 0 0;
   gap: 16px;
 }
 .preferences-dialog .settings-usage-metrics dt {
@@ -2204,7 +2215,7 @@ textarea::placeholder {
 }
 .preferences-dialog .settings-usage-primary {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 16px;
+  gap: 12px;
 }
 .preferences-dialog .settings-usage-primary > div {
   padding: 12px;
@@ -2212,15 +2223,8 @@ textarea::placeholder {
   border-radius: 6px;
   background: var(--bg-app);
 }
-.preferences-dialog .settings-usage-overview .settings-usage-details > summary {
-  padding: 8px 0;
-  color: var(--text-sub);
-  font-weight: var(--font-weight-label);
-  line-height: var(--line-height-compact);
-}
 .preferences-dialog .settings-usage-overview .usage-table-scroll {
   max-height: 280px;
-  margin-top: 12px;
   overflow: auto;
 }
 .preferences-dialog .settings-usage-overview table {
@@ -2256,7 +2260,6 @@ textarea::placeholder {
 }
 .preferences-dialog .usage-call-history .usage-calls-scroll {
   max-height: 420px;
-  margin-top: 12px;
   overflow: auto;
 }
 .preferences-dialog .usage-call-history ul {
@@ -2311,7 +2314,6 @@ textarea::placeholder {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  margin-top: 12px;
   gap: 8px;
 }
 .preferences-dialog .usage-call-history .usage-history-pagination span {
@@ -3151,7 +3153,7 @@ button svg,
   .preferences-dialog .settings-usage-overview .usage-filters {
     grid-template-columns: 1fr;
   }
-  .preferences-dialog .settings-usage-primary {
+  .preferences-dialog .settings-usage-metrics {
     grid-template-columns: 1fr;
   }
   .preferences-dialog .settings-disclosure-header {

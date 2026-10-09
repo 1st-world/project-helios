@@ -260,7 +260,6 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
       state.defaults = null;
       state.localLimits = null;
       state.providerLimits = null;
-      $('#attachment-resource-settings').open = false;
       fillSaved();
       setStatus('');
     });

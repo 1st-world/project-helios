@@ -42,7 +42,6 @@ export function createProfileContext({ isSaving }) {
       input.setCustomValidity('');
       input.removeAttribute('aria-invalid');
     }
-    if (!$('#settings-dialog').open) disclosure.open = false;
     updateControls();
     load();
   }

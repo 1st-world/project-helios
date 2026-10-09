@@ -83,6 +83,14 @@ export function createUsageHistory({ timezone, isVisible }) {
   let offset = 0;
   let hasPage = false;
   let hasNext = false;
+  let disclosureStates = new Map();
+
+  function rememberDisclosures() {
+    if (!list.children.length) return;
+    // Remember only the rendered page, keyed by record identity instead of row position.
+    disclosureStates = new Map([...list.children].map(item => [item.dataset.usageCallId,
+      [...item.querySelectorAll('details')].map(details => details.open)]));
+  }
 
   function updateControls() {
     root.setAttribute('aria-busy', String(Boolean(controller)));
@@ -144,15 +152,27 @@ export function createUsageHistory({ timezone, isVisible }) {
     body.append(disclosure('Call details', definitionList(metadata)), disclosure('Saved prices', savedPrices(call.price_snapshot)));
     details.append(summary, body);
     item.append(details);
+    const saved = disclosureStates.get(call.id);
+    if (saved) item.querySelectorAll('details').forEach((details, index) => { details.open = saved[index]; });
     return item;
   }
 
-  async function loadPage(requestedOffset = 0) {
+  async function loadPage(requestedOffset = offset) {
     cancel();
     if (!query || !root.open || !isVisible()) return;
+    const retainPage = requestedOffset === offset && hasPage;
+    if (retainPage) rememberDisclosures();
+    else if (requestedOffset !== offset) disclosureStates.clear();
     const current = new AbortController();
     controller = current;
-    clear('loading', 'Loading recorded calls…');
+    if (retainPage) {
+      root.dataset.state = 'loading';
+      message.textContent = 'Loading recorded calls…';
+      message.hidden = false;
+      updateControls();
+    } else {
+      clear('loading', 'Loading recorded calls…');
+    }
     const params = new URLSearchParams(query);
     // One lookahead row identifies the next page without relying on a separate aggregate snapshot.
     params.set('limit', PAGE_SIZE + 1);
@@ -167,6 +187,9 @@ export function createUsageHistory({ timezone, isVisible }) {
       if (controller !== current) return;
       validateRecords(data);
       const calls = data.calls.slice(0, PAGE_SIZE);
+      const scroller = root.querySelector('.usage-calls-scroll');
+      const scrollTop = retainPage ? scroller.scrollTop : 0;
+      if (retainPage) rememberDisclosures();
       list.replaceChildren(...calls.map(renderCall));
       offset = requestedOffset;
       hasPage = true;
@@ -175,7 +198,7 @@ export function createUsageHistory({ timezone, isVisible }) {
       message.textContent = calls.length ? '' : 'No records on this page. Refresh to check the newest records.';
       message.hidden = !message.textContent;
       $('#usage-calls-page').textContent = calls.length ? `${offset + 1}–${offset + calls.length}` : 'No records';
-      root.querySelector('.usage-calls-scroll').scrollTop = 0;
+      scroller.scrollTop = scrollTop;
     } catch (error) {
       if (controller === current && error.name !== 'AbortError') clear('error', `${error.message} Use Refresh to retry from the newest records.`);
     } finally {
@@ -187,17 +210,21 @@ export function createUsageHistory({ timezone, isVisible }) {
     }
   }
 
-  function select(params, description = '') {
+  function select(params, description = '', { reset = false } = {}) {
     cancel();
-    query = params ? params.toString() : null;
-    offset = 0;
-    clear('empty', description);
+    const selected = params ? params.toString() : null;
+    const changed = selected !== query || reset;
+    if (changed) {
+      offset = 0;
+      disclosureStates.clear();
+    }
+    query = selected;
+    if (changed || !query) clear('empty', description);
     if (query && root.open && isVisible()) loadPage();
   }
 
   function suspend() {
     cancel();
-    clear('empty', '');
   }
 
   function init() {

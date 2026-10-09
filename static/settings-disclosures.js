@@ -1,4 +1,4 @@
-/* Animate editable Settings disclosures while respecting native state changes and reduced motion. */
+/* Animate Settings disclosures while preserving their intended state across tab changes and dialog reopening. */
 
 import { $ } from './ui.js';
 
@@ -81,6 +81,6 @@ export function initializeSettingsDisclosures() {
     disclosures.filter(({ details }) => details.closest('.settings-panel').hidden).forEach(({ controller }) => controller.finish());
   });
   dialog.addEventListener('close', () => {
-    if (!dialog.open) disclosures.forEach(({ details, controller }) => controller.finish(details.open));
+    if (!dialog.open) disclosures.forEach(({ controller }) => controller.finish());
   });
 }

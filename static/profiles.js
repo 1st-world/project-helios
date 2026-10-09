@@ -363,8 +363,6 @@ export function createProfiles({ isGenerating }) {
     const selectedPanel = panelName || $('#settings-dialog [data-settings-tab][aria-selected="true"]')?.dataset.settingsTab || 'general';
     closeMobileSidebar();
     await loadProfiles();
-    const accordion = $('#profile-pricing-accordion');
-    if (accordion) accordion.open = false;
     if (state.profiles.length) {
       const active = state.profiles.find((p) => p.id === state.activeProfileId) || state.profiles[0];
       selectProfileForEditing(active);
@@ -566,9 +564,8 @@ export function createProfiles({ isGenerating }) {
     $('#profile-select').onchange = (event) => switchActiveProfile(event.target.value);
 
     $('#settings-dialog').addEventListener('close', () => {
+      if ($('#settings-dialog').open) return;
       resetProfileForm();
-      const accordion = $('#profile-pricing-accordion');
-      if (accordion) accordion.open = false;
     });
 
     $('#azure-long-threshold').addEventListener('input', updateThresholdLabels);

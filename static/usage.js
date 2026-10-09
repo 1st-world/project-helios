@@ -99,6 +99,7 @@ export function createUsage({ footer, renderFooter }) {
   }
 
   function showState(view, message, state) {
+    view.hasReport = false;
     view.render(() => {
       view.root.dataset.state = state;
       view.root.querySelector('[data-usage-state]').textContent = message;
@@ -138,6 +139,7 @@ export function createUsage({ footer, renderFooter }) {
   }
 
   function renderReport(view, report) {
+    view.hasReport = true;
     const total = report.totals;
     const values = {
       calls: total.calls.toLocaleString(), input_output: `${tokenValue(total, 'input_tokens')} / ${tokenValue(total, 'output_tokens')}`,
@@ -156,12 +158,20 @@ export function createUsage({ footer, renderFooter }) {
   }
 
   async function load(view, params) {
+    const query = params.toString();
+    const retainReport = view === views.settings && view.hasReport && view.query === query;
     cancel(view);
+    view.query = query;
     const controller = new AbortController();
     view.controller = controller;
     view.root.setAttribute('aria-busy', 'true');
     view.refresh.disabled = true;
-    showState(view, 'Loading recorded usage…', 'loading');
+    if (retainReport) {
+      view.root.dataset.state = 'loading';
+      view.root.querySelector('[data-usage-state]').textContent = 'Loading recorded usage…';
+    } else {
+      showState(view, 'Loading recorded usage…', 'loading');
+    }
     try {
       const response = await fetch(`/api/usage?${params}`, { signal: controller.signal });
       const report = await response.json().catch(() => null);
@@ -192,7 +202,7 @@ export function createUsage({ footer, renderFooter }) {
     }
   }
 
-  function refreshSettings() {
+  function refreshSettings({ resetHistory = false } = {}) {
     cancel(views.settings);
     if (!settingsVisible()) {
       history.suspend();
@@ -234,7 +244,7 @@ export function createUsage({ footer, renderFooter }) {
       if (period === 'week') today.setDate(today.getDate() - 6);
       params.set('start_date', localDate(today));
     }
-    history.select(params);
+    history.select(params, '', { reset: resetHistory });
     load(views.settings, params);
   }
 
@@ -265,7 +275,7 @@ export function createUsage({ footer, renderFooter }) {
     $('#usage-end-date').value = today;
     $('#usage-timezone').textContent = `Dates use call start times in ${timezone}, the browser timezone. Both range endpoints are included.`;
     views.footer.refresh.onclick = refreshFooter;
-    views.settings.refresh.onclick = refreshSettings;
+    views.settings.refresh.onclick = () => refreshSettings({ resetHistory: true });
     for (const id of ['usage-scope', 'usage-period', 'usage-kind', 'usage-start-date', 'usage-end-date']) $(`#${id}`).addEventListener('change', refreshSettings);
 
     for (const button of overview.querySelectorAll('[data-date-picker]')) {
@@ -281,6 +291,7 @@ export function createUsage({ footer, renderFooter }) {
 
     dialog.addEventListener('settings-panel-change', refreshSettings);
     dialog.addEventListener('close', () => {
+      if (dialog.open) return;
       cancel(views.settings);
       history.suspend();
     });

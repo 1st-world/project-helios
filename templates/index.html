@@ -433,9 +433,8 @@
                   <i data-lucide="chevron-down" class="settings-disclosure-chevron" aria-hidden="true"></i>
                 </summary>
                 <div class="settings-disclosure-body">
-                  <fieldset class="settings-field-group">
-                    <legend>Context overrides</legend>
-                    <p class="profile-context-note">Optional context overrides for this profile. Priority: request, profile, then app settings.</p>
+                  <p class="profile-context-note">Context options inherit app settings unless overridden. Model limits are specified manually; blank values remain unknown.</p>
+                  <div class="settings-field-group" role="group" aria-label="Context overrides">
                     <div class="settings-preference-row">
                       <div class="settings-preference-copy"><label for="profile-context-preflight">Context preflight</label><small id="profile-context-preflight-help">Uses the app preflight mode. Output caps still apply.</small></div>
                       <div class="profile-context-control">
@@ -444,16 +443,14 @@
                       </div>
                     </div>
                     <div class="settings-preference-row">
-                      <div class="settings-preference-copy"><label for="profile-context-input-budget">Input estimate budget (tokens)</label><small id="profile-context-input-budget-help">Local preflight budget, separate from model capacity. Blank uses the app input allowance.</small></div>
+                      <div class="settings-preference-copy"><label for="profile-context-input-budget">Input estimate budget (tokens)</label><small id="profile-context-input-budget-help">Local preflight budget, separate from model capacity.</small></div>
                       <div class="profile-context-control">
                         <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_input_budget" title="Use the app input allowance" aria-label="Use the app input allowance" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                         <input id="profile-context-input-budget" type="number" min="1" step="1" placeholder="Use app allowance" data-profile-context="context_input_budget" aria-describedby="profile-context-input-budget-help">
                       </div>
                     </div>
-                  </fieldset>
-                  <fieldset class="settings-field-group">
-                    <legend>Model limits</legend>
-                    <p class="profile-context-note">Model limits are supplied declarations, not inferred from deployment names. Blank means unknown.</p>
+                  </div>
+                  <div class="settings-field-group" role="group" aria-label="Model limits">
                     <div class="settings-preference-row">
                       <div class="settings-preference-copy"><label for="profile-model-context-window">Declared context window (tokens)</label><small id="profile-model-context-window-help">Combined input and output capacity. The input ceiling subtracts the effective output cap.</small></div>
                       <div class="profile-context-control">
@@ -475,10 +472,10 @@
                         <input id="profile-model-max-output" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_max_output_tokens" aria-describedby="profile-model-max-output-help">
                       </div>
                     </div>
-                  </fieldset>
+                  </div>
                   <div class="settings-policy-summary">
                     <h5>Saved effective policy</h5>
-                    <p>Before request overrides. Values below exclude unsaved edits.</p>
+                    <p>Profile overrides replace app defaults. Request overrides take priority. Values below exclude request overrides and unsaved edits.</p>
                     <p id="profile-context-effective" class="settings-policy-values" role="status">Saved policy is not loaded.</p>
                     <button id="profile-context-retry" class="quiet sm-btn" type="button" hidden>Retry loading policy</button>
                   </div>
@@ -586,67 +583,80 @@
         <div class="settings-panel-heading"><h3 id="settings-usage-title">Recorded usage</h3><button id="refresh-settings-usage" class="quiet-btn" type="button"><i data-lucide="refresh-cw"></i> Refresh</button></div>
         <div class="settings-group-body">
           <p class="field-hint">Totals and call history share the filters below and include regeneration, memory summaries, and unsuccessful calls. Costs use the rates saved with each call.</p>
-          <div class="usage-filters">
-            <label>Scope<select id="usage-scope"><option value="conversation">This conversation</option><option value="all">All conversations</option></select></label>
-            <label>Call type<select id="usage-kind"><option value="">All calls</option><option value="chat">Chat</option><option value="regeneration">Regeneration</option><option value="summary">Memory summaries</option><option value="legacy_reply">Legacy replies</option></select></label>
-            <label>Period<select id="usage-period"><option value="all">All recorded</option><option value="today">Today</option><option value="week">Last 7 days</option><option value="custom">Custom range</option></select></label>
-          </div>
-          <div id="usage-date-range" class="form-grid-2 usage-date-range" hidden>
-            <div class="usage-date-field">
-              <label for="usage-start-date">Start date</label>
-              <div class="input-with-action">
-                <input id="usage-start-date" type="date">
-                <button class="input-action-btn hidden" type="button" data-date-picker="usage-start-date" title="Choose start date" aria-label="Choose start date"><i data-lucide="calendar" aria-hidden="true"></i></button>
+          <div class="usage-filter-controls">
+            <div class="usage-filters">
+              <label>Scope<select id="usage-scope"><option value="conversation">This conversation</option><option value="all">All conversations</option></select></label>
+              <label>Call type<select id="usage-kind"><option value="">All calls</option><option value="chat">Chat</option><option value="regeneration">Regeneration</option><option value="summary">Memory summaries</option><option value="legacy_reply">Legacy replies</option></select></label>
+              <label>Period<select id="usage-period"><option value="all">All recorded</option><option value="today">Today</option><option value="week">Last 7 days</option><option value="custom">Custom range</option></select></label>
+            </div>
+            <div id="usage-date-range" class="form-grid-2 usage-date-range" hidden>
+              <div class="usage-date-field">
+                <label for="usage-start-date">Start date</label>
+                <div class="input-with-action">
+                  <input id="usage-start-date" type="date">
+                  <button class="input-action-btn hidden" type="button" data-date-picker="usage-start-date" title="Choose start date" aria-label="Choose start date"><i data-lucide="calendar" aria-hidden="true"></i></button>
+                </div>
+              </div>
+              <div class="usage-date-field">
+                <label for="usage-end-date">End date</label>
+                <div class="input-with-action">
+                  <input id="usage-end-date" type="date">
+                  <button class="input-action-btn hidden" type="button" data-date-picker="usage-end-date" title="Choose end date" aria-label="Choose end date"><i data-lucide="calendar" aria-hidden="true"></i></button>
+                </div>
               </div>
             </div>
-            <div class="usage-date-field">
-              <label for="usage-end-date">End date</label>
-              <div class="input-with-action">
-                <input id="usage-end-date" type="date">
-                <button class="input-action-btn hidden" type="button" data-date-picker="usage-end-date" title="Choose end date" aria-label="Choose end date"><i data-lucide="calendar" aria-hidden="true"></i></button>
-              </div>
+            <div class="usage-summary-feedback">
+              <p id="usage-timezone" class="field-hint"></p>
+              <p data-usage-state role="status">Select a conversation to see recorded usage.</p>
+              <p data-usage-completeness></p>
             </div>
           </div>
-          <p id="usage-timezone" class="field-hint"></p>
-          <p data-usage-state role="status">Select a conversation to see recorded usage.</p>
-          <p data-usage-completeness></p>
           <dl class="settings-usage-metrics settings-usage-primary">
             <div><dt>Total tokens</dt><dd data-usage-field="total_tokens">—</dd></div>
             <div><dt>Estimated cost (USD)</dt><dd data-usage-field="cost">—</dd></div>
             <div><dt>API calls</dt><dd data-usage-field="calls">—</dd></div>
           </dl>
-          <details class="settings-usage-details usage-token-breakdown">
-            <summary>Token breakdown</summary>
-            <dl class="settings-usage-metrics">
-              <div><dt>Input / output tokens</dt><dd data-usage-field="input_output">— / —</dd></div>
-              <div><dt>Ordinary input tokens</dt><dd data-usage-field="uncached_input_tokens">—</dd></div>
-              <div><dt>Cache read / write</dt><dd data-usage-field="cache">— / —</dd></div>
-              <div><dt>Reasoning tokens</dt><dd data-usage-field="reasoning_tokens">—</dd></div>
-              <div><dt>Memory-summary calls</dt><dd data-usage-field="summaries">—</dd></div>
-            </dl>
-          </details>
-          <details class="settings-usage-details"><summary>Usage and coverage details</summary><p data-usage-notes></p></details>
-          <details id="usage-by-date" class="settings-usage-details">
-            <summary>Daily totals</summary>
-            <div class="usage-table-scroll" tabindex="0" aria-label="Daily recorded usage">
-              <table>
-                <thead><tr><th scope="col">Date</th><th scope="col">Calls</th><th scope="col">Input / output</th><th scope="col">Total tokens</th><th scope="col">Estimated cost (USD)</th><th scope="col">Status</th></tr></thead>
-                <tbody id="usage-daily-rows"></tbody>
-              </table>
+          <details class="settings-usage-details settings-disclosure settings-subgroup-disclosure usage-token-breakdown">
+            <summary class="settings-disclosure-header"><h4 class="settings-disclosure-title">Token breakdown</h4><i data-lucide="chevron-down" class="settings-disclosure-chevron" aria-hidden="true"></i></summary>
+            <div class="settings-disclosure-body">
+              <dl class="settings-usage-metrics">
+                <div><dt>Input / output tokens</dt><dd data-usage-field="input_output">— / —</dd></div>
+                <div><dt>Ordinary input tokens</dt><dd data-usage-field="uncached_input_tokens">—</dd></div>
+                <div><dt>Cache read / write</dt><dd data-usage-field="cache">— / —</dd></div>
+                <div><dt>Reasoning tokens</dt><dd data-usage-field="reasoning_tokens">—</dd></div>
+                <div><dt>Memory-summary calls</dt><dd data-usage-field="summaries">—</dd></div>
+              </dl>
             </div>
           </details>
-          <details id="usage-call-history" class="settings-usage-details usage-call-history">
-            <summary>Call history</summary>
-            <p>Newest calls first. New calls can shift pages; Refresh returns to the newest records.</p>
-            <p id="usage-calls-state" role="status" hidden></p>
-            <div class="usage-calls-scroll" tabindex="0" aria-label="Recorded API calls">
-              <ul id="usage-calls-list"></ul>
+          <details class="settings-usage-details settings-disclosure settings-subgroup-disclosure">
+            <summary class="settings-disclosure-header"><h4 class="settings-disclosure-title">Usage and coverage details</h4><i data-lucide="chevron-down" class="settings-disclosure-chevron" aria-hidden="true"></i></summary>
+            <div class="settings-disclosure-body"><p data-usage-notes></p></div>
+          </details>
+          <details id="usage-by-date" class="settings-usage-details settings-disclosure settings-subgroup-disclosure">
+            <summary class="settings-disclosure-header"><h4 class="settings-disclosure-title">Daily totals</h4><i data-lucide="chevron-down" class="settings-disclosure-chevron" aria-hidden="true"></i></summary>
+            <div class="settings-disclosure-body">
+              <div class="usage-table-scroll" tabindex="0" aria-label="Daily recorded usage">
+                <table>
+                  <thead><tr><th scope="col">Date</th><th scope="col">Calls</th><th scope="col">Input / output</th><th scope="col">Total tokens</th><th scope="col">Estimated cost (USD)</th><th scope="col">Status</th></tr></thead>
+                  <tbody id="usage-daily-rows"></tbody>
+                </table>
+              </div>
             </div>
-            <nav class="usage-history-pagination" aria-label="Call history pages">
-              <button id="usage-calls-previous" class="quiet-btn" type="button" disabled><i data-lucide="chevron-left"></i> Prev</button>
-              <span id="usage-calls-page"></span>
-              <button id="usage-calls-next" class="quiet-btn" type="button" disabled>Next <i data-lucide="chevron-right"></i></button>
-            </nav>
+          </details>
+          <details id="usage-call-history" class="settings-usage-details settings-disclosure settings-subgroup-disclosure usage-call-history">
+            <summary class="settings-disclosure-header"><h4 class="settings-disclosure-title">Call history</h4><i data-lucide="chevron-down" class="settings-disclosure-chevron" aria-hidden="true"></i></summary>
+            <div class="settings-disclosure-body">
+              <p>Newest calls first. New calls can shift pages; Refresh returns to the newest records.</p>
+              <p id="usage-calls-state" role="status" hidden></p>
+              <div class="usage-calls-scroll" tabindex="0" aria-label="Recorded API calls">
+                <ul id="usage-calls-list"></ul>
+              </div>
+              <nav class="usage-history-pagination" aria-label="Call history pages">
+                <button id="usage-calls-previous" class="quiet-btn" type="button" disabled><i data-lucide="chevron-left"></i> Prev</button>
+                <span id="usage-calls-page"></span>
+                <button id="usage-calls-next" class="quiet-btn" type="button" disabled>Next <i data-lucide="chevron-right"></i></button>
+              </nav>
+            </div>
           </details>
         </div>
       </section>

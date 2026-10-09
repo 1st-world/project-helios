@@ -64,10 +64,5 @@ export function initializeSettings({ onConversationUsageVisibilityChange, hasUns
     localStorage.setItem('helios.showConversationUsage', String(usageToggle.checked));
     onConversationUsageVisibilityChange(usageToggle.checked);
   });
-  $('#settings-dialog').addEventListener('close', () => {
-    if ($('#settings-dialog').open) return;
-    panelScrollPositions.clear();
-    document.querySelectorAll('.settings-panel').forEach(panel => { panelScroller(panel).scrollTop = 0; });
-  });
   return { beforeDialogClose: appSettings.beforeDialogClose };
 }
