@@ -1617,6 +1617,8 @@ textarea::placeholder {
 }
 
 .preferences-dialog {
+  --settings-content-spacing: 16px;
+
   width: min(740px, calc(100vw - 32px));
   height: min(760px, calc(100dvh - 48px));
   overflow: hidden;
@@ -1675,24 +1677,110 @@ textarea::placeholder {
 .preferences-dialog .settings-panel > :not(.settings-editor-form) {
   flex: none;
 }
-.preferences-dialog .settings-panel-heading {
+.preferences-dialog .settings-group {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+.preferences-dialog .settings-group + .settings-group {
+  margin-top: 20px;
+}
+.preferences-dialog .settings-panel-heading,
+.preferences-dialog .settings-disclosure-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  padding: 10px var(--settings-content-spacing);
   gap: 12px;
 }
-.preferences-dialog .settings-panel-heading h3,
-.preferences-dialog .settings-panel-heading h4 {
-  margin: 0;
-  font-weight: var(--font-weight-heading);
-  line-height: var(--line-height-heading);
+.preferences-dialog .settings-panel-heading,
+.preferences-dialog .settings-group > .settings-disclosure-header {
+  min-height: 48px;
 }
 .preferences-dialog .settings-panel-heading h3 {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-main);
+  font-weight: var(--font-weight-heading);
   font-size: var(--font-size-title-section);
+  line-height: var(--line-height-heading);
+  overflow-wrap: anywhere;
 }
-.preferences-dialog .settings-panel-heading h4 {
+.preferences-dialog .settings-group-body,
+.preferences-dialog .settings-disclosure-body {
+  min-width: 0;
+  padding: var(--settings-content-spacing);
+  border-top: 1px solid var(--border);
+}
+.preferences-dialog .settings-group-body > .field-hint:first-child {
+  margin: 0;
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+}
+.preferences-dialog .settings-group-body > .settings-preference-row:first-child,
+.preferences-dialog .settings-group-body > .font-settings:first-child .settings-preference-row:first-child {
+  /* Body padding supplies the outer spacing once; rows supply spacing toward adjacent content. */
+  padding-top: 0;
+}
+.preferences-dialog .settings-group-body > .settings-preference-row:last-child,
+.preferences-dialog .settings-field-group > .settings-preference-row:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.preferences-dialog .settings-policy-summary {
+  margin-top: var(--settings-content-spacing);
+  padding: 12px;
+  border-radius: 6px;
+  background: var(--bg-app);
+}
+.preferences-dialog .settings-policy-summary > h5 {
+  margin: 0;
+  color: var(--text-sub);
+  font-weight: var(--font-weight-heading);
   font-size: var(--font-size-title-group);
+  line-height: var(--line-height-heading);
+}
+.preferences-dialog .settings-policy-summary > p {
+  margin: 8px 0 0;
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+}
+.preferences-dialog .settings-policy-summary > :first-child {
+  margin-top: 0;
+}
+.preferences-dialog .settings-policy-summary .settings-policy-values {
+  white-space: pre-line;
+}
+.preferences-dialog .settings-policy-summary > button {
+  margin-top: 8px;
+}
+
+.preferences-dialog .settings-field-group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.preferences-dialog .settings-field-group + .settings-field-group {
+  margin-top: var(--settings-content-spacing);
+  padding-top: var(--settings-content-spacing);
+  border-top: 1px solid var(--border);
+}
+.preferences-dialog .settings-field-group > legend {
+  width: 100%;
+  padding: 0;
+  /* Place subgroup boundaries above legends instead of splitting native fieldset borders around them. */
+  float: left;
+  color: var(--text-sub);
+  font-weight: var(--font-weight-label);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-compact);
+}
+.preferences-dialog .settings-field-group > legend + * {
+  clear: both;
 }
 
 /* Include padding and borders explicitly because native select line boxes differ from text inputs. */
@@ -1707,19 +1795,11 @@ textarea::placeholder {
   opacity: 1;
 }
 
-.preferences-dialog .settings-disclosure {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-surface);
-}
-.preferences-dialog .settings-disclosure[open] {
+.preferences-dialog .settings-group.settings-disclosure[open] {
   border-color: var(--border-strong);
 }
 .preferences-dialog .settings-disclosure-header {
-  display: flex;
-  align-items: center;
   min-height: 44px;
-  padding: 10px 12px;
   gap: 8px;
   list-style: none;
   cursor: pointer;
@@ -1749,6 +1829,7 @@ textarea::placeholder {
   overflow-wrap: anywhere;
 }
 .preferences-dialog h3.settings-disclosure-title {
+  color: var(--text-main);
   font-size: var(--font-size-title-section);
 }
 .preferences-dialog h4.settings-disclosure-title {
@@ -1770,12 +1851,20 @@ textarea::placeholder {
 .preferences-dialog .settings-disclosure[open]:not([data-expanded="false"]) > summary .settings-disclosure-chevron {
   transform: rotate(180deg);
 }
-.preferences-dialog .settings-disclosure-body {
-  padding: 12px;
-  border-top: 1px solid var(--border);
-}
 .preferences-dialog .settings-disclosure .settings-disclosure-body > :first-child {
   margin-top: 0;
+}
+.preferences-dialog .settings-subgroup-disclosure {
+  min-width: 0;
+  border-top: 1px solid var(--border);
+}
+.preferences-dialog .settings-subgroup-disclosure > .settings-disclosure-header {
+  padding-right: 0;
+  padding-left: 0;
+}
+.preferences-dialog .settings-subgroup-disclosure > .settings-disclosure-body {
+  padding-right: 0;
+  padding-left: 0;
 }
 
 .preferences-dialog .settings-editor-panel {
@@ -1857,12 +1946,9 @@ textarea::placeholder {
 .conversation-usage[data-state="error"] [data-usage-state] {
   color: var(--danger);
 }
-.preferences-dialog .settings-group + .settings-group {
-  margin-top: 20px;
-}
 
 .preferences-dialog .settings-attachment-resources .settings-resource-note {
-  margin: 12px 0 0;
+  margin: var(--settings-content-spacing) 0 0;
   color: var(--text-muted);
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
@@ -1897,7 +1983,8 @@ textarea::placeholder {
   line-height: var(--line-height-control);
 }
 .preferences-dialog .profile-context-settings .profile-context-note {
-  margin: 12px 0 0;
+  margin: 0;
+  padding-top: 8px;
   color: var(--text-muted);
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
@@ -1939,20 +2026,13 @@ textarea::placeholder {
 .preferences-dialog .app-settings-form [aria-invalid="true"] {
   border-color: var(--danger);
 }
-.preferences-dialog .app-settings-form .app-settings-budget {
-  margin: 12px 0 0;
-  font-size: var(--font-size-description);
-  line-height: var(--line-height-description);
-  white-space: pre-line;
-}
 
 .preferences-dialog .font-settings {
   display: grid;
-  gap: 12px;
 }
 .preferences-dialog .font-settings .font-settings-local {
   display: grid;
-  padding-bottom: 16px;
+  padding: var(--settings-content-spacing) 0;
   gap: 8px;
   border-bottom: 1px solid var(--border);
 }
@@ -1977,6 +2057,7 @@ textarea::placeholder {
   color: var(--text-muted);
 }
 .preferences-dialog .font-settings .font-settings-error {
+  margin-top: var(--settings-content-spacing);
   color: var(--danger-text);
 }
 
@@ -1995,7 +2076,7 @@ textarea::placeholder {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 0;
+  padding: var(--settings-content-spacing) 0;
   gap: 20px;
   border-bottom: 1px solid var(--border);
 }
@@ -2046,13 +2127,7 @@ textarea::placeholder {
 .preferences-dialog .settings-panel :disabled {
   cursor: not-allowed;
 }
-.preferences-dialog .settings-usage-overview {
-  margin-top: 20px;
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-surface);
-}
+
 .preferences-dialog .settings-usage-overview .usage-filters {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2101,9 +2176,9 @@ textarea::placeholder {
 .preferences-dialog .settings-usage-overview[data-state="error"] [data-usage-state] {
   color: var(--danger);
 }
-.preferences-dialog .settings-usage-overview .usage-details,
-.preferences-dialog .settings-usage-overview #usage-by-date {
+.preferences-dialog .settings-usage-overview .settings-usage-details {
   margin-top: 16px;
+  border-top: 1px solid var(--border);
 }
 .preferences-dialog .settings-usage-overview summary {
   color: var(--text-muted);
@@ -2113,7 +2188,7 @@ textarea::placeholder {
 .preferences-dialog .settings-usage-metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 16px 0 0;
+  margin: 12px 0 0;
   gap: 16px;
 }
 .preferences-dialog .settings-usage-metrics dt {
@@ -2129,6 +2204,7 @@ textarea::placeholder {
 }
 .preferences-dialog .settings-usage-primary {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 16px;
 }
 .preferences-dialog .settings-usage-primary > div {
   padding: 12px;
@@ -2136,10 +2212,11 @@ textarea::placeholder {
   border-radius: 6px;
   background: var(--bg-app);
 }
-.preferences-dialog .settings-usage-overview > details > summary {
+.preferences-dialog .settings-usage-overview .settings-usage-details > summary {
   padding: 8px 0;
   color: var(--text-sub);
   font-weight: var(--font-weight-label);
+  line-height: var(--line-height-compact);
 }
 .preferences-dialog .settings-usage-overview .usage-table-scroll {
   max-height: 280px;
@@ -2168,9 +2245,6 @@ textarea::placeholder {
   white-space: normal;
 }
 
-.preferences-dialog .usage-call-history {
-  margin-top: 16px;
-}
 .preferences-dialog .usage-call-history p {
   overflow-wrap: anywhere;
 }
@@ -2335,28 +2409,10 @@ textarea::placeholder {
   font-size: var(--font-size-code-inline);
 }
 
-.section-title-row,
-.form-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-}
-.section-title-row h3,
-.form-title-row h3 {
-  margin: 0;
-  color: var(--text-main);
-  font-weight: var(--font-weight-heading);
-  font-size: var(--font-size-title-section);
-  line-height: var(--line-height-heading);
-}
-
-.profile-manager {
-  margin-bottom: 4px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-app);
+.preferences-dialog .profile-manager {
+  /* Keep the former list viewport while the body owns padding and scrolling. */
+  max-height: calc(178px + var(--settings-content-spacing) * 2 + 1px);
+  overflow-y: auto;
 }
 .profile-empty-state {
   display: flex;
@@ -2377,9 +2433,6 @@ textarea::placeholder {
 .profile-list-container {
   display: flex;
   flex-direction: column;
-  max-height: 178px;
-  padding: 8px;
-  overflow-y: auto;
   gap: 6px;
 }
 .profile-list-container:empty {
@@ -2403,7 +2456,8 @@ textarea::placeholder {
 }
 .profile-item:has(.profile-info:focus-visible) {
   outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  /* Keep focus inside the row so the scrolling body does not clip the outline. */
+  outline-offset: -2px;
 }
 .profile-item.active {
   background: var(--bg-surface-active);
@@ -2512,7 +2566,7 @@ textarea::placeholder {
 .preferences-dialog .profile-editor-fields {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--settings-content-spacing);
 }
 .preferences-dialog .profile-key-field {
   display: grid;
@@ -2524,12 +2578,6 @@ textarea::placeholder {
 #azure-settings-form label {
   margin: 0;
 }
-.form-title-row {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-}
-
 .form-grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2580,11 +2628,6 @@ textarea::placeholder {
   line-height: var(--line-height-description);
 }
 
-.pricing-field-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
 .pricing-accordion-status {
   display: inline-flex;
   align-items: center;
@@ -2752,11 +2795,6 @@ textarea::placeholder {
   color: var(--text-tertiary);
   font-size: var(--font-size-meta);
   white-space: nowrap;
-}
-.pricing-hint {
-  display: block;
-  margin-top: 8px;
-  margin-bottom: 0;
 }
 
 .dialog-actions-right {

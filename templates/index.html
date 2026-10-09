@@ -80,7 +80,7 @@
         <div class="composer-actions">
           <button id="load-file" class="quiet composer-control" type="button" aria-label="Attach files" title="Attach workspace files"><i data-lucide="paperclip"></i><span>Attach</span></button>
           <details id="work-tools" class="work-tools">
-            <summary class="quiet composer-control" aria-label="Work tools"><i data-lucide="sliders-horizontal"></i><span>Tools</span></summary>
+            <summary class="quiet composer-control" aria-label="Work tools"><i data-lucide="tool-case"></i><span>Tools</span></summary>
             <div class="tools-popover">
               <strong>Work tools</strong>
               <p>Coming to your local workspace.</p>
@@ -189,50 +189,54 @@
       <div class="info-callout"><i data-lucide="info"></i><p>Theme, language, timezone, and notification preferences are not available yet.</p></div>
       <section class="settings-group" aria-labelledby="settings-appearance-title">
         <div class="settings-panel-heading"><h3 id="settings-appearance-title">Appearance & language</h3></div>
-        <div id="font-settings" class="font-settings">
+        <div class="settings-group-body">
+          <div id="font-settings" class="font-settings">
+            <div class="settings-preference-row">
+              <div class="settings-preference-copy"><label for="ui-font-source">Interface font</label><small>Font used throughout the interface. Code keeps its monospace font.</small></div>
+              <select id="ui-font-source"><option value="default">Default (Pretendard)</option><option value="system">System font</option><option value="installed">Installed font</option></select>
+            </div>
+            <div id="font-settings-local" class="font-settings-local" hidden>
+              <label for="ui-font-family">Font family name</label>
+              <input id="ui-font-family" type="text" list="installed-font-families" maxlength="200" autocomplete="off" placeholder="e.g. Malgun Gothic" aria-describedby="installed-fonts-status font-settings-status">
+              <datalist id="installed-font-families"></datalist>
+              <p id="installed-fonts-status" class="font-settings-note" role="status"></p>
+            </div>
+            <p id="font-settings-status" class="font-settings-error" role="status"></p>
+          </div>
+          <div class="settings-preference-row font-size-settings">
+            <div class="settings-preference-copy"><label for="ui-font-scale">Text size</label><small id="font-size-help">Scales interface and message text.</small><p id="font-size-settings-status" class="font-size-settings-error" role="status"></p></div>
+            <select id="ui-font-scale" aria-describedby="font-size-help font-size-settings-status"><option value="0.9">Small (90%)</option><option value="1" selected>Default (100%)</option><option value="1.1">Large (110%)</option><option value="1.25">Larger (125%)</option></select>
+          </div>
           <div class="settings-preference-row">
-            <div class="settings-preference-copy"><label for="ui-font-source">Interface font</label><small>Font used throughout the interface. Code keeps its monospace font.</small></div>
-            <select id="ui-font-source"><option value="default">Default (Pretendard)</option><option value="system">System font</option><option value="installed">Installed font</option></select>
+            <div class="settings-preference-copy"><label id="theme-label" for="ui-theme">Theme</label><small>Light, dark, or system appearance.</small></div>
+            <select id="ui-theme" disabled><option value="light">Light</option><option value="dark" selected>Dark</option><option value="system">System</option></select>
           </div>
-          <div id="font-settings-local" class="font-settings-local" hidden>
-            <label for="ui-font-family">Font family name</label>
-            <input id="ui-font-family" type="text" list="installed-font-families" maxlength="200" autocomplete="off" placeholder="e.g. Malgun Gothic" aria-describedby="installed-fonts-status font-settings-status">
-            <datalist id="installed-font-families"></datalist>
-            <p id="installed-fonts-status" class="font-settings-note" role="status"></p>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="ui-language">Interface language</label><small>Menus and controls are currently in English.</small></div>
+            <select id="ui-language" disabled><option selected>English</option></select>
           </div>
-          <p id="font-settings-status" class="font-settings-error" role="status"></p>
-        </div>
-        <div class="settings-preference-row font-size-settings">
-          <div class="settings-preference-copy"><label for="ui-font-scale">Text size</label><small id="font-size-help">Scales interface and message text.</small><p id="font-size-settings-status" class="font-size-settings-error" role="status"></p></div>
-          <select id="ui-font-scale" aria-describedby="font-size-help font-size-settings-status"><option value="0.9">Small (90%)</option><option value="1" selected>Default (100%)</option><option value="1.1">Large (110%)</option><option value="1.25">Larger (125%)</option></select>
-        </div>
-        <div class="settings-preference-row">
-          <div class="settings-preference-copy"><label id="theme-label" for="ui-theme">Theme</label><small>Light, dark, or system appearance.</small></div>
-          <select id="ui-theme" disabled><option value="light">Light</option><option value="dark" selected>Dark</option><option value="system">System</option></select>
-        </div>
-        <div class="settings-preference-row">
-          <div class="settings-preference-copy"><label for="ui-language">Interface language</label><small>Menus and controls are currently in English.</small></div>
-          <select id="ui-language" disabled><option selected>English</option></select>
-        </div>
-        <div class="settings-preference-row">
-          <div class="settings-preference-copy"><label for="message-timezone">Message timezone</label><small>Timezone used to display message timestamps.</small></div>
-          <select id="message-timezone" disabled><option selected>N/A</option></select>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="message-timezone">Message timezone</label><small>Timezone used to display message timestamps.</small></div>
+            <select id="message-timezone" disabled><option selected>N/A</option></select>
+          </div>
         </div>
       </section>
 
       <section id="settings-notifications" class="settings-group" aria-labelledby="settings-notifications-title">
         <div class="settings-panel-heading"><h3 id="settings-notifications-title">Notifications</h3></div>
-        <div class="settings-preference-row">
-          <div class="settings-preference-copy"><label for="notify-response">Response completion</label><small>Alerts when an assistant response finishes.</small></div>
-          <input id="notify-response" type="checkbox" disabled>
-        </div>
-        <div class="settings-preference-row">
-          <div class="settings-preference-copy"><label for="notify-sound">Notification sound</label><small>Sound accompanying notifications.</small></div>
-          <input id="notify-sound" type="checkbox" disabled>
-        </div>
-        <div class="settings-preference-row">
-          <div class="settings-preference-copy"><label for="notify-desktop">Desktop notifications</label><small>System notifications; browser permission required.</small></div>
-          <input id="notify-desktop" type="checkbox" disabled>
+        <div class="settings-group-body">
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="notify-response">Response completion</label><small>Alerts when an assistant response finishes.</small></div>
+            <input id="notify-response" type="checkbox" disabled>
+          </div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="notify-sound">Notification sound</label><small>Sound accompanying notifications.</small></div>
+            <input id="notify-sound" type="checkbox" disabled>
+          </div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="notify-desktop">Desktop notifications</label><small>System notifications; browser permission required.</small></div>
+            <input id="notify-desktop" type="checkbox" disabled>
+          </div>
         </div>
       </section>
     </section>
@@ -243,57 +247,63 @@
           <div class="info-callout"><i data-lucide="info"></i><p>Context defaults can be overridden by a profile or request. Attachment limits apply app-wide. Saved changes affect new requests; running requests keep their settings.</p></div>
           <section class="settings-group" aria-labelledby="context-input-title">
             <div class="settings-panel-heading"><h3 id="context-input-title">Input & output</h3></div>
-            <div class="settings-preference-row">
-              <div class="settings-preference-copy"><label for="context-preflight-mode">Context preflight</label><small id="context-preflight-help">How local input estimates affect requests.</small></div>
-              <div class="settings-preference-control">
-                <button class="quiet settings-default-reset" type="button" data-reset-setting="context_preflight_mode" aria-label="Restore default context preflight" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                <select id="context-preflight-mode" data-app-setting="context_preflight_mode" aria-describedby="context-preflight-help" required disabled><option value="" disabled selected>Select a mode</option><option value="warn">Warn</option><option value="block">Block</option><option value="off">Off</option></select>
+            <div class="settings-group-body">
+              <div class="settings-preference-row">
+                <div class="settings-preference-copy"><label for="context-preflight-mode">Context preflight</label><small id="context-preflight-help">How local input estimates affect requests.</small></div>
+                <div class="settings-preference-control">
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="context_preflight_mode" aria-label="Restore default context preflight" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <select id="context-preflight-mode" data-app-setting="context_preflight_mode" aria-describedby="context-preflight-help" required disabled><option value="" disabled selected>Select a mode</option><option value="warn">Warn</option><option value="block">Block</option><option value="off">Off</option></select>
+                </div>
+              </div>
+              <div class="settings-preference-row">
+                <div class="settings-preference-copy"><label for="context-token-budget">Working context budget (tokens)</label><small id="context-token-budget-help">Local budget including the output reserve, separate from model capacity. At least 1,024 tokens must remain for input.</small></div>
+                <div class="settings-preference-control">
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="context_token_budget" aria-label="Restore default working context budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <input id="context-token-budget" type="number" min="1025" step="1" data-app-setting="context_token_budget" aria-describedby="context-token-budget-help app-input-budget" required disabled>
+                </div>
+              </div>
+              <div class="settings-preference-row">
+                <div class="settings-preference-copy"><label for="context-output-reserve">Output cap & reserve (tokens)</label><small id="context-output-reserve-help">Caps response output including reasoning tokens. A declared model output limit may lower it.</small></div>
+                <div class="settings-preference-control">
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="context_output_reserve" aria-label="Restore default output cap and reserve" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <input id="context-output-reserve" type="number" min="1" step="1" data-app-setting="context_output_reserve" aria-describedby="context-output-reserve-help app-input-budget" required disabled>
+                </div>
+              </div>
+              <div class="settings-policy-summary">
+                <p id="app-input-budget" class="settings-policy-values">Draft input allowance, before profile or request overrides: —.</p>
               </div>
             </div>
-            <div class="settings-preference-row">
-              <div class="settings-preference-copy"><label for="context-token-budget">Working context budget (tokens)</label><small id="context-token-budget-help">Local budget including the output reserve, separate from model capacity. At least 1,024 tokens must remain for input.</small></div>
-              <div class="settings-preference-control">
-                <button class="quiet settings-default-reset" type="button" data-reset-setting="context_token_budget" aria-label="Restore default working context budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                <input id="context-token-budget" type="number" min="1025" step="1" data-app-setting="context_token_budget" aria-describedby="context-token-budget-help app-input-budget" required disabled>
-              </div>
-            </div>
-            <div class="settings-preference-row">
-              <div class="settings-preference-copy"><label for="context-output-reserve">Output cap & reserve (tokens)</label><small id="context-output-reserve-help">Caps response output including reasoning tokens. A declared model output limit may lower it.</small></div>
-              <div class="settings-preference-control">
-                <button class="quiet settings-default-reset" type="button" data-reset-setting="context_output_reserve" aria-label="Restore default output cap and reserve" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                <input id="context-output-reserve" type="number" min="1" step="1" data-app-setting="context_output_reserve" aria-describedby="context-output-reserve-help app-input-budget" required disabled>
-              </div>
-            </div>
-            <p id="app-input-budget" class="app-settings-budget">Draft input allowance, before profile or request overrides: —.</p>
           </section>
           <section class="settings-group" aria-labelledby="context-summary-title">
             <div class="settings-panel-heading"><h3 id="context-summary-title">Memory summaries</h3></div>
-            <p class="field-hint">Memory summaries make model calls and consume tokens.</p>
-            <div class="settings-preference-row">
-              <div class="settings-preference-copy"><label for="max-context-messages">Summary trigger (messages)</label><small id="max-context-messages-help">Summaries start when unsummarized messages exceed this count. Counts messages, not turns.</small></div>
-              <div class="settings-preference-control">
-                <button class="quiet settings-default-reset" type="button" data-reset-setting="max_context_messages" aria-label="Restore default summary trigger" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                <input id="max-context-messages" type="number" min="3" step="1" data-app-setting="max_context_messages" aria-describedby="max-context-messages-help" required disabled>
+            <div class="settings-group-body">
+              <p class="field-hint">Memory summaries make model calls and consume tokens.</p>
+              <div class="settings-preference-row">
+                <div class="settings-preference-copy"><label for="max-context-messages">Summary trigger (messages)</label><small id="max-context-messages-help">Summaries start when unsummarized messages exceed this count. Counts messages, not turns.</small></div>
+                <div class="settings-preference-control">
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="max_context_messages" aria-label="Restore default summary trigger" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <input id="max-context-messages" type="number" min="3" step="1" data-app-setting="max_context_messages" aria-describedby="max-context-messages-help" required disabled>
+                </div>
               </div>
-            </div>
-            <div class="settings-preference-row">
-              <div class="settings-preference-copy"><label for="keep-recent-messages">Keep recent messages</label><small id="keep-recent-messages-help">Recent messages retained outside summaries, preserving complete turns. Must be at least 2 and below the summary trigger.</small></div>
-              <div class="settings-preference-control">
-                <button class="quiet settings-default-reset" type="button" data-reset-setting="keep_recent_messages" aria-label="Restore default recent message count" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                <input id="keep-recent-messages" type="number" min="2" step="1" data-app-setting="keep_recent_messages" aria-describedby="keep-recent-messages-help" required disabled>
+              <div class="settings-preference-row">
+                <div class="settings-preference-copy"><label for="keep-recent-messages">Keep recent messages</label><small id="keep-recent-messages-help">Recent messages retained outside summaries, preserving complete turns. Must be at least 2 and below the summary trigger.</small></div>
+                <div class="settings-preference-control">
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="keep_recent_messages" aria-label="Restore default recent message count" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <input id="keep-recent-messages" type="number" min="2" step="1" data-app-setting="keep_recent_messages" aria-describedby="keep-recent-messages-help" required disabled>
+                </div>
               </div>
-            </div>
-            <div class="settings-preference-row">
-              <div class="settings-preference-copy"><label for="max-summary-calls">Calls per summary job</label><small id="max-summary-calls-help">Maximum API calls allowed in one summary job.</small></div>
-              <div class="settings-preference-control">
-                <button class="quiet settings-default-reset" type="button" data-reset-setting="max_summary_calls" aria-label="Restore default summary call budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                <input id="max-summary-calls" type="number" min="1" step="1" data-app-setting="max_summary_calls" aria-describedby="max-summary-calls-help" required disabled>
+              <div class="settings-preference-row">
+                <div class="settings-preference-copy"><label for="max-summary-calls">Calls per summary job</label><small id="max-summary-calls-help">Maximum API calls allowed in one summary job.</small></div>
+                <div class="settings-preference-control">
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="max_summary_calls" aria-label="Restore default summary call budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <input id="max-summary-calls" type="number" min="1" step="1" data-app-setting="max_summary_calls" aria-describedby="max-summary-calls-help" required disabled>
+                </div>
               </div>
             </div>
           </section>
           <details id="attachment-resource-settings" class="settings-group settings-attachment-resources settings-disclosure">
             <summary class="settings-disclosure-header"><h3 class="settings-disclosure-title">Attachment resource limits</h3><i data-lucide="chevron-down" class="settings-disclosure-chevron" aria-hidden="true"></i></summary>
-            <div class="settings-disclosure-body">
+            <div class="settings-disclosure-body settings-group-body">
               <p class="settings-resource-note">Limits for local file reading and extraction, separate from model capacity. Byte values are exact. Server ceilings may lower these limits.</p>
               <div class="settings-preference-row">
                 <div class="settings-preference-copy"><label for="attachment-max-files">Attachments per selection</label><small id="attachment-max-files-help">Distinct files across all supported types.<span data-effective-setting="attachment_max_files" data-limit-key="MAX_FILES" data-unit="files" hidden></span></small></div>
@@ -384,86 +394,97 @@
             <p>Profiles and API keys are saved locally in <code>profiles.json</code>. Saved keys are never returned to the browser.</p>
           </div>
 
-          <div class="section-title-row">
-            <h3>Profiles</h3>
-            <button id="add-profile-btn" class="quiet-btn" type="button"><i data-lucide="plus"></i> New profile</button>
-          </div>
-
-          <div class="profile-manager">
-            <div id="profile-empty-state" class="profile-empty-state hidden">
-              <i data-lucide="inbox"></i>
-              <span>No connection profiles yet.</span>
+          <section class="settings-group" aria-labelledby="settings-profiles-title">
+            <div class="settings-panel-heading">
+              <h3 id="settings-profiles-title">Profiles</h3>
+              <button id="add-profile-btn" class="quiet-btn" type="button"><i data-lucide="plus"></i> New profile</button>
             </div>
-            <div id="profile-list-container" class="profile-list-container"></div>
-          </div>
-
-          <div class="profile-editor-fields">
-            <input type="hidden" id="editing-profile-id" value="">
-            <div class="form-title-row">
-              <h3 id="profile-form-title">Edit profile</h3>
-            </div>
-            <div class="form-grid-2">
-              <label>Profile name<input id="profile-name" required placeholder="e.g. EastUS GPT-5.6 Sol"></label>
-              <label>Deployment name<input id="azure-deployment" required placeholder="e.g. gpt-5.6-sol"></label>
-            </div>
-            <label>Azure endpoint<input id="azure-endpoint" type="url" required placeholder="https://your-resource.cognitiveservices.azure.com/"></label>
-            <div class="profile-key-field">
-              <label for="azure-api-key">API key</label>
-              <div class="input-with-action">
-                <input id="azure-api-key" type="password" placeholder="New key (optional)" autocomplete="off" aria-describedby="api-key-hint">
-                <button id="toggle-api-key-btn" class="input-action-btn" type="button" title="Show API key" aria-label="Show API key">
-                  <i data-lucide="eye" aria-hidden="true"></i>
-                </button>
+            <div class="settings-group-body profile-manager">
+              <div id="profile-empty-state" class="profile-empty-state hidden">
+                <i data-lucide="inbox"></i>
+                <span>No connection profiles yet.</span>
               </div>
-              <span id="api-key-hint" class="field-hint">Blank keeps the saved key; a new value replaces it.</span>
+              <div id="profile-list-container" class="profile-list-container"></div>
             </div>
-            <details id="profile-context-settings" class="profile-context-settings settings-disclosure">
-              <summary class="settings-disclosure-header"><h4 class="settings-disclosure-title">Context policy & model limits</h4><i data-lucide="chevron-down" class="settings-disclosure-chevron" aria-hidden="true"></i></summary>
-              <div class="settings-disclosure-body">
-                <p class="profile-context-note">Optional context overrides for this profile. Priority: request, profile, then app settings.</p>
-                <div class="settings-preference-row">
-                  <div class="settings-preference-copy"><label for="profile-context-preflight">Context preflight</label><small id="profile-context-preflight-help">Uses the app preflight mode. Output caps still apply.</small></div>
-                  <div class="profile-context-control">
-                    <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_preflight_mode" title="Use the app preflight setting" aria-label="Use the app preflight setting" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                    <select id="profile-context-preflight" data-profile-context="context_preflight_mode" aria-describedby="profile-context-preflight-help"><option value="">Use app setting</option><option value="warn">Warn</option><option value="block">Block</option><option value="off">Off</option></select>
-                  </div>
-                </div>
-                <div class="settings-preference-row">
-                  <div class="settings-preference-copy"><label for="profile-context-input-budget">Input estimate budget (tokens)</label><small id="profile-context-input-budget-help">Local preflight budget, separate from model capacity. Blank uses the app input allowance.</small></div>
-                  <div class="profile-context-control">
-                    <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_input_budget" title="Use the app input allowance" aria-label="Use the app input allowance" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                    <input id="profile-context-input-budget" type="number" min="1" step="1" placeholder="Use app allowance" data-profile-context="context_input_budget" aria-describedby="profile-context-input-budget-help">
-                  </div>
-                </div>
-                <p class="profile-context-note">Model limits are supplied declarations, not inferred from deployment names. Blank means unknown.</p>
-                <div class="settings-preference-row">
-                  <div class="settings-preference-copy"><label for="profile-model-context-window">Declared context window (tokens)</label><small id="profile-model-context-window-help">Combined input and output capacity. The input ceiling subtracts the effective output cap.</small></div>
-                  <div class="profile-context-control">
-                    <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_context_window" title="Clear the context window declaration" aria-label="Clear the context window declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                    <input id="profile-model-context-window" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_context_window" aria-describedby="profile-model-context-window-help">
-                  </div>
-                </div>
-                <div class="settings-preference-row">
-                  <div class="settings-preference-copy"><label for="profile-model-max-input">Declared maximum input (tokens)</label><small id="profile-model-max-input-help">Independent input ceiling, considered alongside the context window and input estimates in Warn and Block modes.</small></div>
-                  <div class="profile-context-control">
-                    <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_max_input_tokens" title="Clear the input limit declaration" aria-label="Clear the input limit declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                    <input id="profile-model-max-input" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_max_input_tokens" aria-describedby="profile-model-max-input-help">
-                  </div>
-                </div>
-                <div class="settings-preference-row">
-                  <div class="settings-preference-copy"><label for="profile-model-max-output">Declared maximum output (tokens)</label><small id="profile-model-max-output-help">Lowers the app output cap when smaller, including reasoning tokens. Cannot raise the app cap.</small></div>
-                  <div class="profile-context-control">
-                    <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_max_output_tokens" title="Clear the output limit declaration" aria-label="Clear the output limit declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                    <input id="profile-model-max-output" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_max_output_tokens" aria-describedby="profile-model-max-output-help">
-                  </div>
-                </div>
-                <p class="profile-context-note">Saved effective policy, before request overrides. Values below exclude unsaved edits.</p>
-                <p id="profile-context-effective" class="profile-context-note" role="status">Saved policy is not loaded.</p>
-                <button id="profile-context-retry" class="quiet sm-btn" type="button" hidden>Retry loading policy</button>
+          </section>
+
+          <section class="settings-group" aria-labelledby="profile-form-title">
+            <div class="settings-panel-heading"><h3 id="profile-form-title">Edit profile</h3></div>
+            <div class="settings-group-body profile-editor-fields">
+              <input type="hidden" id="editing-profile-id" value="">
+              <div class="form-grid-2">
+                <label>Profile name<input id="profile-name" required placeholder="e.g. EastUS GPT-5.6 Sol"></label>
+                <label>Deployment name<input id="azure-deployment" required placeholder="e.g. gpt-5.6-sol"></label>
               </div>
-            </details>
-            <div class="pricing-field-group">
-              <details id="profile-pricing-accordion" class="pricing-accordion settings-disclosure">
+              <label>Azure endpoint<input id="azure-endpoint" type="url" required placeholder="https://your-resource.cognitiveservices.azure.com/"></label>
+              <div class="profile-key-field">
+                <label for="azure-api-key">API key</label>
+                <div class="input-with-action">
+                  <input id="azure-api-key" type="password" placeholder="New key (optional)" autocomplete="off" aria-describedby="api-key-hint">
+                  <button id="toggle-api-key-btn" class="input-action-btn" type="button" title="Show API key" aria-label="Show API key">
+                    <i data-lucide="eye" aria-hidden="true"></i>
+                  </button>
+                </div>
+                <span id="api-key-hint" class="field-hint">Blank keeps the saved key; a new value replaces it.</span>
+              </div>
+              <details id="profile-context-settings" class="profile-context-settings settings-disclosure settings-subgroup-disclosure">
+                <summary class="settings-disclosure-header">
+                  <h4 class="settings-disclosure-title"><i data-lucide="sliders-horizontal" aria-hidden="true"></i>Context policy & model limits</h4>
+                  <i data-lucide="chevron-down" class="settings-disclosure-chevron" aria-hidden="true"></i>
+                </summary>
+                <div class="settings-disclosure-body">
+                  <fieldset class="settings-field-group">
+                    <legend>Context overrides</legend>
+                    <p class="profile-context-note">Optional context overrides for this profile. Priority: request, profile, then app settings.</p>
+                    <div class="settings-preference-row">
+                      <div class="settings-preference-copy"><label for="profile-context-preflight">Context preflight</label><small id="profile-context-preflight-help">Uses the app preflight mode. Output caps still apply.</small></div>
+                      <div class="profile-context-control">
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_preflight_mode" title="Use the app preflight setting" aria-label="Use the app preflight setting" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <select id="profile-context-preflight" data-profile-context="context_preflight_mode" aria-describedby="profile-context-preflight-help"><option value="">Use app setting</option><option value="warn">Warn</option><option value="block">Block</option><option value="off">Off</option></select>
+                      </div>
+                    </div>
+                    <div class="settings-preference-row">
+                      <div class="settings-preference-copy"><label for="profile-context-input-budget">Input estimate budget (tokens)</label><small id="profile-context-input-budget-help">Local preflight budget, separate from model capacity. Blank uses the app input allowance.</small></div>
+                      <div class="profile-context-control">
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_input_budget" title="Use the app input allowance" aria-label="Use the app input allowance" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <input id="profile-context-input-budget" type="number" min="1" step="1" placeholder="Use app allowance" data-profile-context="context_input_budget" aria-describedby="profile-context-input-budget-help">
+                      </div>
+                    </div>
+                  </fieldset>
+                  <fieldset class="settings-field-group">
+                    <legend>Model limits</legend>
+                    <p class="profile-context-note">Model limits are supplied declarations, not inferred from deployment names. Blank means unknown.</p>
+                    <div class="settings-preference-row">
+                      <div class="settings-preference-copy"><label for="profile-model-context-window">Declared context window (tokens)</label><small id="profile-model-context-window-help">Combined input and output capacity. The input ceiling subtracts the effective output cap.</small></div>
+                      <div class="profile-context-control">
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_context_window" title="Clear the context window declaration" aria-label="Clear the context window declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <input id="profile-model-context-window" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_context_window" aria-describedby="profile-model-context-window-help">
+                      </div>
+                    </div>
+                    <div class="settings-preference-row">
+                      <div class="settings-preference-copy"><label for="profile-model-max-input">Declared maximum input (tokens)</label><small id="profile-model-max-input-help">Independent input ceiling, considered alongside the context window and input estimates in Warn and Block modes.</small></div>
+                      <div class="profile-context-control">
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_max_input_tokens" title="Clear the input limit declaration" aria-label="Clear the input limit declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <input id="profile-model-max-input" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_max_input_tokens" aria-describedby="profile-model-max-input-help">
+                      </div>
+                    </div>
+                    <div class="settings-preference-row">
+                      <div class="settings-preference-copy"><label for="profile-model-max-output">Declared maximum output (tokens)</label><small id="profile-model-max-output-help">Lowers the app output cap when smaller, including reasoning tokens. Cannot raise the app cap.</small></div>
+                      <div class="profile-context-control">
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_max_output_tokens" title="Clear the output limit declaration" aria-label="Clear the output limit declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <input id="profile-model-max-output" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_max_output_tokens" aria-describedby="profile-model-max-output-help">
+                      </div>
+                    </div>
+                  </fieldset>
+                  <div class="settings-policy-summary">
+                    <h5>Saved effective policy</h5>
+                    <p>Before request overrides. Values below exclude unsaved edits.</p>
+                    <p id="profile-context-effective" class="settings-policy-values" role="status">Saved policy is not loaded.</p>
+                    <button id="profile-context-retry" class="quiet sm-btn" type="button" hidden>Retry loading policy</button>
+                  </div>
+                </div>
+              </details>
+              <details id="profile-pricing-accordion" class="pricing-accordion settings-disclosure settings-subgroup-disclosure">
                 <summary class="settings-disclosure-header">
                   <h4 class="settings-disclosure-title"><i data-lucide="calculator" aria-hidden="true"></i>Token pricing</h4>
                   <span class="pricing-accordion-status" id="pricing-accordion-status"><i data-lucide="circle-dashed"></i> Not configured</span>
@@ -491,7 +512,7 @@
                       <label>Cache read price ($ / 1M)<input id="azure-cache-read-price" type="number" step="any" min="0" placeholder="Not configured" aria-describedby="cache-pricing-hint"></label>
                       <label>Cache write price ($ / 1M)<input id="azure-cache-write-price" type="number" step="any" min="0" placeholder="Not configured" aria-describedby="cache-pricing-hint"></label>
                     </div>
-                    <span id="cache-pricing-hint" class="field-hint pricing-hint">A blank standard rate is unknown; 0 means free. Missing rates matter only for categories used. Unreported usage can leave estimates incomplete.</span>
+                    <span id="cache-pricing-hint" class="field-hint">A blank standard rate is unknown; 0 means free. Missing rates matter only for categories used. Unreported usage can leave estimates incomplete.</span>
                   </div>
                   <div class="tier-divider">
                     <div class="tier-divider-line"></div>
@@ -518,12 +539,12 @@
                       <label>Long cache read price ($ / 1M)<input id="azure-long-cache-read-price" type="number" step="any" min="0" placeholder="Use standard rate" aria-describedby="cache-pricing-hint long-pricing-hint"></label>
                       <label>Long cache write price ($ / 1M)<input id="azure-long-cache-write-price" type="number" step="any" min="0" placeholder="Use standard rate" aria-describedby="cache-pricing-hint long-pricing-hint"></label>
                     </div>
+                    <span id="long-pricing-hint" class="field-hint">Long-context rates apply when input tokens, including cache tokens, reach the threshold. Each blank rate uses its corresponding standard rate.</span>
                   </div>
-                  <span id="long-pricing-hint" class="field-hint pricing-hint">Long-context rates apply when input tokens, including cache tokens, reach the threshold. Each blank rate uses its corresponding standard rate.</span>
                 </div>
               </details>
             </div>
-          </div>
+          </section>
         </div>
         <div class="settings-editor-footer">
           <p id="profile-settings-status" class="settings-editor-status" role="status"></p>
@@ -540,89 +561,95 @@
 
     <section id="settings-usage" class="settings-panel" role="tabpanel" aria-labelledby="settings-usage-tab" tabindex="0" hidden>
       <div class="info-callout"><i data-lucide="info"></i><p>Currency, conversion, and per-response visibility controls are not available yet. Recorded costs remain in USD.</p></div>
-      <div class="settings-panel-heading"><h3>Display preferences</h3></div>
-      <div class="settings-preference-row">
-        <div class="settings-preference-copy"><label for="display-currency">Display currency</label><small>Currency used to display estimated costs.</small></div>
-        <select id="display-currency" disabled><option selected>USD · US Dollar</option></select>
-      </div>
-      <div class="settings-preference-row">
-        <div class="settings-preference-copy"><label for="conversion-rate">Conversion rate (1 USD)</label><small>Value of 1 USD in the display currency.</small></div>
-        <input id="conversion-rate" type="number" step="any" min="0" placeholder="Not configured" disabled>
-      </div>
-      <div class="settings-preference-row">
-        <div class="settings-preference-copy"><label for="show-response-usage">Per-response usage</label><small>Tokens, response time, and estimated cost alongside each response.</small></div>
-        <input id="show-response-usage" type="checkbox" checked disabled>
-      </div>
-      <div class="settings-preference-row">
-        <div class="settings-preference-copy"><label for="show-conversation-usage">Conversation usage footer</label><small>Recorded usage below the last message in each conversation.</small></div>
-        <input id="show-conversation-usage" type="checkbox" checked>
-      </div>
-      <div id="settings-usage-overview" class="settings-usage-overview">
-        <div class="settings-panel-heading"><h3>Recorded usage</h3><button id="refresh-settings-usage" class="quiet-btn" type="button"><i data-lucide="refresh-cw"></i> Refresh</button></div>
-        <p class="field-hint">Totals and call history share the filters below and include regeneration, memory summaries, and unsuccessful calls. Costs use the rates saved with each call.</p>
-        <div class="usage-filters">
-          <label>Scope<select id="usage-scope"><option value="conversation">This conversation</option><option value="all">All conversations</option></select></label>
-          <label>Call type<select id="usage-kind"><option value="">All calls</option><option value="chat">Chat</option><option value="regeneration">Regeneration</option><option value="summary">Memory summaries</option><option value="legacy_reply">Legacy replies</option></select></label>
-          <label>Period<select id="usage-period"><option value="all">All recorded</option><option value="today">Today</option><option value="week">Last 7 days</option><option value="custom">Custom range</option></select></label>
-        </div>
-        <div id="usage-date-range" class="form-grid-2 usage-date-range" hidden>
-          <div class="usage-date-field">
-            <label for="usage-start-date">Start date</label>
-            <div class="input-with-action">
-              <input id="usage-start-date" type="date">
-              <button class="input-action-btn hidden" type="button" data-date-picker="usage-start-date" title="Choose start date" aria-label="Choose start date"><i data-lucide="calendar" aria-hidden="true"></i></button>
-            </div>
+      <section class="settings-group" aria-labelledby="settings-usage-display-title">
+        <div class="settings-panel-heading"><h3 id="settings-usage-display-title">Display preferences</h3></div>
+        <div class="settings-group-body">
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="display-currency">Display currency</label><small>Currency used to display estimated costs.</small></div>
+            <select id="display-currency" disabled><option selected>USD · US Dollar</option></select>
           </div>
-          <div class="usage-date-field">
-            <label for="usage-end-date">End date</label>
-            <div class="input-with-action">
-              <input id="usage-end-date" type="date">
-              <button class="input-action-btn hidden" type="button" data-date-picker="usage-end-date" title="Choose end date" aria-label="Choose end date"><i data-lucide="calendar" aria-hidden="true"></i></button>
-            </div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="conversion-rate">Conversion rate (1 USD)</label><small>Value of 1 USD in the display currency.</small></div>
+            <input id="conversion-rate" type="number" step="any" min="0" placeholder="Not configured" disabled>
+          </div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="show-response-usage">Per-response usage</label><small>Tokens, response time, and estimated cost alongside each response.</small></div>
+            <input id="show-response-usage" type="checkbox" checked disabled>
+          </div>
+          <div class="settings-preference-row">
+            <div class="settings-preference-copy"><label for="show-conversation-usage">Conversation usage footer</label><small>Recorded usage below the last message in each conversation.</small></div>
+            <input id="show-conversation-usage" type="checkbox" checked>
           </div>
         </div>
-        <p id="usage-timezone" class="field-hint"></p>
-        <p data-usage-state role="status">Select a conversation to see recorded usage.</p>
-        <p data-usage-completeness></p>
-        <dl class="settings-usage-metrics settings-usage-primary">
-          <div><dt>Total tokens</dt><dd data-usage-field="total_tokens">—</dd></div>
-          <div><dt>Estimated cost (USD)</dt><dd data-usage-field="cost">—</dd></div>
-          <div><dt>API calls</dt><dd data-usage-field="calls">—</dd></div>
-        </dl>
-        <details class="usage-details usage-token-breakdown">
-          <summary>Token breakdown</summary>
-          <dl class="settings-usage-metrics">
-            <div><dt>Input / output tokens</dt><dd data-usage-field="input_output">— / —</dd></div>
-            <div><dt>Ordinary input tokens</dt><dd data-usage-field="uncached_input_tokens">—</dd></div>
-            <div><dt>Cache read / write</dt><dd data-usage-field="cache">— / —</dd></div>
-            <div><dt>Reasoning tokens</dt><dd data-usage-field="reasoning_tokens">—</dd></div>
-            <div><dt>Memory-summary calls</dt><dd data-usage-field="summaries">—</dd></div>
+      </section>
+      <section id="settings-usage-overview" class="settings-group settings-usage-overview" aria-labelledby="settings-usage-title">
+        <div class="settings-panel-heading"><h3 id="settings-usage-title">Recorded usage</h3><button id="refresh-settings-usage" class="quiet-btn" type="button"><i data-lucide="refresh-cw"></i> Refresh</button></div>
+        <div class="settings-group-body">
+          <p class="field-hint">Totals and call history share the filters below and include regeneration, memory summaries, and unsuccessful calls. Costs use the rates saved with each call.</p>
+          <div class="usage-filters">
+            <label>Scope<select id="usage-scope"><option value="conversation">This conversation</option><option value="all">All conversations</option></select></label>
+            <label>Call type<select id="usage-kind"><option value="">All calls</option><option value="chat">Chat</option><option value="regeneration">Regeneration</option><option value="summary">Memory summaries</option><option value="legacy_reply">Legacy replies</option></select></label>
+            <label>Period<select id="usage-period"><option value="all">All recorded</option><option value="today">Today</option><option value="week">Last 7 days</option><option value="custom">Custom range</option></select></label>
+          </div>
+          <div id="usage-date-range" class="form-grid-2 usage-date-range" hidden>
+            <div class="usage-date-field">
+              <label for="usage-start-date">Start date</label>
+              <div class="input-with-action">
+                <input id="usage-start-date" type="date">
+                <button class="input-action-btn hidden" type="button" data-date-picker="usage-start-date" title="Choose start date" aria-label="Choose start date"><i data-lucide="calendar" aria-hidden="true"></i></button>
+              </div>
+            </div>
+            <div class="usage-date-field">
+              <label for="usage-end-date">End date</label>
+              <div class="input-with-action">
+                <input id="usage-end-date" type="date">
+                <button class="input-action-btn hidden" type="button" data-date-picker="usage-end-date" title="Choose end date" aria-label="Choose end date"><i data-lucide="calendar" aria-hidden="true"></i></button>
+              </div>
+            </div>
+          </div>
+          <p id="usage-timezone" class="field-hint"></p>
+          <p data-usage-state role="status">Select a conversation to see recorded usage.</p>
+          <p data-usage-completeness></p>
+          <dl class="settings-usage-metrics settings-usage-primary">
+            <div><dt>Total tokens</dt><dd data-usage-field="total_tokens">—</dd></div>
+            <div><dt>Estimated cost (USD)</dt><dd data-usage-field="cost">—</dd></div>
+            <div><dt>API calls</dt><dd data-usage-field="calls">—</dd></div>
           </dl>
-        </details>
-        <details class="usage-details"><summary>Usage and coverage details</summary><p data-usage-notes></p></details>
-        <details id="usage-by-date">
-          <summary>Daily totals</summary>
-          <div class="usage-table-scroll" tabindex="0" aria-label="Daily recorded usage">
-            <table>
-              <thead><tr><th scope="col">Date</th><th scope="col">Calls</th><th scope="col">Input / output</th><th scope="col">Total tokens</th><th scope="col">Estimated cost (USD)</th><th scope="col">Status</th></tr></thead>
-              <tbody id="usage-daily-rows"></tbody>
-            </table>
-          </div>
-        </details>
-        <details id="usage-call-history" class="usage-call-history">
-          <summary>Call history</summary>
-          <p>Newest calls first. New calls can shift pages; Refresh returns to the newest records.</p>
-          <p id="usage-calls-state" role="status" hidden></p>
-          <div class="usage-calls-scroll" tabindex="0" aria-label="Recorded API calls">
-            <ul id="usage-calls-list"></ul>
-          </div>
-          <nav class="usage-history-pagination" aria-label="Call history pages">
-            <button id="usage-calls-previous" class="quiet-btn" type="button" disabled><i data-lucide="chevron-left"></i> Prev</button>
-            <span id="usage-calls-page"></span>
-            <button id="usage-calls-next" class="quiet-btn" type="button" disabled>Next <i data-lucide="chevron-right"></i></button>
-          </nav>
-        </details>
-      </div>
+          <details class="settings-usage-details usage-token-breakdown">
+            <summary>Token breakdown</summary>
+            <dl class="settings-usage-metrics">
+              <div><dt>Input / output tokens</dt><dd data-usage-field="input_output">— / —</dd></div>
+              <div><dt>Ordinary input tokens</dt><dd data-usage-field="uncached_input_tokens">—</dd></div>
+              <div><dt>Cache read / write</dt><dd data-usage-field="cache">— / —</dd></div>
+              <div><dt>Reasoning tokens</dt><dd data-usage-field="reasoning_tokens">—</dd></div>
+              <div><dt>Memory-summary calls</dt><dd data-usage-field="summaries">—</dd></div>
+            </dl>
+          </details>
+          <details class="settings-usage-details"><summary>Usage and coverage details</summary><p data-usage-notes></p></details>
+          <details id="usage-by-date" class="settings-usage-details">
+            <summary>Daily totals</summary>
+            <div class="usage-table-scroll" tabindex="0" aria-label="Daily recorded usage">
+              <table>
+                <thead><tr><th scope="col">Date</th><th scope="col">Calls</th><th scope="col">Input / output</th><th scope="col">Total tokens</th><th scope="col">Estimated cost (USD)</th><th scope="col">Status</th></tr></thead>
+                <tbody id="usage-daily-rows"></tbody>
+              </table>
+            </div>
+          </details>
+          <details id="usage-call-history" class="settings-usage-details usage-call-history">
+            <summary>Call history</summary>
+            <p>Newest calls first. New calls can shift pages; Refresh returns to the newest records.</p>
+            <p id="usage-calls-state" role="status" hidden></p>
+            <div class="usage-calls-scroll" tabindex="0" aria-label="Recorded API calls">
+              <ul id="usage-calls-list"></ul>
+            </div>
+            <nav class="usage-history-pagination" aria-label="Call history pages">
+              <button id="usage-calls-previous" class="quiet-btn" type="button" disabled><i data-lucide="chevron-left"></i> Prev</button>
+              <span id="usage-calls-page"></span>
+              <button id="usage-calls-next" class="quiet-btn" type="button" disabled>Next <i data-lucide="chevron-right"></i></button>
+            </nav>
+          </details>
+        </div>
+      </section>
     </section>
   </dialog>
 
