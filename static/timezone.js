@@ -3,6 +3,8 @@
 import { $, toast } from './ui.js';
 
 const STORAGE_KEY = 'helios.uiTimezone';
+// Keep display formatting aligned with the English UI until interface language selection is available.
+const INTERFACE_LOCALE = 'en-US';
 
 function normalizeTimezone(value) {
   if (typeof value !== 'string' || !/^[A-Za-z][A-Za-z0-9_+\-/]*$/.test(value)) return 'browser';
@@ -34,10 +36,27 @@ export function calendarDate(date = new Date()) {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-export function formatTimestamp(value) {
-  if (typeof value !== 'string' || !/(Z|[+-]\d{2}:\d{2})$/.test(value)) return 'Unknown';
+function timestampDate(value) {
+  if (typeof value !== 'string' || !/(Z|[+-]\d{2}:\d{2})$/.test(value)) return null;
   const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? date.toLocaleString(undefined, { timeZone: getTimezone() }) : 'Unknown';
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
+export function formatTimestamp(value) {
+  return timestampDate(value)?.toLocaleString(INTERFACE_LOCALE, { timeZone: getTimezone() }) || 'Unknown';
+}
+
+export function formatMessageTimestamp(value) {
+  const date = timestampDate(value);
+  if (!date) return null;
+  const timeZone = getTimezone();
+  const today = calendarDate(date) === calendarDate();
+  const offset = Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset' })
+    .formatToParts(date).find(part => part.type === 'timeZoneName').value.replace('GMT', 'UTC');
+  return {
+    label: date.toLocaleString(INTERFACE_LOCALE, { timeZone, ...(today ? {} : { dateStyle: 'short' }), timeStyle: 'short' }),
+    detail: `${formatTimestamp(value)} · ${timeZone} (${offset === 'UTC' ? 'UTC+00:00' : offset})`
+  };
 }
 
 export function initializeTimezoneSettings() {

@@ -1,15 +1,28 @@
-/* Navigate Settings categories and connect display and timezone preferences, app policy editing, and conversation usage visibility. */
+/* Navigate Settings categories, preserve disclosure state, and connect display and timezone preferences, app policy editing, and usage visibility. */
 
-import { $ } from './ui.js';
+import { $, toast } from './ui.js';
 import { createAppSettings } from './app-settings.js';
 import { initializeFontSettings, initializeFontSizeSettings } from './font-settings.js';
-import { initializeSettingsDisclosures } from './settings-disclosures.js';
+import { createDisclosure } from './disclosure.js';
 import { initializeTimezoneSettings } from './timezone.js';
 
 const panelScrollPositions = new Map();
 
 function panelScroller(panel) {
   return panel.querySelector('.settings-editor-body') || panel;
+}
+
+function initializeSettingsDisclosures() {
+  const dialog = $('#settings-dialog');
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const disclosures = [...dialog.querySelectorAll('.settings-disclosure')].map(details => ({ details,
+    controller: createDisclosure(details, details.querySelector(':scope > .settings-disclosure-body'), reducedMotion) }));
+  dialog.addEventListener('settings-panel-change', () => {
+    disclosures.filter(({ details }) => details.closest('.settings-panel').hidden).forEach(({ controller }) => controller.finish());
+  });
+  dialog.addEventListener('close', () => {
+    if (!dialog.open) disclosures.forEach(({ controller }) => controller.finish());
+  });
 }
 
 export function selectSettingsPanel(name, focus = false) {
@@ -31,7 +44,7 @@ export function selectSettingsPanel(name, focus = false) {
   $('#settings-dialog').dispatchEvent(new CustomEvent('settings-panel-change', { detail: { name } }));
 }
 
-export function initializeSettings({ onConversationUsageVisibilityChange, hasUnsavedProfileChanges, isProfileSaving }) {
+export function initializeSettings({ onConversationUsageVisibilityChange, onResponseUsageVisibilityChange, hasUnsavedProfileChanges, isProfileSaving }) {
   initializeFontSettings();
   initializeFontSizeSettings();
   initializeTimezoneSettings();
@@ -65,6 +78,25 @@ export function initializeSettings({ onConversationUsageVisibilityChange, hasUns
   usageToggle.addEventListener('change', () => {
     localStorage.setItem('helios.showConversationUsage', String(usageToggle.checked));
     onConversationUsageVisibilityChange(usageToggle.checked);
+  });
+
+  const responseToggle = $('#show-response-usage');
+  const responseKey = 'helios.showResponseUsage';
+
+  function restoreResponseUsage() {
+    try { responseToggle.checked = localStorage.getItem(responseKey) !== 'false'; }
+    catch { responseToggle.checked = true; }
+    onResponseUsageVisibilityChange(responseToggle.checked);
+  }
+
+  restoreResponseUsage();
+  responseToggle.addEventListener('change', () => {
+    onResponseUsageVisibilityChange(responseToggle.checked);
+    try { localStorage.setItem(responseKey, String(responseToggle.checked)); }
+    catch { toast('Your browser could not save the response usage preference. It applies for this session only.', 'error'); }
+  });
+  window.addEventListener('storage', event => {
+    if (event.key === responseKey || event.key === null) restoreResponseUsage();
   });
   return { beforeDialogClose: appSettings.beforeDialogClose };
 }

@@ -922,7 +922,11 @@ async def chat(payload: ChatRequest):
         instructions, input_messages, visual_tokens=attachments.visual_tokens,
     )
     if payload.regenerate_message_index is None:
-        conversation_manager.add_message(conversation, "user", user_prompt)
+        user_message = conversation_manager.add_message(
+            conversation, "user", user_prompt
+        )
+    else:
+        user_message = conversation.messages[payload.regenerate_message_index]
     turn_version = conversation.version
     turn_messages = conversation.messages
 
@@ -935,7 +939,11 @@ async def chat(payload: ChatRequest):
         completed = False
         request_instructions, request_messages = instructions, input_messages
         try:
-            yield f"data: {json.dumps({'type': 'start', 'conversation_id': conversation.id})}\n\n"
+            start_event = {
+                "type": "start", "conversation_id": conversation.id,
+                "user_created_at": user_message.created_at.isoformat(),
+            }
+            yield f"data: {json.dumps(start_event)}\n\n"
             if attachments.metadata:
                 metadata_event = {
                     "type": "attachments", "files": attachments.metadata,
@@ -1050,11 +1058,11 @@ async def chat(payload: ChatRequest):
                     raise ContextChangedError(
                         "Conversation changed during generation. Please retry."
                     )
-                conversation_manager.add_message(
+                saved_message = conversation_manager.add_message(
                     conversation, "assistant", answer, **msg_kwargs
                 )
             else:
-                conversation_manager.replace_reply(
+                saved_message = conversation_manager.replace_reply(
                     conversation,
                     payload.regenerate_message_index,
                     answer,
@@ -1066,7 +1074,10 @@ async def chat(payload: ChatRequest):
                 conversation,
                 profile_id=profile_id,
             )
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            done_event = {
+                "type": "done", "created_at": saved_message.created_at.isoformat(),
+            }
+            yield f"data: {json.dumps(done_event)}\n\n"
         except ConversationUnavailableError:
             logger.info(
                 "Discarded response for an unavailable conversation: %s",

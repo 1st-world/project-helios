@@ -1,10 +1,7 @@
-/* Animate Settings disclosures while preserving their intended state across tab changes and dialog reopening. */
+/* Animate native disclosures, settle interrupted transitions, and release observers when their content is removed. */
 
-import { $ } from './ui.js';
-
-function createDisclosure(details, reducedMotion) {
+export function createDisclosure(details, body, reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')) {
   const summary = details.querySelector(':scope > summary');
-  const body = details.querySelector(':scope > .settings-disclosure-body');
   let targetOpen = details.open;
   let heightAnimation = null;
   let opacityAnimation = null;
@@ -54,33 +51,35 @@ function createDisclosure(details, reducedMotion) {
     heightAnimation.onfinish = () => finish();
   }
 
+  function onClick(event) {
+    event.preventDefault();
+    toggle(!targetOpen);
+  }
+
+  function onReducedMotion() {
+    if (reducedMotion.matches) finish();
+  }
+
   const observer = new MutationObserver(() => {
     if (details.open !== targetOpen) finish(details.open);
   });
   observer.observe(details, { attributes: true, attributeFilter: ['open'] });
-  new ResizeObserver(() => {
+  const resizeObserver = new ResizeObserver(() => {
     const height = body.getBoundingClientRect().height;
     if (heightAnimation && Math.abs(height - bodyHeight) > 0.5) toggle(targetOpen);
     bodyHeight = height;
-  }).observe(body);
-  summary.addEventListener('click', event => {
-    event.preventDefault();
-    toggle(!targetOpen);
   });
-  return { finish };
-}
+  resizeObserver.observe(body);
+  summary.addEventListener('click', onClick);
+  reducedMotion.addEventListener('change', onReducedMotion);
 
-export function initializeSettingsDisclosures() {
-  const dialog = $('#settings-dialog');
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-  const disclosures = [...dialog.querySelectorAll('.settings-disclosure')].map(details => ({ details, controller: createDisclosure(details, reducedMotion) }));
-  reducedMotion.addEventListener('change', () => {
-    if (reducedMotion.matches) disclosures.forEach(({ controller }) => controller.finish());
-  });
-  dialog.addEventListener('settings-panel-change', () => {
-    disclosures.filter(({ details }) => details.closest('.settings-panel').hidden).forEach(({ controller }) => controller.finish());
-  });
-  dialog.addEventListener('close', () => {
-    if (!dialog.open) disclosures.forEach(({ controller }) => controller.finish());
-  });
+  function destroy() {
+    finish();
+    observer.disconnect();
+    resizeObserver.disconnect();
+    summary.removeEventListener('click', onClick);
+    reducedMotion.removeEventListener('change', onReducedMotion);
+  }
+
+  return { finish, destroy };
 }

@@ -29,6 +29,7 @@ const settings = initializeSettings({
     chat.setUsageVisibility(visible);
     usage.setFooterVisible(visible);
   },
+  onResponseUsageVisibilityChange: chat.setResponseUsageVisibility,
   hasUnsavedProfileChanges: profiles.hasUnsavedChanges,
   isProfileSaving: profiles.isSaving
 });

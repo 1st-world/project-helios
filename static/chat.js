@@ -3,6 +3,8 @@
 import { $, closeMobileSidebar, escapeHtml, refreshIcons, toast } from './ui.js';
 import { describeContextWarning, describeRequestError } from './chat-feedback.js';
 import { describeAttachmentNotes } from './attachments.js';
+import { calendarDate, formatMessageTimestamp, getTimezone } from './timezone.js';
+import { createDisclosure } from './disclosure.js';
 
 export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmentMetadata, clearFocusFiles, onGeneratingChange, onConversationChange }) {
   const state = {
@@ -11,11 +13,17 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     controller: null,
     generating: false,
     showConversationUsage: true,
+    showResponseUsage: true,
     // Keep the latest request's feedback per conversation without storing estimates as transcript usage.
     requestFeedback: new Map()
   };
 
   const chat = $('#chat');
+  const messageMetadata = new WeakMap();
+  const usageDisclosures = new WeakMap();
+  let timestampRefreshTimer = null;
+  let timestampDay = '';
+  let timestampTimezone = '';
   const prompt = $('#prompt');
   const send = $('#send');
   const stop = $('#stop');
@@ -116,6 +124,16 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     if (wasNearBottom) scrollDown(false);
   }
 
+  function setResponseUsageVisibility(visible) {
+    const wasNearBottom = isNearBottom();
+    state.showResponseUsage = visible;
+    chat.querySelectorAll('.message-usage').forEach(el => {
+      if (!visible) usageDisclosures.get(el)?.finish();
+      el.hidden = !visible;
+    });
+    if (wasNearBottom) scrollDown(false);
+  }
+
   function renderUsageContent(render) {
     const wasNearBottom = isNearBottom();
     render();
@@ -158,54 +176,94 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     }
   }
 
-  function formatMessageMeta(meta) {
-    if (!meta) return '';
-    const parts = [];
-    const profileLabel = meta.profile_name || meta.deployment;
-    if (profileLabel) {
-      parts.push(`<span class="message-meta-tag"><i data-lucide="bot"></i> ${escapeHtml(profileLabel)}</span>`);
+  function renderMessageTimestamp(el) {
+    const meta = messageMetadata.get(el) || {};
+    const label = el.querySelector('.message-timestamp');
+    const timestamp = formatMessageTimestamp(meta.created_at);
+    label.hidden = !meta.created_at;
+    if (!timestamp) {
+      label.textContent = 'Time unknown';
+      label.removeAttribute('title');
+      label.removeAttribute('aria-label');
+      return;
     }
-    const inTokens = meta.input_tokens;
-    const outTokens = meta.output_tokens;
-    const totalTokens = meta.total_tokens ?? (inTokens != null && outTokens != null ? inTokens + outTokens : null);
+    const time = document.createElement('time');
+    time.dateTime = meta.created_at;
+    time.textContent = timestamp.label;
+    label.replaceChildren(time);
+    const description = `${el.classList.contains('assistant') ? 'Response' : 'Message'} saved: ${timestamp.detail}`;
+    label.title = description;
+    label.setAttribute('aria-label', description);
+  }
+
+  function disposeMessageDisclosures(root = chat) {
+    root.querySelectorAll('.message-usage').forEach(details => {
+      usageDisclosures.get(details)?.destroy();
+      usageDisclosures.delete(details);
+    });
+  }
+
+  function refreshMessageTimestamps(force = false) {
+    clearTimeout(timestampRefreshTimer);
+    if (document.hidden) return;
+    const day = calendarDate();
+    const timezone = getTimezone();
+    if (force || day !== timestampDay || timezone !== timestampTimezone) {
+      const wasNearBottom = isNearBottom();
+      chat.querySelectorAll('.message').forEach(renderMessageTimestamp);
+      timestampDay = day;
+      timestampTimezone = timezone;
+      if (wasNearBottom) scrollDown(false);
+    }
+    // Check minute boundaries rather than assuming calendar days last 24 hours across timezone changes and DST.
+    timestampRefreshTimer = setTimeout(refreshMessageTimestamps, 60000 - Date.now() % 60000);
+  }
+
+  function formatMessageUsage(meta) {
+    const summary = [];
+    const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
+    const inTokens = count(meta.input_tokens);
+    const outTokens = count(meta.output_tokens);
+    const totalTokens = count(meta.total_tokens) ?? (inTokens != null && outTokens != null ? count(inTokens + outTokens) : null);
     if (totalTokens != null) {
-      const detail = (inTokens != null && outTokens != null) ? ` (${inTokens.toLocaleString()} in / ${outTokens.toLocaleString()} out)` : '';
-      parts.push(`<span class="message-meta-item">${totalTokens.toLocaleString()} tokens${detail}</span>`);
+      summary.push(`<span class="message-meta-item">${totalTokens.toLocaleString()} tokens</span>`);
+    } else if (meta.usage_status) {
+      summary.push('<span class="message-meta-item">Tokens unknown</span>');
     }
-    const tokenDetails = [
-      ['cache_read_tokens', 'cache read'],
-      ['cache_write_tokens', 'cache write'],
-      ['reasoning_tokens', 'reasoning'],
-    ].filter(([name]) => Number.isInteger(meta[name]) && meta[name] > 0)
-      .map(([name, label]) => `${meta[name].toLocaleString()} ${label}`);
-    if (tokenDetails.length) {
-      parts.push(`<span class="message-meta-item" title="Cache tokens are included in input; reasoning tokens are included in output.">· ${tokenDetails.join(' / ')}</span>`);
+    if (Number.isFinite(meta.response_time_ms) && meta.response_time_ms >= 0) {
+      summary.push(`<span class="message-meta-item">${(meta.response_time_ms / 1000).toFixed(1)}s</span>`);
     }
-    if (meta.response_time_ms != null) {
-      parts.push(`<span class="message-meta-item">· ${(meta.response_time_ms / 1000).toFixed(1)}s</span>`);
-    }
-    if (meta.estimated_cost !== null && meta.estimated_cost !== undefined) {
+    if (Number.isFinite(meta.estimated_cost) && meta.estimated_cost >= 0) {
       const qualification = meta.cost_status === 'complete' ? '' : meta.cost_status === 'partial' ? ' (Partial estimate)' : ' (Completeness unknown)';
-      parts.push(`<span class="message-meta-item message-meta-cost">· $${Number(meta.estimated_cost).toFixed(6)}${qualification}</span>`);
+      summary.push(`<span class="message-meta-item message-meta-cost">$${meta.estimated_cost.toFixed(6)}${qualification}</span>`);
+    } else if (meta.cost_status || meta.estimated_cost != null) {
+      summary.push('<span class="message-meta-item">Cost unavailable</span>');
     }
+    const fields = [['input_tokens', 'Input tokens'], ['output_tokens', 'Output tokens'],
+      ['uncached_input_tokens', 'Uncached input'], ['cache_read_tokens', 'Cache read'],
+      ['cache_write_tokens', 'Cache write'], ['reasoning_tokens', 'Reasoning']];
+    const rows = fields.filter(([name]) => meta[name] != null || ['input_tokens', 'output_tokens'].includes(name))
+      .map(([name, label]) => `<div><dt>${label}</dt><dd>${count(meta[name])?.toLocaleString() ?? 'Unknown'}</dd></div>`);
     if (meta.is_long_context) {
-      parts.push(`<span class="message-meta-tag message-meta-tier">Long Tier</span>`);
+      rows.push('<div><dt>Pricing tier</dt><dd><span class="message-meta-tag message-meta-tier">Long Tier</span></dd></div>');
     }
-    return parts.join(' ');
+    const hint = ['cache_read_tokens', 'cache_write_tokens', 'reasoning_tokens'].some(name => count(meta[name]) > 0)
+      ? '<p class="message-usage-hint">Cache tokens are included in input; reasoning tokens are included in output.</p>' : '';
+    return summary.length ? `<summary class="message-usage-summary"><span class="message-usage-metrics">${summary.join('')}</span><span class="message-usage-toggle">Details<i data-lucide="chevron-down" aria-hidden="true"></i></span></summary><div class="message-usage-body"><dl class="message-usage-fields">${rows.join('')}</dl>${hint}</div>` : '';
   }
 
   function appendMessage(role, content = '', messageIndex = null, shouldScroll = true, smooth = false, meta = null, regeneration = null) {
     chat.querySelector('.empty-state')?.remove();
     const el = document.createElement('article');
     el.className = `message ${role}`;
-    if (role === 'assistant') {
-      el.innerHTML = `<div class="avatar"><i data-lucide="sparkles"></i></div><div class="message-body"><div class="message-text"></div><div class="message-footer"><div class="message-meta"></div><div class="message-actions"></div></div></div>`;
-    } else {
-      el.innerHTML = `<div class="message-body"><div class="message-text"></div><div class="message-footer"><div class="message-actions"></div></div></div>`;
-    }
+    const avatar = role === 'assistant' ? '<div class="avatar"><i data-lucide="sparkles"></i></div>' : '';
+    const timestamp = '<span class="message-timestamp" hidden></span>';
+    const metadata = role === 'assistant' ? `<div class="message-meta"><span class="message-meta-tag message-profile" hidden><i data-lucide="bot" aria-hidden="true"></i><span></span></span>${timestamp}</div>` : '';
+    el.innerHTML = `${avatar}<div class="message-body"><div class="message-text"></div><div class="message-footer"><div class="message-footer-main">${metadata}<div class="message-actions">${role === 'user' ? timestamp : ''}<div class="message-action-buttons"></div></div></div></div></div>`;
     const textEl = el.querySelector('.message-text');
-    const metaEl = el.querySelector('.message-meta');
-    const actionsEl = el.querySelector('.message-actions');
+    const footer = el.querySelector('.message-footer');
+    const profileEl = el.querySelector('.message-profile');
+    const actionsEl = el.querySelector('.message-action-buttons');
 
     const render = (text) => {
       textEl.innerHTML = role === 'assistant' ? renderMarkdown(text) : escapeHtml(text).replace(/\n/g, '<br>');
@@ -213,13 +271,44 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     render(content);
 
     const setMeta = (newMeta) => {
-      if (!metaEl) return;
-      metaEl.innerHTML = formatMessageMeta(newMeta);
+      const current = { ...messageMetadata.get(el), ...newMeta };
+      messageMetadata.set(el, current);
+      if (profileEl) {
+        const profileLabel = current.profile_name || current.deployment;
+        profileEl.hidden = !profileLabel;
+        profileEl.querySelector('span').textContent = profileLabel || '';
+      }
+      renderMessageTimestamp(el);
+      if (role === 'assistant' && Object.keys(newMeta).some(name => name !== 'created_at')) {
+        const markup = formatMessageUsage(current);
+        let usageEl = el.querySelector('.message-usage');
+        if (markup) {
+          if (!usageEl) {
+            usageEl = document.createElement('details');
+            usageEl.className = 'message-usage';
+            footer.append(usageEl);
+          }
+          usageDisclosures.get(usageEl)?.destroy();
+          usageEl.innerHTML = markup;
+          usageEl.hidden = !state.showResponseUsage;
+          const controller = createDisclosure(usageEl, usageEl.querySelector(':scope > .message-usage-body'));
+          const resizeObserver = new ResizeObserver(() => {
+            if (usageEl.isConnected && !usageEl.hidden && isNearBottom()) scrollDown(false);
+          });
+          resizeObserver.observe(usageEl);
+          usageDisclosures.set(usageEl, {
+            finish: controller.finish,
+            destroy() { resizeObserver.disconnect(); controller.destroy(); }
+          });
+        } else if (usageEl) {
+          usageDisclosures.get(usageEl)?.destroy();
+          usageDisclosures.delete(usageEl);
+          usageEl.remove();
+        }
+      }
       refreshIcons();
     };
-    if (meta && metaEl) {
-      setMeta(meta);
-    }
+    if (meta) setMeta(meta);
 
     if (role === 'user' && Number.isInteger(messageIndex)) {
       const edit = document.createElement('button');
@@ -342,6 +431,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     state.conversationVersion = data.version;
     const savedScrollTop = chat.scrollTop;
     const wasNearBottom = isNearBottom();
+    disposeMessageDisclosures();
     chat.innerHTML = '';
     data.messages.forEach((message, index) => {
       const source = data.messages[index - 1];
@@ -364,6 +454,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     onConversationChange(null);
     state.requestFeedback.delete(null);
     clearFocusFiles();
+    disposeMessageDisclosures();
     chat.innerHTML = emptyChatMarkup;
     loadConversations();
     prompt.focus();
@@ -428,7 +519,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     const requestFeedback = { conversationId: state.conversationId, items: [] };
     state.requestFeedback.delete(state.conversationId);
     renderRequestFeedback();
-    if (options.appendUser !== false) appendMessage('user', text);
+    const user = options.appendUser !== false ? appendMessage('user', text) : null;
     if (!options.preserveDraft) {
       prompt.value = '';
       autoResize();
@@ -475,6 +566,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
             requestStarted = true;
             requestFeedback.conversationId = event.conversation_id;
             if (!options.preserveDraft || state.conversationId === requestConversationId) onStart(event);
+            if (event.user_created_at) user?.setMeta({ created_at: event.user_created_at });
           }
           if (event.type === 'context_policy') contextPolicy = event;
           if (event.type === 'attachments' && Array.isArray(event.files)) {
@@ -498,6 +590,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
                 response_time_ms: event.usage.response_time_ms,
                 estimated_cost: event.usage.estimated_cost,
                 is_long_context: event.usage.is_long_context,
+                uncached_input_tokens: event.usage.uncached_input_tokens,
                 cache_read_tokens: event.usage.cache_read_tokens,
                 cache_write_tokens: event.usage.cache_write_tokens,
                 reasoning_tokens: event.usage.reasoning_tokens,
@@ -506,7 +599,10 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
               });
             }
           }
-          if (event.type === 'done') onFinish();
+          if (event.type === 'done') {
+            if (event.created_at) assistant.setMeta({ created_at: event.created_at });
+            onFinish();
+          }
           if (event.type === 'error') {
             const feedback = describeRequestError(event, 'Unable to generate a response.');
             throw Object.assign(new Error(feedback.message), { feedback });
@@ -543,7 +639,10 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     if (state.generating || !state.conversationId) return;
     if (hasFollowing && !window.confirm('Regenerate this response? Once successful, this will replace the response and remove all following messages.')) return;
     // The server keeps the original branch until regeneration completes successfully.
-    [...chat.querySelectorAll('.message')].slice(userIndex + 1).forEach((message) => message.remove());
+    [...chat.querySelectorAll('.message')].slice(userIndex + 1).forEach((message) => {
+      disposeMessageDisclosures(message);
+      message.remove();
+    });
     sendMessage({ prompt: content, regenerateMessageIndex: userIndex, appendUser: false,
       preserveDraft: true, expectedConversationVersion: state.conversationVersion });
   }
@@ -555,6 +654,10 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     stop.onclick = () => state.controller?.abort();
     prompt.oninput = autoResize;
     document.addEventListener('text-size-change', autoResize);
+    document.addEventListener('timezone-change', () => refreshMessageTimestamps(true));
+    document.addEventListener('visibilitychange', () => refreshMessageTimestamps());
+    window.addEventListener('focus', () => refreshMessageTimestamps());
+    refreshMessageTimestamps();
     prompt.onkeydown = (event) => {
       if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
         event.preventDefault();
@@ -563,5 +666,5 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     };
   }
 
-  return { init, newChat, setUsageVisibility, renderUsageContent, usageFooter, isGenerating: () => state.generating };
+  return { init, newChat, setUsageVisibility, setResponseUsageVisibility, renderUsageContent, usageFooter, isGenerating: () => state.generating };
 }
