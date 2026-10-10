@@ -1,9 +1,10 @@
-/* Navigate settings categories and connect font preferences, app policy editing, and conversation usage visibility. */
+/* Navigate Settings categories and connect display and timezone preferences, app policy editing, and conversation usage visibility. */
 
 import { $ } from './ui.js';
 import { createAppSettings } from './app-settings.js';
 import { initializeFontSettings, initializeFontSizeSettings } from './font-settings.js';
 import { initializeSettingsDisclosures } from './settings-disclosures.js';
+import { initializeTimezoneSettings } from './timezone.js';
 
 const panelScrollPositions = new Map();
 
@@ -33,6 +34,7 @@ export function selectSettingsPanel(name, focus = false) {
 export function initializeSettings({ onConversationUsageVisibilityChange, hasUnsavedProfileChanges, isProfileSaving }) {
   initializeFontSettings();
   initializeFontSizeSettings();
+  initializeTimezoneSettings();
   initializeSettingsDisclosures();
   const appSettings = createAppSettings({ hasUnsavedProfileChanges, isProfileSaving });
   appSettings.init();

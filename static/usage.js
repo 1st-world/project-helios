@@ -3,6 +3,7 @@
 import { $, refreshIcons } from './ui.js';
 import { describeRequestError } from './chat-feedback.js';
 import { createUsageHistory } from './usage-history.js';
+import { getTimezone, getTimezonePreference, calendarDate, formatTimestamp } from './timezone.js';
 
 const TOKEN_FIELDS = ['input_tokens', 'output_tokens', 'total_tokens', 'uncached_input_tokens', 'cache_read_tokens', 'cache_write_tokens', 'reasoning_tokens'];
 const MISSING_FIELDS = ['unknown_usage_calls', 'unknown_cost_calls', 'partial_cost_calls', 'unknown_cost_completeness_calls', 'unknown_timestamp_calls', 'legacy_calls'];
@@ -65,19 +66,14 @@ function reportNotes(report) {
   if (total.unknown_timestamp_calls) lines.push(`${total.unknown_timestamp_calls.toLocaleString()} calls have an unknown start date.`);
   if (report.unknown_timestamp_calls_excluded) lines.push(`${report.unknown_timestamp_calls_excluded.toLocaleString()} calls with unknown dates were excluded from this date range.`);
   if (report.recording_errors || report.import_errors) lines.push(`History storage errors: ${report.recording_errors.toLocaleString()} recording, ${report.import_errors.toLocaleString()} import. Totals may omit calls.`);
-  if (report.tracking_started_at) lines.push(`Tracking started: ${report.tracking_started_at}.`);
+  if (report.tracking_started_at) lines.push(`Tracking started: ${formatTimestamp(report.tracking_started_at)}.`);
   if (total.cost_status !== 'complete' || total.coverage_incomplete) lines.push('Known estimates do not establish the full usage or Azure bill for this selection.');
   return lines.join('\n');
-}
-
-function localDate(date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 export function createUsage({ footer, renderFooter }) {
   const dialog = $('#settings-dialog');
   const overview = $('#settings-usage-overview');
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
   const views = {
     footer: { root: footer, render: renderFooter, refresh: footer.querySelector('[data-usage-refresh]'), controller: null },
     settings: { root: overview, render: render => render(), refresh: $('#refresh-settings-usage'), controller: null }
@@ -85,7 +81,8 @@ export function createUsage({ footer, renderFooter }) {
   let conversationId = null;
   let generating = false;
   let footerVisible = true;
-  const history = createUsageHistory({ timezone, isVisible: settingsVisible });
+  let datesEdited = false;
+  const history = createUsageHistory({ isVisible: settingsVisible });
 
   function settingsVisible() {
     return dialog.open && !$('#settings-usage').hidden;
@@ -198,7 +195,7 @@ export function createUsage({ footer, renderFooter }) {
     if (!conversationId) {
       showState(views.footer, 'Select a conversation to see recorded usage.', 'empty');
     } else if (footerVisible && !generating) {
-      load(views.footer, new URLSearchParams({ conversation_id: conversationId, timezone }));
+      load(views.footer, new URLSearchParams({ conversation_id: conversationId, timezone: getTimezone() }));
     }
   }
 
@@ -225,7 +222,7 @@ export function createUsage({ footer, renderFooter }) {
       history.select(null, 'Choose valid dates above to view recorded calls.');
       return;
     }
-    const params = new URLSearchParams({ timezone });
+    const params = new URLSearchParams({ timezone: getTimezone() });
     if ($('#usage-scope').value === 'conversation') {
       if (!conversationId) {
         history.select(null, 'Select a conversation or choose All conversations.');
@@ -239,10 +236,12 @@ export function createUsage({ footer, renderFooter }) {
       params.set('start_date', start.value);
       params.set('end_date', end.value);
     } else if (period !== 'all') {
-      const today = new Date();
-      params.set('end_date', localDate(today));
-      if (period === 'week') today.setDate(today.getDate() - 6);
-      params.set('start_date', localDate(today));
+      const today = calendarDate();
+      params.set('end_date', today);
+      // Shift calendar days rather than elapsed hours so DST does not change the selected range.
+      const startDate = new Date(`${today}T00:00:00Z`);
+      if (period === 'week') startDate.setUTCDate(startDate.getUTCDate() - 6);
+      params.set('start_date', startDate.toISOString().slice(0, 10));
     }
     history.select(params, '', { reset: resetHistory });
     load(views.settings, params);
@@ -268,15 +267,28 @@ export function createUsage({ footer, renderFooter }) {
     refreshFooter();
   }
 
+  function updateTimezone() {
+    const source = getTimezonePreference() === 'browser' ? ', the browser timezone' : '';
+    $('#usage-timezone').textContent = `Dates use call start times in ${getTimezone()}${source}. Both range endpoints are included.`;
+    if (!datesEdited) {
+      const today = calendarDate();
+      $('#usage-start-date').value = today;
+      $('#usage-end-date').value = today;
+    }
+  }
+
   function init() {
     history.init();
-    const today = localDate(new Date());
-    $('#usage-start-date').value = today;
-    $('#usage-end-date').value = today;
-    $('#usage-timezone').textContent = `Dates use call start times in ${timezone}, the browser timezone. Both range endpoints are included.`;
+    updateTimezone();
     views.footer.refresh.onclick = refreshFooter;
     views.settings.refresh.onclick = () => refreshSettings({ resetHistory: true });
     for (const id of ['usage-scope', 'usage-period', 'usage-kind', 'usage-start-date', 'usage-end-date']) $(`#${id}`).addEventListener('change', refreshSettings);
+    for (const id of ['usage-start-date', 'usage-end-date']) $(`#${id}`).addEventListener('input', () => { datesEdited = true; });
+    document.addEventListener('timezone-change', () => {
+      updateTimezone();
+      refreshFooter();
+      refreshSettings();
+    });
 
     for (const button of overview.querySelectorAll('[data-date-picker]')) {
       const input = $(`#${button.dataset.datePicker}`);

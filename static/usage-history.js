@@ -2,6 +2,7 @@
 
 import { $, refreshIcons } from './ui.js';
 import { describeRequestError } from './chat-feedback.js';
+import { getTimezone, formatTimestamp } from './timezone.js';
 
 const PAGE_SIZE = 25;
 const KINDS = { chat: 'Chat', regeneration: 'Regeneration', summary: 'Memory summary', legacy_reply: 'Legacy reply' };
@@ -72,7 +73,7 @@ function validateRecords(data) {
   }
 }
 
-export function createUsageHistory({ timezone, isVisible }) {
+export function createUsageHistory({ isVisible }) {
   const root = $('#usage-call-history');
   const list = $('#usage-calls-list');
   const message = $('#usage-calls-state');
@@ -115,13 +116,8 @@ export function createUsageHistory({ timezone, isVisible }) {
     updateControls();
   }
 
-  function timestamp(value) {
-    if (typeof value !== 'string' || !/(Z|[+-]\d{2}:\d{2})$/.test(value)) return 'Unknown';
-    const date = new Date(value);
-    return Number.isFinite(date.getTime()) ? date.toLocaleString(undefined, { timeZone: timezone }) : 'Unknown';
-  }
-
   function renderCall(call) {
+    const timezone = getTimezone();
     const item = document.createElement('li');
     item.dataset.usageCallId = call.id;
     const details = document.createElement('details');
@@ -130,7 +126,7 @@ export function createUsageHistory({ timezone, isVisible }) {
     const heading = document.createElement('strong');
     heading.textContent = `${label(KINDS, call.kind)} · ${label(STATUSES, call.status)}`;
     const context = document.createElement('span');
-    context.textContent = `${timestamp(call.started_at)} · ${text(call.profile_name || call.deployment)}`;
+    context.textContent = `${formatTimestamp(call.started_at)} · ${text(call.profile_name || call.deployment)}`;
     summary.append(heading, context);
     const body = document.createElement('div');
     body.className = 'usage-call-body';
@@ -141,14 +137,14 @@ export function createUsageHistory({ timezone, isVisible }) {
     const metadata = [
       ['Call ID', call.id], ['Response ID', text(call.response_id)], ['Conversation ID', text(call.conversation_id)],
       ['Profile ID', text(call.profile_id)], ['Deployment', text(call.deployment)], ['Source', label(SOURCES, call.source)],
-      [`Started (${timezone})`, timestamp(call.started_at)], [`Finished (${timezone})`, timestamp(call.finished_at)],
+      [`Started (${timezone})`, formatTimestamp(call.started_at)], [`Finished (${timezone})`, formatTimestamp(call.finished_at)],
       ['Timestamp basis', call.timestamp_basis ? label(BASES, call.timestamp_basis) : call.source === 'live' ? 'Request start time' : 'Unknown'],
       ['Response time (ms)', count(call.response_time_ms ?? usage.response_time_ms)]
     ];
     for (const [field, title] of Object.entries({ error_code: 'Error code', error_type: 'Error type', incomplete_reason: 'Incomplete reason', interruption_reason: 'Interruption reason' })) {
       if (call[field]) metadata.push([title, text(call[field])]);
     }
-    if (call.recovered_at) metadata.push([`Recovered (${timezone})`, timestamp(call.recovered_at)]);
+    if (call.recovered_at) metadata.push([`Recovered (${timezone})`, formatTimestamp(call.recovered_at)]);
     body.append(disclosure('Call details', definitionList(metadata)), disclosure('Saved prices', savedPrices(call.price_snapshot)));
     details.append(summary, body);
     item.append(details);

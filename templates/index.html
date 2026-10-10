@@ -186,9 +186,9 @@
     </div>
 
     <section id="settings-general" class="settings-panel" role="tabpanel" aria-labelledby="settings-general-tab" tabindex="0">
-      <div class="info-callout"><i data-lucide="info"></i><p>Theme, language, timezone, and notification preferences are not available yet.</p></div>
+      <div class="info-callout"><i data-lucide="info"></i><p>Theme, language, and notification preferences are not available yet.</p></div>
       <section class="settings-group" aria-labelledby="settings-appearance-title">
-        <div class="settings-panel-heading"><h3 id="settings-appearance-title">Appearance & language</h3></div>
+        <div class="settings-panel-heading"><h3 id="settings-appearance-title">Appearance & regional settings</h3></div>
         <div class="settings-group-body">
           <div id="font-settings" class="font-settings">
             <div class="settings-preference-row">
@@ -216,8 +216,8 @@
             <select id="ui-language" disabled><option selected>English</option></select>
           </div>
           <div class="settings-preference-row">
-            <div class="settings-preference-copy"><label for="message-timezone">Message timezone</label><small>Timezone used to display message timestamps.</small></div>
-            <select id="message-timezone" disabled><option selected>N/A</option></select>
+            <div class="settings-preference-copy"><label for="ui-timezone">App timezone</label><small>Timezone for timestamps, daily usage totals, and date filters throughout the app.</small></div>
+            <select id="ui-timezone"><option value="browser" selected>Browser timezone</option></select>
           </div>
         </div>
       </section>
