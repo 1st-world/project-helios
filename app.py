@@ -165,12 +165,60 @@ async def call_usage(
 ):
     """Return cumulative call usage and daily buckets in the requested IANA timezone."""
     try:
-        return call_usage_store.totals(
+        report = call_usage_store.totals(
             conversation_id=conversation_id, kind=kind,
             timezone_name=timezone, start_date=start_date, end_date=end_date,
         )
+        report["revision"] = call_usage_store.revision(conversation_id)
+        return report
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.websocket("/api/usage/changes")
+async def call_usage_changes(
+    websocket: WebSocket, revision: str, conversation_id: str | None = None,
+):
+    """Notify a same-origin browser when recorded usage changes over one connection."""
+    origin = websocket.headers.get("origin", "")
+    if urlsplit(origin).netloc != websocket.headers.get("host"):
+        await websocket.close(code=1008)
+        return
+    await websocket.accept()
+
+    async def wait_for_disconnect() -> None:
+        """Release the usage observer when the browser closes its connection."""
+        while (await websocket.receive())["type"] != "websocket.disconnect":
+            pass
+
+    update = None
+    disconnected = asyncio.create_task(wait_for_disconnect())
+    try:
+        while not disconnected.done():
+            update = asyncio.create_task(call_usage_store.wait_for_change(
+                revision, conversation_id,
+            ))
+            finished, _ = await asyncio.wait(
+                (update, disconnected), return_when=asyncio.FIRST_COMPLETED,
+            )
+            if disconnected in finished:
+                break
+            current = update.result()
+            if current != revision:
+                revision = current
+                await websocket.send_json({"revision": revision})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if update is not None:
+            update.cancel()
+        disconnected.cancel()
+        pending = [disconnected] if update is None else [update, disconnected]
+        await asyncio.gather(*pending, return_exceptions=True)
+        try:
+            await websocket.close()
+        except (RuntimeError, WebSocketDisconnect):
+            pass
 
 
 @app.get("/api/usage/calls")

@@ -1,5 +1,6 @@
-"""Persist API call history independently of transcripts and aggregate it by local date."""
+"""Persist API call history, aggregate it by local date, and notify readers when recorded usage changes."""
 
+import asyncio
 import json
 import math
 import sqlite3
@@ -7,6 +8,7 @@ from collections import defaultdict
 from copy import deepcopy
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
+from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 TOKEN_FIELDS = (
@@ -66,7 +68,48 @@ class CallUsageStore:
         ).fetchone()[0]
         self.recording_errors = 0
         self.import_errors = 0
+        self._revision_id = uuid4().hex
+        self._revision = 0
+        self._conversation_revisions: dict[str, int] = {}
+        self._change_waiters: dict[asyncio.Future[str], str | None] = {}
         self._recover_interrupted()
+
+    def revision(self, conversation_id: str | None = None) -> str:
+        """Return an opaque change token scoped to the conversation and server instance."""
+        version = (
+            self._revision if conversation_id is None
+            else self._conversation_revisions.get(conversation_id, 0)
+        )
+        return (
+            f"{self._revision_id}:{version}:"
+            f"{self.recording_errors}:{self.import_errors}"
+        )
+
+    def notify_changes(self, conversation_id: str | None = None) -> None:
+        """Advance the revision and wake matching readers after writes or recording errors."""
+        self._revision += 1
+        if conversation_id is not None:
+            self._conversation_revisions[conversation_id] = self._revision
+        for waiter, watched_id in tuple(self._change_waiters.items()):
+            if not waiter.done() and (
+                conversation_id is None or watched_id is None
+                or watched_id == conversation_id
+            ):
+                waiter.set_result(self.revision(watched_id))
+
+    async def wait_for_change(
+        self, revision: str, conversation_id: str | None = None,
+    ) -> str:
+        """Wait for a relevant write until the observer is cancelled."""
+        current = self.revision(conversation_id)
+        if current != revision:
+            return current
+        waiter = asyncio.get_running_loop().create_future()
+        self._change_waiters[waiter] = conversation_id
+        try:
+            return await waiter
+        finally:
+            self._change_waiters.pop(waiter, None)
 
     def _recover_interrupted(self) -> None:
         """Mark attempts left open by a previous process without inventing final usage."""
@@ -89,7 +132,7 @@ class CallUsageStore:
         record["started_at"] = utc_timestamp(record.get("started_at"))
         record["recorded_at"] = utc_timestamp(datetime.now(timezone.utc))
         with self.connection:
-            self.connection.execute(
+            cursor = self.connection.execute(
                 "INSERT INTO usage_calls VALUES (?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(id) DO UPDATE SET status=excluded.status, "
                 "data=excluded.data WHERE usage_calls.status='in_progress' "
@@ -98,9 +141,12 @@ class CallUsageStore:
                  record["status"], record["started_at"], record["source"],
                  json.dumps(record, ensure_ascii=False, allow_nan=False)),
             )
+        if cursor.rowcount:
+            self.notify_changes(record.get("conversation_id"))
 
     def _import(self, key: str, records: list[dict]) -> None:
         """Import one legacy snapshot transactionally and mark it only after success."""
+        changed = set()
         with self.connection:
             if self.connection.execute(
                 "SELECT 1 FROM usage_imports WHERE id = ?", (key,)
@@ -108,16 +154,20 @@ class CallUsageStore:
                 return
             for record in records:
                 record["started_at"] = utc_timestamp(record.get("started_at"))
-                self.connection.execute(
+                cursor = self.connection.execute(
                     "INSERT OR IGNORE INTO usage_calls VALUES "
                     "(?, ?, ?, ?, ?, ?, ?)",
                     (record["id"], record.get("conversation_id"), record["kind"],
                      record["status"], record["started_at"], record["source"],
                      json.dumps(record, ensure_ascii=False, allow_nan=False)),
                 )
+                if cursor.rowcount:
+                    changed.add(record.get("conversation_id"))
             self.connection.execute(
                 "INSERT INTO usage_imports VALUES (?)", (key,)
             )
+        for conversation_id in changed:
+            self.notify_changes(conversation_id)
 
     def import_conversation(self, conversation: object) -> None:
         """Preserve saved replies once, without importing their content or repricing them."""
@@ -361,5 +411,8 @@ class CallUsageStore:
         }
 
     def close(self) -> None:
-        """Close the ledger database."""
+        """Release usage observers and close the ledger database."""
+        for waiter in self._change_waiters:
+            waiter.cancel()
+        self._change_waiters.clear()
         self.connection.close()

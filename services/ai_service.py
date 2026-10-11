@@ -80,6 +80,7 @@ class AIService:
             self.call_usage_store.record(record)
         except Exception:
             self.call_usage_store.recording_errors += 1
+            self.call_usage_store.notify_changes()
             logger.exception("Could not record API call usage")
 
     def _begin_call(

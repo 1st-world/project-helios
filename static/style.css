@@ -1035,6 +1035,9 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:hover {
   margin-left: auto;
   line-height: var(--line-height-control);
 }
+.conversation-usage .conversation-usage-heading button[hidden] {
+  display: none;
+}
 .conversation-usage .conversation-usage-metrics {
   display: flex;
   flex-wrap: wrap;

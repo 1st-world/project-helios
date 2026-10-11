@@ -24,7 +24,7 @@ function validateReport(report) {
     || !report.by_date.every(row => validTotals(row) && (row.date === null || /^\d{4}-\d{2}-\d{2}$/.test(row.date)))
     || !isCount(report.recording_errors) || !isCount(report.import_errors) || !isCount(report.unknown_timestamp_calls_excluded)
     || typeof report.range_includes_untracked_history !== 'boolean') {
-    throw new Error('Recorded usage data is incomplete or invalid. Refresh to retry.');
+    throw new Error('Recorded usage data is incomplete or invalid.');
   }
 }
 
@@ -75,13 +75,18 @@ export function createUsage({ footer, renderFooter }) {
   const dialog = $('#settings-dialog');
   const overview = $('#settings-usage-overview');
   const views = {
-    footer: { root: footer, render: renderFooter, refresh: footer.querySelector('[data-usage-refresh]'), controller: null },
+    footer: { root: footer, render: renderFooter, refresh: footer.querySelector('[data-usage-retry]'), controller: null },
     settings: { root: overview, render: render => render(), refresh: $('#refresh-settings-usage'), controller: null }
   };
   let conversationId = null;
   let generating = false;
   let footerVisible = true;
   let datesEdited = false;
+  let updatesSocket = null;
+  let updatesConversationId = null;
+  let updatesConnectionTimer = null;
+  let updatesRevision = null;
+  let updatesSequence = 0;
   const history = createUsageHistory({ isVisible: settingsVisible });
 
   function settingsVisible() {
@@ -95,11 +100,35 @@ export function createUsage({ footer, renderFooter }) {
     view.refresh.disabled = false;
   }
 
+  function stopUpdates() {
+    clearTimeout(updatesConnectionTimer);
+    updatesConnectionTimer = null;
+    const socket = updatesSocket;
+    updatesSocket = null;
+    updatesConversationId = null;
+    updatesRevision = null;
+    updatesSequence = 0;
+    if (socket) {
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      socket.close();
+    }
+  }
+
+  function setStateMessage(view, message, state) {
+    const status = view.root.querySelector('[data-usage-state]');
+    view.root.dataset.state = state;
+    status.textContent = message;
+    status.hidden = !message;
+    if (view === views.footer) view.refresh.hidden = state !== 'error';
+  }
+
   function showState(view, message, state) {
     view.hasReport = false;
     view.render(() => {
-      view.root.dataset.state = state;
-      view.root.querySelector('[data-usage-state]').textContent = message;
+      setStateMessage(view, message, state);
       view.root.querySelector('[data-usage-completeness]').textContent = '';
       view.root.querySelector('[data-usage-notes]').textContent = '';
       view.root.querySelectorAll('[data-usage-field]').forEach(field => {
@@ -137,6 +166,7 @@ export function createUsage({ footer, renderFooter }) {
 
   function renderReport(view, report) {
     view.hasReport = true;
+    view.revision = report.revision;
     const total = report.totals;
     const values = {
       calls: total.calls.toLocaleString(), input_output: `${tokenValue(total, 'input_tokens')} / ${tokenValue(total, 'output_tokens')}`,
@@ -145,8 +175,7 @@ export function createUsage({ footer, renderFooter }) {
       reasoning_tokens: tokenValue(total, 'reasoning_tokens'), summaries: (total.kinds.summary || 0).toLocaleString(), cost: costValue(total)
     };
     view.render(() => {
-      view.root.dataset.state = 'ready';
-      view.root.querySelector('[data-usage-state]').textContent = view === views.settings ? '' : 'Recorded totals. Refresh to include calls still finishing.';
+      setStateMessage(view, '', 'ready');
       view.root.querySelector('[data-usage-completeness]').textContent = completeness(total);
       view.root.querySelectorAll('[data-usage-field]').forEach(field => { field.textContent = values[field.dataset.usageField]; });
       view.root.querySelector('[data-usage-notes]').textContent = reportNotes(report);
@@ -156,16 +185,17 @@ export function createUsage({ footer, renderFooter }) {
 
   async function load(view, params) {
     const query = params.toString();
-    const retainReport = view === views.settings && view.hasReport && view.query === query;
+    const retainReport = view.hasReport && view.query === query;
     cancel(view);
     view.query = query;
     const controller = new AbortController();
     view.controller = controller;
+    const sequence = updatesSequence;
+    let followup = false;
     view.root.setAttribute('aria-busy', 'true');
     view.refresh.disabled = true;
     if (retainReport) {
-      view.root.dataset.state = 'loading';
-      view.root.querySelector('[data-usage-state]').textContent = 'Loading recorded usage…';
+      setStateMessage(view, view === views.footer ? '' : 'Loading recorded usage…', 'loading');
     } else {
       showState(view, 'Loading recorded usage…', 'loading');
     }
@@ -178,23 +208,81 @@ export function createUsage({ footer, renderFooter }) {
       }
       if (view.controller !== controller) return;
       validateReport(report);
+      // Combine notifications received during this read without rendering an outdated snapshot.
+      if (view === views.footer && updatesSocket && updatesSequence !== sequence
+        && typeof report.revision === 'string' && report.revision && report.revision !== updatesRevision) {
+        followup = true;
+        return;
+      }
       renderReport(view, report);
+      if (view === views.footer) watchFooter(report.revision);
     } catch (error) {
-      if (view.controller === controller && error.name !== 'AbortError') showState(view, `${error.message} Use Refresh to retry.`, 'error');
+      if (view.controller === controller && error.name !== 'AbortError') {
+        const retry = view === views.footer ? '' : ' Use Refresh to retry.';
+        showState(view, `${error.message}${retry}`, 'error');
+      }
     } finally {
       if (view.controller === controller) {
         view.controller = null;
         view.root.setAttribute('aria-busy', 'false');
         view.refresh.disabled = false;
+        if (followup) refreshFooter({ keepUpdates: true });
       }
     }
   }
 
-  function refreshFooter() {
+  function showUpdatesError() {
+    stopUpdates();
+    views.footer.render(() => setStateMessage(views.footer, 'Could not keep recorded usage up to date.', 'error'));
+  }
+
+  function watchFooter(revision) {
+    if (document.hidden || !footerVisible || generating || !conversationId) return;
+    try {
+      if (typeof revision !== 'string' || !revision) throw new Error('Missing usage update revision.');
+      if (updatesSocket && updatesConversationId === conversationId) return;
+      stopUpdates();
+      const url = new URL('/api/usage/changes', location.href);
+      url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      url.search = new URLSearchParams({ conversation_id: conversationId, revision });
+      const socket = new WebSocket(url);
+      updatesSocket = socket;
+      updatesConversationId = conversationId;
+      updatesRevision = revision;
+      const fail = () => {
+        if (updatesSocket === socket) showUpdatesError();
+      };
+      updatesConnectionTimer = setTimeout(fail, 10000);
+      socket.onopen = () => {
+        if (updatesSocket !== socket) return;
+        clearTimeout(updatesConnectionTimer);
+        updatesConnectionTimer = null;
+      };
+      socket.onmessage = event => {
+        if (updatesSocket !== socket) return;
+        try {
+          const result = JSON.parse(event.data);
+          if (typeof result?.revision !== 'string' || !result.revision) throw new Error('Invalid usage update.');
+          if (result.revision !== updatesRevision) {
+            updatesRevision = result.revision;
+            updatesSequence++;
+            if (result.revision !== views.footer.revision && !views.footer.controller) refreshFooter({ keepUpdates: true });
+          }
+        } catch { fail(); }
+      };
+      socket.onerror = fail;
+      socket.onclose = fail;
+    } catch {
+      showUpdatesError();
+    }
+  }
+
+  function refreshFooter({ keepUpdates = false } = {}) {
+    if (!keepUpdates) stopUpdates();
     cancel(views.footer);
     if (!conversationId) {
       showState(views.footer, 'Select a conversation to see recorded usage.', 'empty');
-    } else if (footerVisible && !generating) {
+    } else if (footerVisible && !generating && !document.hidden) {
       load(views.footer, new URLSearchParams({ conversation_id: conversationId, timezone: getTimezone() }));
     }
   }
@@ -255,8 +343,10 @@ export function createUsage({ footer, renderFooter }) {
 
   function setGenerating(value) {
     generating = value;
-    if (value) cancel(views.footer);
-    else {
+    if (value) {
+      stopUpdates();
+      cancel(views.footer);
+    } else {
       refreshFooter();
       refreshSettings();
     }
@@ -282,6 +372,13 @@ export function createUsage({ footer, renderFooter }) {
     updateTimezone();
     views.footer.refresh.onclick = refreshFooter;
     views.settings.refresh.onclick = () => refreshSettings({ resetHistory: true });
+    document.addEventListener('visibilitychange', refreshFooter);
+    window.addEventListener('focus', () => {
+      if (!document.hidden && !updatesSocket && !views.footer.controller) refreshFooter();
+    });
+    window.addEventListener('pageshow', event => {
+      if (event.persisted) refreshFooter();
+    });
     for (const id of ['usage-scope', 'usage-period', 'usage-kind', 'usage-start-date', 'usage-end-date']) $(`#${id}`).addEventListener('change', refreshSettings);
     for (const id of ['usage-start-date', 'usage-end-date']) $(`#${id}`).addEventListener('input', () => { datesEdited = true; });
     document.addEventListener('timezone-change', () => {

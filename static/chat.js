@@ -37,7 +37,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
   usageFooter.setAttribute('aria-label', 'Recorded conversation usage');
   usageFooter.setAttribute('aria-live', 'off');
   usageFooter.innerHTML = `
-    <div class="conversation-usage-heading"><i data-lucide="chart-no-axes-combined"></i><strong>Conversation usage</strong><button class="quiet-btn" type="button" data-usage-refresh aria-label="Refresh conversation usage"><i data-lucide="refresh-cw"></i> Refresh</button></div>
+    <div class="conversation-usage-heading"><i data-lucide="chart-no-axes-combined"></i><strong>Conversation usage</strong><button class="quiet-btn" type="button" data-usage-retry aria-label="Retry conversation usage" hidden><i data-lucide="refresh-cw"></i> Retry</button></div>
     <p data-usage-state role="status">Select a conversation to see recorded usage.</p>
     <dl class="conversation-usage-metrics">
       <div><dt>Calls</dt><dd data-usage-field="calls">—</dd></div>
