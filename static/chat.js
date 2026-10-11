@@ -49,8 +49,14 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
       <div><dt>Estimated cost (USD)</dt><dd data-usage-field="cost">—</dd></div>
     </dl>
     <p data-usage-completeness></p>
-    <details class="usage-details"><summary>Usage and coverage details</summary><p data-usage-notes></p></details>
+    <details class="usage-details"><summary>Usage and coverage details</summary><div class="usage-details-body"><p data-usage-notes></p></div></details>
   `;
+  const footerDetails = usageFooter.querySelector('.usage-details');
+  const footerDisclosure = createDisclosure(footerDetails, footerDetails.querySelector(':scope > .usage-details-body'));
+  const footerResizeObserver = new ResizeObserver(() => {
+    if (usageFooter.isConnected && !usageFooter.hidden && isNearBottom()) scrollDown(false);
+  });
+  footerResizeObserver.observe(usageFooter);
   const emptyChatMarkup = `
     <div class="empty-state">
       <span><i data-lucide="sparkles"></i></span>
@@ -111,7 +117,9 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
 
   function updateConversationUsage() {
     usageFooter.hidden = !state.showConversationUsage || !state.conversationId || state.generating || !chat.querySelector('.message');
-    if (!usageFooter.hidden) {
+    if (usageFooter.hidden) {
+      footerDisclosure.finish();
+    } else {
       chat.append(usageFooter);
       refreshIcons();
     }
@@ -431,6 +439,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     state.conversationVersion = data.version;
     const savedScrollTop = chat.scrollTop;
     const wasNearBottom = isNearBottom();
+    footerDisclosure.finish();
     disposeMessageDisclosures();
     chat.innerHTML = '';
     data.messages.forEach((message, index) => {
@@ -454,6 +463,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     onConversationChange(null);
     state.requestFeedback.delete(null);
     clearFocusFiles();
+    footerDisclosure.finish();
     disposeMessageDisclosures();
     chat.innerHTML = emptyChatMarkup;
     loadConversations();
@@ -655,7 +665,10 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     prompt.oninput = autoResize;
     document.addEventListener('text-size-change', autoResize);
     document.addEventListener('timezone-change', () => refreshMessageTimestamps(true));
-    document.addEventListener('visibilitychange', () => refreshMessageTimestamps());
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) footerDisclosure.finish();
+      refreshMessageTimestamps();
+    });
     window.addEventListener('focus', () => refreshMessageTimestamps());
     refreshMessageTimestamps();
     prompt.onkeydown = (event) => {

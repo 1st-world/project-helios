@@ -942,13 +942,17 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:hover {
   flex-wrap: wrap;
   align-items: center;
   min-width: 0;
-  gap: 6px 12px;
+  gap: 6px 0;
 }
 .message-footer .message-meta-item {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
   font-variant-numeric: tabular-nums;
+}
+.message-footer .message-meta-item:not(:last-child)::after {
+  margin: 0 5px;
+  content: "\00b7";
+  color: var(--text-tertiary);
 }
 .message-footer .message-meta-cost {
   color: var(--accent);
@@ -1077,9 +1081,9 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:hover {
   transition: opacity var(--motion-duration-fast) var(--motion-easing-default);
 }
 .message:hover .message-actions,
-.message:focus-within .message-actions,
+.message:has(:focus-visible) .message-actions,
 .message:hover .message-usage-toggle,
-.message:focus-within .message-usage-toggle {
+.message:has(:focus-visible) .message-usage-toggle {
   opacity: 1;
   pointer-events: auto;
 }
@@ -2039,6 +2043,9 @@ textarea::placeholder {
 }
 .conversation-usage .usage-details summary {
   cursor: pointer;
+}
+.conversation-usage .usage-details-body {
+  display: flow-root;
 }
 .conversation-usage [data-usage-notes],
 .conversation-usage [data-usage-state] {
