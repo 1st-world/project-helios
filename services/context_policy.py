@@ -17,14 +17,14 @@ class ContextPolicy:
     mode: str
     input_budget: int
     declared_model_input_limit: int | None = None
-    max_output_tokens: int = 4096
+    max_output_tokens: int | None = None
 
     def __post_init__(self) -> None:
         """Reject invalid estimate policy settings before provider access."""
         if (
             self.mode not in PREFLIGHT_MODES
             or self.input_budget < 1
-            or self.max_output_tokens < 1
+            or (self.max_output_tokens is not None and self.max_output_tokens < 1)
         ):
             raise ValueError("Context policy requires warn, block, or off and a positive input budget.")
 
@@ -39,14 +39,16 @@ class ContextPolicy:
     ) -> "ContextPolicy":
         """Apply request, profile, and application settings in that order."""
         limits = []
-        output = min(
-            budget.output_reserve,
-            profile.model_max_output_tokens or budget.output_reserve,
+        output_limits = (
+            value
+            for value in (budget.output_reserve, profile.model_max_output_tokens)
+            if value is not None
         )
+        output = min(output_limits, default=None)
         if profile.model_max_input_tokens:
             limits.append(profile.model_max_input_tokens)
         if profile.model_context_window:
-            limits.append(max(0, profile.model_context_window - output))
+            limits.append(max(0, profile.model_context_window - (output or 0)))
         return cls(
             mode or profile.context_preflight_mode or default_mode,
             input_budget or profile.context_input_budget or budget.input_limit,

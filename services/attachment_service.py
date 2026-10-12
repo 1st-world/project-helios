@@ -56,9 +56,9 @@ class AttachmentService:
     # Defaults below are provisional desktop resource policies.
     # Their safety has not been benchmarked across workloads or hardware.
     # Model token capacity does not determine these parser-work limits.
-    # Match Azure's image count initially, but count every local file here.
+    # Count every local file independently of provider image capacity.
     MAX_FILES = DEFAULT_APP_SETTINGS.attachment_max_files
-    # Begin below Azure's decimal 50 MB native-input file ceiling.
+    # Keep a provisional mixed-format raw-read budget of about 50 MB.
     # The common total is a provisional budget for reading mixed formats.
     # Base64 and JSON duplicate payloads; this is not a peak-memory bound.
     MAX_FILE_BYTES = DEFAULT_APP_SETTINGS.attachment_max_file_bytes
@@ -79,12 +79,6 @@ class AttachmentService:
     # Retain the existing initial work budget while counting stored cells.
     # Empty rectangular gaps do not count toward the provisional cell limit.
     MAX_SHEET_CELLS = DEFAULT_APP_SETTINGS.attachment_max_sheet_cells
-    # Azure Responses requirements were checked on 2026-10-02.
-    # Images are limited to 50; each file/category total must be under 50 MB.
-    # User resource policies cannot raise these provider limits.
-    # https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/responses
-    PROVIDER_FILE_BYTES = 50_000_000
-    PROVIDER_IMAGE_COUNT = 50
     IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
     IMAGE_MIMES = {
         "PNG": "image/png",
@@ -137,8 +131,6 @@ class AttachmentService:
         root = self.workspace.root
         seen: set[Path] = set()
         total = 0
-        native_bytes = {"image": 0, "pdf": 0}
-        image_count = 0
         for supplied_path in paths:
             try:
                 path = self.workspace._resolve(supplied_path, root=root)
@@ -158,13 +150,6 @@ class AttachmentService:
                         404,
                     )
                 size = path.stat().st_size
-                native = path.suffix.lower() in self.IMAGE_EXTENSIONS | {".pdf"}
-                if native and size >= self.PROVIDER_FILE_BYTES:
-                    raise AttachmentError(
-                        "attachment_provider_limit",
-                        "Azure native image and PDF inputs must be smaller than 50 MB.",
-                        supplied_path, 413,
-                    )
                 if size > self.MAX_FILE_BYTES:
                     raise AttachmentError(
                         "attachment_too_large",
@@ -190,19 +175,6 @@ class AttachmentService:
                     )
                 canonical = path.relative_to(root).as_posix()
                 parts, metadata, estimate = self._prepare_file(canonical, data)
-                if native:
-                    kind = metadata["kind"]
-                    native_bytes[kind] += len(data)
-                    image_count += metadata["kind"] == "image"
-                    if (
-                        native_bytes[kind] >= self.PROVIDER_FILE_BYTES
-                        or image_count > self.PROVIDER_IMAGE_COUNT
-                    ):
-                        raise AttachmentError(
-                            "attachment_provider_limit",
-                            "Native inputs exceed the Azure limit of 50 images or 50 MB within one input category.",
-                            supplied_path, 413,
-                        )
             except AttachmentError:
                 raise
             except PermissionError as exc:

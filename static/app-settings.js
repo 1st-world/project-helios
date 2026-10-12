@@ -9,11 +9,11 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   const resetButtons = [...form.querySelectorAll('[data-reset-setting]')];
   const resetLabels = new Map(resetButtons.map(button => [button, button.getAttribute('aria-label')]));
   const effectiveLabels = [...form.querySelectorAll('[data-effective-setting]')];
-  const state = { saved: null, defaults: null, localLimits: null, providerLimits: null, resets: new Set(), loading: false, saving: false, controller: null, feedback: null };
+  const state = { saved: null, defaults: null, localLimits: null, resets: new Set(), loading: false, saving: false, controller: null, feedback: null };
   const modeHelp = {
     warn: 'Allows requests with estimated input-limit warnings. Warnings alone do not force history summaries.',
     block: 'May summarize history or reject requests when input estimates exceed limits. Estimates can differ from actual usage.',
-    off: 'Skips input estimates. Output caps, attachment checks, provider limits, and background memory summaries still apply.'
+    off: 'Skips input estimates. Explicit output limits, local attachment checks, and background memory summaries still apply.'
   };
 
   function setStatus(message, type = 'info') {
@@ -29,6 +29,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   }
 
   function valueOf(input) {
+    if (input.dataset.appSetting === 'context_output_reserve' && input.value === '' && !input.validity.badInput) return null;
     return input.tagName === 'SELECT' ? input.value : input.valueAsNumber;
   }
 
@@ -47,11 +48,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
         : state.saved && !available ? 'Effective limit unavailable.' : '';
       label.hidden = !label.textContent;
     }
-    const limits = state.providerLimits;
-    const values = [limits?.max_images, limits?.native_file_bytes_exclusive, limits?.native_category_total_bytes_exclusive];
-    $('#attachment-provider-limits').textContent = values.every(value => Number.isSafeInteger(value) && value >= 1)
-      ? `Provider limits: at most ${values[0].toLocaleString()} images. Each native image or PDF must be under ${values[1].toLocaleString()} bytes. Image totals and PDF totals must each be under ${values[2].toLocaleString()} bytes. Local settings cannot raise these limits.`
-      : 'Saved provider limits are unavailable. Local preferences cannot override provider restrictions.';
+    $('#attachment-provider-limits').textContent = 'These limits protect local file processing. The provider validates its own attachment and model limits when you send a request.';
   }
 
   function updateControls() {
@@ -72,8 +69,9 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     $('#retry-app-settings').hidden = Boolean(state.saved) || state.loading;
     renderStatus();
     $('#context-preflight-help').textContent = modeHelp[fields.get('context_preflight_mode').value] || 'How local input estimates affect requests.';
-    const budget = fields.get('context_token_budget').valueAsNumber - fields.get('context_output_reserve').valueAsNumber;
-    $('#app-input-budget').textContent = `Draft input allowance, before profile or request overrides: ${Number.isSafeInteger(budget) && budget >= 0 ? `${budget.toLocaleString()} tokens` : '—'}.`;
+    const output = valueOf(fields.get('context_output_reserve'));
+    const budget = fields.get('context_token_budget').valueAsNumber - (output ?? 0);
+    $('#app-input-budget').textContent = `Draft input estimate budget, before profile or request overrides: ${Number.isSafeInteger(budget) && budget >= 0 ? `${budget.toLocaleString()} tokens` : '—'}. ${output === null ? 'Output limit: provider default.' : 'An explicit output limit is reserved in the working budget.'}`;
     showAttachmentLimits();
   }
 
@@ -87,11 +85,11 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   function fillSaved() {
     state.resets.clear();
     clearValidation();
-    for (const [name, input] of fields) input.value = state.saved ? state.saved[name] : '';
+    for (const [name, input] of fields) input.value = state.saved?.[name] ?? '';
     resetButtons.forEach(button => {
       const value = state.defaults?.[button.dataset.resetSetting];
       const label = resetLabels.get(button);
-      const formatted = value === undefined ? '' : typeof value === 'number' ? value.toLocaleString() : value.charAt(0).toUpperCase() + value.slice(1);
+      const formatted = value === undefined ? '' : value === null ? 'Provider default' : typeof value === 'number' ? value.toLocaleString() : value.charAt(0).toUpperCase() + value.slice(1);
       button.title = value === undefined ? label : `${label} (default: ${formatted})`;
       button.setAttribute('aria-label', button.title);
     });
@@ -102,6 +100,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     for (const name of fields.keys()) {
       for (const values of [data?.settings, data?.defaults]) {
         const value = values?.[name];
+        if (name === 'context_output_reserve' && value === null) continue;
         if (name === 'context_preflight_mode' ? !Object.hasOwn(modeHelp, value) : !Number.isSafeInteger(value) || value < 1) {
           throw new Error('Could not read the saved settings. Reload Settings before editing.');
         }
@@ -110,7 +109,6 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     state.saved = { ...data.settings };
     state.defaults = { ...data.defaults };
     state.localLimits = { ...data.local_attachment_limits };
-    state.providerLimits = { ...data.provider_limits };
     fillSaved();
   }
 
@@ -153,7 +151,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     if (!state.saved || state.loading || state.saving || isProfileSaving()) return;
     const input = fields.get(name);
     const restoreFocus = document.activeElement?.dataset.resetSetting === name;
-    input.value = state.defaults[name];
+    input.value = state.defaults[name] ?? '';
     if (valueOf(input) !== state.saved[name]) state.resets.add(name);
     else state.resets.delete(name);
     clearValidation();
@@ -165,13 +163,14 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   function validate() {
     clearValidation();
     for (const input of fields.values()) {
+      if (input.dataset.appSetting === 'context_output_reserve' && valueOf(input) === null) continue;
       if (input.tagName !== 'SELECT' && (!Number.isSafeInteger(input.valueAsNumber) || input.valueAsNumber < Number(input.min))) {
         input.setCustomValidity(`Enter a whole number of at least ${input.min} that the browser can represent exactly.`);
       }
     }
     const budget = fields.get('context_token_budget');
     const reserve = fields.get('context_output_reserve');
-    if (budget.valueAsNumber - reserve.valueAsNumber < 1024) budget.setCustomValidity('The context budget must leave at least 1,024 input tokens after reserving output.');
+    if (budget.valueAsNumber - (valueOf(reserve) ?? 0) < 1024) budget.setCustomValidity('The context budget must leave at least 1,024 input tokens after any explicit output reservation.');
     const recent = fields.get('keep_recent_messages');
     if (recent.valueAsNumber >= fields.get('max_context_messages').valueAsNumber) recent.setCustomValidity('Keep recent messages must be smaller than the summary trigger.');
     for (const input of fields.values()) {
@@ -259,7 +258,6 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
       state.saved = null;
       state.defaults = null;
       state.localLimits = null;
-      state.providerLimits = null;
       fillSaved();
       setStatus('');
     });

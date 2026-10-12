@@ -35,7 +35,7 @@ class AIService:
         *,
         summary_usage_store: SummaryUsageStore | None = None,
         call_usage_store: CallUsageStore | None = None,
-        max_output_tokens: int = 4096,
+        max_output_tokens: int | None = None,
     ) -> None:
         """Bind profile and usage services and initialize the client cache."""
         self.summary_usage_store = summary_usage_store or SummaryUsageStore()
@@ -43,20 +43,27 @@ class AIService:
         self.usage_service = usage_service
         self.profile_service = profile_service
         self._clients: dict[str, dict[str, Any]] = {}
-        if max_output_tokens < 1:
+        if max_output_tokens is not None and max_output_tokens < 1:
             raise ValueError("The output token limit must be positive.")
         self.max_output_tokens = max_output_tokens
 
-    def output_limit(self, profile: ConnectionProfile) -> int:
-        """Use the configured output cap within any explicitly declared model limit."""
-        return min(
-            self.max_output_tokens,
-            profile.model_max_output_tokens or self.max_output_tokens,
+    def output_limit(self, profile: ConnectionProfile) -> int | None:
+        """Return the smallest explicit output cap or defer to the provider."""
+        limits = (
+            value
+            for value in (self.max_output_tokens, profile.model_max_output_tokens)
+            if value is not None
         )
+        return min(limits, default=None)
 
-    def with_output_limit(self, max_output_tokens: int) -> "AIService":
+    def _output_options(self, profile: ConnectionProfile) -> dict:
+        """Include an SDK output limit only when an application or profile cap is set."""
+        limit = self.output_limit(profile)
+        return {"max_output_tokens": limit} if limit is not None else {}
+
+    def with_output_limit(self, max_output_tokens: int | None) -> "AIService":
         """Snapshot output policy while sharing clients and persistent usage stores."""
-        if max_output_tokens < 1:
+        if max_output_tokens is not None and max_output_tokens < 1:
             raise ValueError("The output token limit must be positive.")
         snapshot = copy(self)
         snapshot.max_output_tokens = max_output_tokens
@@ -248,7 +255,7 @@ class AIService:
                 instructions=instructions,
                 input=input_messages,
                 stream=True,
-                max_output_tokens=self.output_limit(profile),
+                **self._output_options(profile),
             )
             async for event in stream:
                 if event.type == "response.created":
@@ -402,7 +409,7 @@ class AIService:
                 model=profile.deployment,
                 instructions=instructions,
                 input=request,
-                max_output_tokens=self.output_limit(profile),
+                **self._output_options(profile),
             )
             # Account before validation or memory adoption, even if the caller is stale.
             raw_usage = getattr(response, "usage", None)

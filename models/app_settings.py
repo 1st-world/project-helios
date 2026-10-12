@@ -10,13 +10,14 @@ class AppSettings:
     max_context_messages: int = 16
     keep_recent_messages: int = 10
     context_token_budget: int = 32_768
-    context_output_reserve: int = 4096
+    # Omit the provider output cap unless the user explicitly chooses one.
+    context_output_reserve: int | None = None
     max_summary_calls: int = 8
     context_preflight_mode: str = "warn"
     # Resource defaults are provisional policies without workload benchmarks.
-    # Match Azure's image count initially, but count every local file here.
+    # Count every local file independently of provider image capacity.
     attachment_max_files: int = 50
-    # Begin below Azure's decimal 50 MB native-input file ceiling.
+    # Keep a provisional mixed-format raw-read budget of about 50 MB.
     # A shared raw-read budget does not bound base64/JSON/parser peak memory.
     attachment_max_file_bytes: int = 49_999_999
     attachment_max_total_bytes: int = 49_999_999
@@ -40,9 +41,11 @@ class AppSettings:
             if name == "context_preflight_mode":
                 continue
             value = getattr(self, name)
+            if name == "context_output_reserve" and value is None:
+                continue
             if type(value) is not int or value < 1:
                 raise ValueError(f"{name} must be a positive integer.")
-        if self.context_token_budget - self.context_output_reserve < 1024:
+        if self.context_token_budget - (self.context_output_reserve or 0) < 1024:
             raise ValueError("Context token budget must exceed the output reserve by at least 1024.")
         if not 2 <= self.keep_recent_messages < self.max_context_messages:
             raise ValueError("Keep recent messages must be at least 2 and smaller than max context messages.")

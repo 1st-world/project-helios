@@ -294,7 +294,7 @@ class UpdateSettingsRequest(BaseModel):
 class ChatRequest(ContextRequestOptions):
     """Validate a new chat turn or regeneration request and its context selection."""
 
-    prompt: str = Field(min_length=1, max_length=100_000)
+    prompt: str = Field(min_length=1)
     conversation_id: str | None = None
     workspace_file: str | None = None
     workspace_files: list[str] = Field(default_factory=list)
@@ -320,7 +320,7 @@ class RenameConversationRequest(BaseModel):
 class EditMessageRequest(BaseModel):
     """Validate replacement content for a user message."""
 
-    content: str = Field(min_length=1, max_length=100_000)
+    content: str = Field(min_length=1)
 
 
 class WorkspaceRootRequest(BaseModel):
@@ -688,13 +688,7 @@ def application_settings_response() -> dict:
             name: getattr(attachment_service, name)
             for name in vars(AttachmentService) if name.startswith("MAX_")
         },
-        "provider_limits": {
-            "max_images": AttachmentService.PROVIDER_IMAGE_COUNT,
-            "native_file_bytes_exclusive": AttachmentService.PROVIDER_FILE_BYTES,
-            "native_category_total_bytes_exclusive": (
-                AttachmentService.PROVIDER_FILE_BYTES
-            ),
-        },
+        "provider_limits": {"enforcement": "provider"},
         "applies_to": "new_requests",
     }
 
