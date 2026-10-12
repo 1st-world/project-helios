@@ -1,5 +1,7 @@
 /* Provide shared DOM helpers, notifications, sidebar behavior, dialog interactions, and composer popover placement. */
 
+import { bindDialogBackdrop } from './dialogs.js';
+
 export const $ = (selector) => document.querySelector(selector);
 
 export function escapeHtml(value) {
@@ -88,8 +90,16 @@ export function closeMobileSidebar() {
 }
 
 export function initializeUI({ beforeDialogClose }) {
-  function closeDialog(dialog) {
-    if (beforeDialogClose(dialog)) dialog.close();
+  const closingDialogs = new WeakSet();
+
+  async function closeDialog(dialog) {
+    if (closingDialogs.has(dialog)) return;
+    closingDialogs.add(dialog);
+    try {
+      if (await beforeDialogClose(dialog)) dialog.close();
+    } finally {
+      closingDialogs.delete(dialog);
+    }
   }
 
   const composerActions = $('.composer-actions');
@@ -177,7 +187,7 @@ export function initializeUI({ beforeDialogClose }) {
   });
 
   window.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && document.body.classList.contains('sidebar-open')) {
+    if (event.key === 'Escape' && !document.querySelector('dialog[open]') && document.body.classList.contains('sidebar-open')) {
       setMobileSidebarOpen(false);
     }
   });
@@ -189,40 +199,12 @@ export function initializeUI({ beforeDialogClose }) {
   });
 
   document.querySelectorAll('dialog').forEach((dlg) => {
-    let isMouseDownOnBackdrop = false;
-
     dlg.addEventListener('cancel', (event) => {
-      if (!beforeDialogClose(dlg)) event.preventDefault();
+      event.preventDefault();
+      closeDialog(dlg);
     });
 
-    dlg.addEventListener('mousedown', (event) => {
-      if (event.target !== dlg) {
-        isMouseDownOnBackdrop = false;
-        return;
-      }
-      const rect = dlg.getBoundingClientRect();
-      const isInside =
-        event.clientX >= rect.left &&
-        event.clientX <= rect.right &&
-        event.clientY >= rect.top &&
-        event.clientY <= rect.bottom;
-      isMouseDownOnBackdrop = !isInside;
-    });
-
-    dlg.addEventListener('mouseup', (event) => {
-      if (isMouseDownOnBackdrop && event.target === dlg) {
-        const rect = dlg.getBoundingClientRect();
-        const isInside =
-          event.clientX >= rect.left &&
-          event.clientX <= rect.right &&
-          event.clientY >= rect.top &&
-          event.clientY <= rect.bottom;
-        if (!isInside) {
-          closeDialog(dlg);
-        }
-      }
-      isMouseDownOnBackdrop = false;
-    });
+    bindDialogBackdrop(dlg, () => closeDialog(dlg));
 
     dlg.addEventListener('close', () => {
       const el = $('#toast');

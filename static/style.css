@@ -739,6 +739,68 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:hover {
   color: var(--text-main);
   text-align: left;
 }
+.message.user.editing .message-body {
+  width: 100%;
+  max-width: 100%;
+}
+.message.user.editing .message-text,
+.message.user.editing .message-actions {
+  display: none;
+}
+.message .message-editor {
+  width: 100%;
+  padding: 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--bg-surface-active);
+}
+.message .message-editor label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-sub);
+  font-weight: var(--font-weight-label);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-compact);
+}
+.message .message-editor textarea {
+  display: block;
+  width: 100%;
+  min-height: 140px;
+  max-height: 50dvh;
+  padding: 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-app);
+  color: var(--text-main);
+  font-weight: var(--font-weight-regular);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-input);
+  font-family: var(--font-sans);
+  resize: vertical;
+}
+.message .message-editor textarea:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+.message .message-editor p {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+  overflow-wrap: anywhere;
+}
+.message .message-editor [role="alert"] {
+  color: var(--danger-text);
+}
+.message .message-editor .dialog-actions {
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+.message .message-editor .dialog-actions button {
+  height: auto;
+  min-height: 32px;
+  padding: 8px 12px;
+}
 .message-body p:first-child {
   margin-top: 0;
 }
@@ -1627,7 +1689,8 @@ textarea::placeholder {
   color: var(--info);
 }
 
-.settings-dialog {
+.settings-dialog,
+.action-dialog {
   width: min(580px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);
   padding: 24px;
@@ -1647,7 +1710,8 @@ textarea::placeholder {
     opacity: 1;
   }
 }
-.settings-dialog::backdrop {
+.settings-dialog::backdrop,
+.action-dialog::backdrop {
   backdrop-filter: blur(4px);
   background: var(--backdrop);
   animation: backdrop-fade-in 0.18s ease;
@@ -1663,6 +1727,60 @@ textarea::placeholder {
 .settings-dialog form {
   padding: 0;
 }
+
+.action-dialog {
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+}
+.action-dialog .dialog-heading {
+  margin-bottom: 12px;
+}
+.action-dialog h2,
+.action-dialog p {
+  overflow-wrap: anywhere;
+}
+.action-dialog p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+}
+.action-dialog .action-dialog-field {
+  margin-top: 16px;
+}
+.action-dialog input {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-app);
+  color: var(--text-main);
+  font-weight: var(--font-weight-regular);
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-input);
+  font-family: var(--font-sans);
+}
+.action-dialog :is(input, button):focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+.action-dialog [role="alert"] {
+  margin-top: 12px;
+  color: var(--danger-text);
+  white-space: pre-wrap;
+}
+.action-dialog [aria-invalid="true"] {
+  border-color: var(--danger);
+}
+.action-dialog .dialog-actions {
+  flex-wrap: wrap;
+}
+.action-dialog .dialog-actions button {
+  height: auto;
+  min-height: 32px;
+  padding: 8px 14px;
+}
+
 .dialog-heading {
   display: flex;
   align-items: center;
@@ -2243,9 +2361,9 @@ textarea::placeholder {
   color: var(--text-muted);
 }
 .preferences-dialog .settings-preference-row .settings-switch {
+  appearance: none;
   position: relative;
   flex: none;
-  appearance: none;
   width: 40px;
   height: 24px;
   margin: 0;
@@ -3456,6 +3574,10 @@ button svg,
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .action-dialog,
+  .action-dialog::backdrop {
+    animation: none;
+  }
   .message-actions,
   .message-footer .message-usage-toggle,
   .message-footer .message-usage-toggle svg,

@@ -2,6 +2,7 @@
 
 import { $, toast } from './ui.js';
 import { describeRequestError } from './chat-feedback.js';
+import { showActionDialog } from './dialogs.js';
 
 export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving }) {
   const form = $('#app-settings-form');
@@ -220,7 +221,8 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
       return false;
     }
     if (!hasUnsavedChanges() && !hasUnsavedProfileChanges()) return true;
-    return window.confirm('Discard unsaved Settings changes and close?');
+    return showActionDialog({ title: 'Discard Settings changes?', description: 'Your unsaved settings and profile edits will be lost.',
+      confirmLabel: 'Discard changes', cancelLabel: 'Keep editing', danger: true });
   }
 
   function init() {

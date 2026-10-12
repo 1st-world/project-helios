@@ -4,6 +4,7 @@ import { $, closeMobileSidebar, escapeHtml, refreshIcons, toast } from './ui.js'
 import { selectSettingsPanel } from './settings.js';
 import { createProfileContext } from './profile-context.js';
 import { describeRequestError } from './chat-feedback.js';
+import { showActionDialog } from './dialogs.js';
 
 const CACHE_PRICE_FIELDS = [
   ['azure-cache-read-price', 'cache_read_price_per_million', 'clear_cache_read_price'],
@@ -70,8 +71,9 @@ export function createProfiles({ isGenerating }) {
     return state.formBaseline !== null && snapshotProfileForm() !== state.formBaseline;
   }
 
-  function canDiscardProfileChanges() {
-    return !state.saving && (!hasUnsavedChanges() || window.confirm('Discard unsaved profile changes?'));
+  async function canDiscardProfileChanges() {
+    return !state.saving && (!hasUnsavedChanges() || await showActionDialog({ title: 'Discard profile changes?',
+      description: 'Your unsaved edits to this profile will be lost.', confirmLabel: 'Discard changes', cancelLabel: 'Keep editing', danger: true }));
   }
 
   function setStatus(message, type = 'info') {
@@ -292,7 +294,7 @@ export function createProfiles({ isGenerating }) {
         info.title = `Edit profile: ${p.name}`;
         info.setAttribute('aria-label', `Edit profile: ${p.name}`);
         info.setAttribute('aria-pressed', String(p.id === state.editingProfileId));
-        info.onclick = () => { if (canDiscardProfileChanges()) selectProfileForEditing(p); };
+        info.onclick = async () => { if (await canDiscardProfileChanges()) selectProfileForEditing(p); };
         info.innerHTML = `<strong>${escapeHtml(p.name)}</strong><span class="profile-meta" title="${escapeHtml(p.endpoint)}">${escapeHtml(p.deployment)} · ${escapeHtml(p.endpoint)}</span>`;
         const actions = document.createElement('div');
         actions.className = 'profile-actions';
@@ -436,7 +438,7 @@ export function createProfiles({ isGenerating }) {
         openSettingsDialog('connections');
       };
     }
-    $('#add-profile-btn').onclick = () => { if (canDiscardProfileChanges()) resetProfileForm(); };
+    $('#add-profile-btn').onclick = async () => { if (await canDiscardProfileChanges()) resetProfileForm(); };
     $('#discard-profile-edit').onclick = () => {
       if (state.saving) return;
       const profile = state.profiles.find(item => item.id === state.editingProfileId);
@@ -551,19 +553,21 @@ export function createProfiles({ isGenerating }) {
 
     $('#delete-profile-btn').onclick = async () => {
       const editingId = $('#editing-profile-id').value;
-      if (!editingId) return;
-      if (!confirm('Are you sure you want to delete this profile?')) return;
-      try {
-        const response = await fetch(`/api/profiles/${editingId}`, { method: 'DELETE' });
-        if (!response.ok) throw new Error('Could not delete profile.');
-        const data = await response.json();
-        renderProfiles(data);
-        health();
-        resetProfileForm();
-        toast('Profile deleted.', 'success');
-      } catch (err) {
-        setStatus(err.message || 'Could not delete profile.', 'error');
-      }
+      if (!editingId || state.saving) return;
+      const name = state.profiles.find(profile => profile.id === editingId)?.name || 'this profile';
+      const deleted = await showActionDialog({ title: 'Delete profile?',
+        description: `Delete “${name}”? This cannot be undone. Unsaved edits to this profile will also be lost.`,
+        confirmLabel: 'Delete profile', danger: true,
+        async onConfirm() {
+          const response = await fetch(`/api/profiles/${editingId}`, { method: 'DELETE' });
+          if (!response.ok) throw new Error('Could not delete profile. Please try again.');
+          const data = await response.json();
+          renderProfiles(data);
+          health();
+          resetProfileForm();
+        }
+      });
+      if (deleted) toast('Profile deleted.', 'success');
     };
 
     $('#profile-select').onchange = (event) => switchActiveProfile(event.target.value);

@@ -5,6 +5,7 @@ import { describeContextWarning, describeRequestError } from './chat-feedback.js
 import { describeAttachmentNotes } from './attachments.js';
 import { calendarDate, formatMessageTimestamp, getTimezone } from './timezone.js';
 import { createDisclosure } from './disclosure.js';
+import { showActionDialog } from './dialogs.js';
 
 export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmentMetadata, clearFocusFiles, onGeneratingChange, onConversationChange }) {
   const state = {
@@ -24,6 +25,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
   let timestampRefreshTimer = null;
   let timestampDay = '';
   let timestampTimezone = '';
+  let messageEditor = null;
   const prompt = $('#prompt');
   const send = $('#send');
   const stop = $('#stop');
@@ -327,7 +329,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
       edit.innerHTML = '<i data-lucide="pencil"></i>';
       edit.setAttribute('title', 'Edit message');
       edit.setAttribute('aria-label', 'Edit message');
-      edit.onclick = () => editUserMessage(messageIndex, content);
+      edit.onclick = () => editUserMessage(messageIndex, content, el, edit);
       actionsEl.append(edit);
     }
     if (role === 'assistant' && regeneration) {
@@ -431,10 +433,12 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
   }
 
   async function openConversation(id, preserveScroll = false) {
+    if (messageEditor?.saving && !preserveScroll) return;
     closeMobileSidebar();
     const response = await fetch(`/api/conversations/${id}`);
     if (!response.ok) return toast('Could not open conversation.', 'error');
     const data = await response.json();
+    messageEditor = null;
     state.conversationId = data.id;
     state.conversationVersion = data.version;
     const savedScrollTop = chat.scrollTop;
@@ -455,9 +459,12 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     if (preserveScroll && !wasNearBottom) { chat.scrollTop = savedScrollTop; }
     else scrollDown(false);
     loadConversations();
+    return true;
   }
 
   function newChat() {
+    if (messageEditor?.saving) return;
+    messageEditor = null;
     closeMobileSidebar();
     state.conversationId = null;
     onConversationChange(null);
@@ -471,40 +478,126 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
   }
 
   async function renameConversation(item) {
-    const title = window.prompt('Conversation title', item.title);
-    if (title === null || title.trim() === item.title) return;
-    if (!title.trim()) return toast('A conversation title is required.', 'warning');
-    const response = await fetch(`/api/conversations/${item.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title })
+    const renamed = await showActionDialog({ title: 'Rename conversation', description: 'Choose a title to find this conversation easily.',
+      confirmLabel: 'Save title', field: { label: 'Conversation title', value: item.title, maxLength: 100 },
+      async onConfirm(title) {
+        if (title === item.title) return;
+        const response = await fetch(`/api/conversations/${item.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title })
+        });
+        if (!response.ok) throw new Error((await readResponseError(response)).message);
+      }
     });
-    if (!response.ok) return toast((await response.json()).detail || 'Could not rename conversation.', 'error');
-    loadConversations();
+    if (renamed) loadConversations();
   }
 
   async function deleteConversation(item) {
-    if (!window.confirm(`Delete "${item.title}"? This cannot be undone.`)) return;
-    const response = await fetch(`/api/conversations/${item.id}`, { method: 'DELETE' });
-    if (!response.ok) return toast((await response.json()).detail || 'Could not delete conversation.', 'error');
+    if (messageEditor?.saving) return;
+    const deleted = await showActionDialog({ title: 'Delete conversation?', description: `Delete “${item.title}”? This cannot be undone.`,
+      confirmLabel: 'Delete conversation', danger: true,
+      async onConfirm() {
+        const response = await fetch(`/api/conversations/${item.id}`, { method: 'DELETE' });
+        if (!response.ok) throw new Error((await readResponseError(response)).message);
+      }
+    });
+    if (!deleted) return;
     state.requestFeedback.delete(item.id);
     if (state.conversationId === item.id) newChat();
     else loadConversations();
   }
 
-  async function editUserMessage(messageIndex, currentContent) {
+  function editUserMessage(messageIndex, currentContent, message, editButton) {
     if (state.generating || !state.conversationId) return;
-    const content = window.prompt('Edit your message', currentContent);
-    if (content === null || content.trim() === currentContent) return;
-    if (!content.trim()) return toast('Message cannot be empty.', 'warning');
-    const response = await fetch(`/api/conversations/${state.conversationId}/messages/${messageIndex}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content })
-    });
-    if (!response.ok) return toast((await response.json()).detail || 'Could not edit message.', 'error');
-    await openConversation(state.conversationId, true);
-    sendMessage({ prompt: content.trim(), regenerateMessageIndex: messageIndex, appendUser: false });
+    if (messageEditor) {
+      messageEditor.input.focus();
+      return;
+    }
+    const conversationId = state.conversationId;
+    const form = document.createElement('form');
+    form.className = 'message-editor';
+    form.innerHTML = `
+      <label for="message-edit-content">Edit message</label>
+      <textarea id="message-edit-content" rows="5" aria-describedby="message-edit-help message-edit-error"></textarea>
+      <p id="message-edit-help">Saving removes all following messages and generates a new response. Enter saves and regenerates; Shift+Enter adds a new line.</p>
+      <p id="message-edit-error" role="alert" hidden></p>
+      <div class="dialog-actions"><button type="button" class="quiet">Cancel</button><button type="submit" class="primary-btn">Save &amp; regenerate</button></div>
+    `;
+    const input = form.querySelector('textarea');
+    const error = form.querySelector('[role="alert"]');
+    const save = form.querySelector('[type="submit"]');
+    const cancel = form.querySelector('[type="button"]');
+    const editor = { input, saving: false };
+    messageEditor = editor;
+    input.value = currentContent;
+    message.classList.add('editing');
+    message.querySelector('.message-body').append(form);
+
+    function closeEditor() {
+      form.remove();
+      message.classList.remove('editing');
+      if (messageEditor === editor) messageEditor = null;
+      if (editButton.isConnected) editButton.focus({ preventScroll: true });
+    }
+
+    function updateSave() {
+      save.disabled = !input.value.trim() || input.value.trim() === currentContent.trim();
+      error.hidden = true;
+    }
+
+    cancel.onclick = closeEditor;
+    input.oninput = updateSave;
+    form.onkeydown = event => {
+      if (event.isComposing) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!editor.saving) closeEditor();
+      } else if (event.target === input && event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        if (!save.disabled) form.requestSubmit();
+      }
+    };
+    form.onsubmit = async event => {
+      event.preventDefault();
+      const content = input.value.trim();
+      if (editor.saving || state.generating || !content || content === currentContent.trim()) return;
+      if (state.conversationId !== conversationId || !form.isConnected) return;
+      editor.saving = true;
+      input.disabled = save.disabled = cancel.disabled = true;
+      save.textContent = 'Saving...';
+      form.setAttribute('aria-busy', 'true');
+      error.hidden = true;
+      try {
+        const response = await fetch(`/api/conversations/${conversationId}/messages/${messageIndex}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content })
+        });
+        if (!response.ok) throw new Error((await readResponseError(response)).message);
+      } catch (failure) {
+        editor.saving = false;
+        input.disabled = save.disabled = cancel.disabled = false;
+        save.textContent = 'Save & regenerate';
+        form.setAttribute('aria-busy', 'false');
+        error.textContent = failure.message || 'Could not save your message. Your edits are kept.';
+        error.hidden = false;
+        input.focus();
+        return;
+      }
+      try {
+        if (!await openConversation(conversationId, true)) throw new Error('Could not reload the saved message.');
+        closeEditor();
+        if (state.conversationId === conversationId) {
+          sendMessage({ prompt: content, regenerateMessageIndex: messageIndex, appendUser: false,
+            preserveDraft: true, expectedConversationVersion: state.conversationVersion });
+        }
+      } catch {
+        closeEditor();
+        toast('Message saved, but the conversation could not be reloaded. Reopen it before continuing.', 'error');
+      }
+    };
+    updateSave();
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    form.scrollIntoView({ block: 'nearest' });
   }
 
   async function readResponseError(response) {
@@ -524,6 +617,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
   }
 
   async function sendMessage(options = {}) {
+    if (messageEditor) return toast('Save or cancel your message edit before sending.', 'info');
     const text = options.prompt ?? prompt.value.trim();
     if (!text || state.generating) return;
     const requestFeedback = { conversationId: state.conversationId, items: [] };
@@ -645,9 +739,15 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     }
   }
 
-  function regenerateResponse({ userIndex, content, hasFollowing }) {
-    if (state.generating || !state.conversationId) return;
-    if (hasFollowing && !window.confirm('Regenerate this response? Once successful, this will replace the response and remove all following messages.')) return;
+  async function regenerateResponse({ userIndex, content, hasFollowing }) {
+    if (state.generating || !state.conversationId || messageEditor) return;
+    const conversationId = state.conversationId;
+    const version = state.conversationVersion;
+    if (!await showActionDialog({ title: 'Regenerate response?',
+      description: hasFollowing ? 'Once successful, the new response will replace this response and remove all following messages.'
+        : 'Once successful, the new response will replace this response.',
+      confirmLabel: 'Regenerate', danger: hasFollowing })) return;
+    if (state.generating || state.conversationId !== conversationId || state.conversationVersion !== version) return;
     // The server keeps the original branch until regeneration completes successfully.
     [...chat.querySelectorAll('.message')].slice(userIndex + 1).forEach((message) => {
       disposeMessageDisclosures(message);
