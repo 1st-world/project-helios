@@ -1,8 +1,9 @@
-/* Render bounded pages of saved API call metadata and prices, keeping unknown values and late responses explicit. */
+/* Render bounded pages of saved API call metadata and prices with retained, animated disclosures and explicit unknown values. */
 
 import { $, refreshIcons } from './ui.js';
 import { describeRequestError } from './chat-feedback.js';
 import { getTimezone, formatTimestamp } from './timezone.js';
+import { createDisclosure } from './disclosure.js';
 
 const PAGE_SIZE = 25;
 const KINDS = { chat: 'Chat', regeneration: 'Regeneration', summary: 'Memory summary', legacy_reply: 'Legacy reply' };
@@ -31,11 +32,24 @@ function definitionList(entries) {
   return list;
 }
 
+function chevron() {
+  const icon = document.createElement('i');
+  icon.dataset.lucide = 'chevron-down';
+  icon.className = 'usage-call-chevron';
+  icon.setAttribute('aria-hidden', 'true');
+  return icon;
+}
+
 function disclosure(title, content) {
   const details = document.createElement('details');
+  details.className = 'usage-call-details';
   const summary = document.createElement('summary');
   summary.textContent = title;
-  details.append(summary, content);
+  summary.prepend(chevron());
+  const body = document.createElement('div');
+  body.className = 'usage-call-details-body';
+  body.append(content);
+  details.append(summary, body);
   return details;
 }
 
@@ -85,9 +99,21 @@ export function createUsageHistory({ isVisible }) {
   let hasPage = false;
   let hasNext = false;
   let disclosureStates = new Map();
+  const disclosures = new Map();
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  function finishDisclosures() {
+    disclosures.forEach(controller => controller.finish());
+  }
+
+  function disposeDisclosures() {
+    disclosures.forEach(controller => controller.destroy());
+    disclosures.clear();
+  }
 
   function rememberDisclosures() {
     if (!list.children.length) return;
+    finishDisclosures();
     // Remember only the rendered page, keyed by record identity instead of row position.
     disclosureStates = new Map([...list.children].map(item => [item.dataset.usageCallId,
       [...item.querySelectorAll('details')].map(details => details.open)]));
@@ -109,6 +135,7 @@ export function createUsageHistory({ isVisible }) {
     root.dataset.state = state;
     message.textContent = description;
     message.hidden = !description;
+    disposeDisclosures();
     list.replaceChildren();
     hasPage = false;
     hasNext = false;
@@ -127,7 +154,10 @@ export function createUsageHistory({ isVisible }) {
     heading.textContent = `${label(KINDS, call.kind)} · ${label(STATUSES, call.status)}`;
     const context = document.createElement('span');
     context.textContent = `${formatTimestamp(call.started_at)} · ${text(call.profile_name || call.deployment)}`;
-    summary.append(heading, context);
+    const copy = document.createElement('div');
+    copy.className = 'usage-call-summary-copy';
+    copy.append(heading, context);
+    summary.append(chevron(), copy);
     const body = document.createElement('div');
     body.className = 'usage-call-body';
     const usage = call.usage || {};
@@ -150,6 +180,10 @@ export function createUsageHistory({ isVisible }) {
     item.append(details);
     const saved = disclosureStates.get(call.id);
     if (saved) item.querySelectorAll('details').forEach((details, index) => { details.open = saved[index]; });
+    item.querySelectorAll('details').forEach(details => {
+      const content = details.querySelector(':scope > .usage-call-body, :scope > .usage-call-details-body');
+      disclosures.set(details, createDisclosure(details, content, reducedMotion));
+    });
     return item;
   }
 
@@ -186,6 +220,7 @@ export function createUsageHistory({ isVisible }) {
       const scroller = root.querySelector('.usage-calls-scroll');
       const scrollTop = retainPage ? scroller.scrollTop : 0;
       if (retainPage) rememberDisclosures();
+      disposeDisclosures();
       list.replaceChildren(...calls.map(renderCall));
       offset = requestedOffset;
       hasPage = true;
@@ -221,6 +256,7 @@ export function createUsageHistory({ isVisible }) {
 
   function suspend() {
     cancel();
+    finishDisclosures();
   }
 
   function init() {
@@ -228,7 +264,7 @@ export function createUsageHistory({ isVisible }) {
     next.onclick = () => loadPage(offset + PAGE_SIZE);
     root.addEventListener('toggle', () => {
       if (root.open && isVisible()) loadPage();
-      else cancel();
+      else suspend();
     });
     updateControls();
   }

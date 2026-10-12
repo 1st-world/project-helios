@@ -192,8 +192,8 @@
         <div class="settings-group-body">
           <div id="font-settings" class="font-settings">
             <div class="settings-preference-row">
-              <div class="settings-preference-copy"><label for="ui-font-source">Interface font</label><small>Font used throughout the interface. Code keeps its monospace font.</small></div>
-              <select id="ui-font-source"><option value="default">Default (Pretendard)</option><option value="system">System font</option><option value="installed">Installed font</option></select>
+              <div class="settings-preference-copy"><span id="ui-font-source-label" class="settings-preference-label">Interface font</span><small>Font used throughout the interface. Code keeps its monospace font.</small></div>
+              <select id="ui-font-source" aria-labelledby="ui-font-source-label"><option value="default">Default (Pretendard)</option><option value="system">System font</option><option value="installed">Installed font</option></select>
             </div>
             <div id="font-settings-local" class="font-settings-local" hidden>
               <label for="ui-font-family">Font family name</label>
@@ -204,20 +204,20 @@
             <p id="font-settings-status" class="font-settings-error" role="status"></p>
           </div>
           <div class="settings-preference-row font-size-settings">
-            <div class="settings-preference-copy"><label for="ui-font-scale">Text size</label><small id="font-size-help">Scales interface and message text.</small><p id="font-size-settings-status" class="font-size-settings-error" role="status"></p></div>
-            <select id="ui-font-scale" aria-describedby="font-size-help font-size-settings-status"><option value="0.9">Small (90%)</option><option value="1" selected>Default (100%)</option><option value="1.1">Large (110%)</option><option value="1.25">Larger (125%)</option></select>
+            <div class="settings-preference-copy"><span id="ui-font-scale-label" class="settings-preference-label">Text size</span><small id="font-size-help">Scales interface and message text.</small><p id="font-size-settings-status" class="font-size-settings-error" role="status"></p></div>
+            <select id="ui-font-scale" aria-describedby="font-size-help font-size-settings-status" aria-labelledby="ui-font-scale-label"><option value="0.9">Small (90%)</option><option value="1" selected>Default (100%)</option><option value="1.1">Large (110%)</option><option value="1.25">Larger (125%)</option></select>
           </div>
           <div class="settings-preference-row">
-            <div class="settings-preference-copy"><label id="theme-label" for="ui-theme">Theme</label><small>Light, dark, or system appearance.</small></div>
-            <select id="ui-theme" disabled><option value="light">Light</option><option value="dark" selected>Dark</option><option value="system">System</option></select>
+            <div class="settings-preference-copy"><span id="theme-label" class="settings-preference-label">Theme</span><small>Light, dark, or system appearance.</small></div>
+            <select id="ui-theme" disabled aria-labelledby="theme-label"><option value="light">Light</option><option value="dark" selected>Dark</option><option value="system">System</option></select>
           </div>
           <div class="settings-preference-row">
-            <div class="settings-preference-copy"><label for="ui-language">Interface language</label><small>Menus and controls are currently in English.</small></div>
-            <select id="ui-language" disabled><option selected>English</option></select>
+            <div class="settings-preference-copy"><span id="ui-language-label" class="settings-preference-label">Interface language</span><small>Menus and controls are currently in English.</small></div>
+            <select id="ui-language" disabled aria-labelledby="ui-language-label"><option selected>English</option></select>
           </div>
           <div class="settings-preference-row">
-            <div class="settings-preference-copy"><label for="ui-timezone">App timezone</label><small>Timezone for timestamps, daily usage totals, and date filters throughout the app.</small></div>
-            <select id="ui-timezone"><option value="browser" selected>Browser timezone</option></select>
+            <div class="settings-preference-copy"><span id="ui-timezone-label" class="settings-preference-label">App timezone</span><small>Timezone for timestamps, daily usage totals, and date filters throughout the app.</small></div>
+            <select id="ui-timezone" aria-labelledby="ui-timezone-label"><option value="browser" selected>Browser timezone</option></select>
           </div>
         </div>
       </section>
@@ -226,16 +226,16 @@
         <div class="settings-panel-heading"><h3 id="settings-notifications-title">Notifications</h3></div>
         <div class="settings-group-body">
           <div class="settings-preference-row">
-            <div class="settings-preference-copy"><label for="notify-response">Response completion</label><small>Alerts when an assistant response finishes.</small></div>
-            <input id="notify-response" type="checkbox" disabled>
+            <div class="settings-preference-copy"><span id="notify-response-label" class="settings-preference-label">Response completion</span><small id="notify-response-help">Alerts when an assistant response finishes.</small></div>
+            <input id="notify-response" type="checkbox" disabled aria-labelledby="notify-response-label" class="settings-switch" role="switch" aria-describedby="notify-response-help">
           </div>
           <div class="settings-preference-row">
-            <div class="settings-preference-copy"><label for="notify-sound">Notification sound</label><small>Sound accompanying notifications.</small></div>
-            <input id="notify-sound" type="checkbox" disabled>
+            <div class="settings-preference-copy"><span id="notify-sound-label" class="settings-preference-label">Notification sound</span><small id="notify-sound-help">Sound accompanying notifications.</small></div>
+            <input id="notify-sound" type="checkbox" disabled aria-labelledby="notify-sound-label" class="settings-switch" role="switch" aria-describedby="notify-sound-help">
           </div>
           <div class="settings-preference-row">
-            <div class="settings-preference-copy"><label for="notify-desktop">Desktop notifications</label><small>System notifications; browser permission required.</small></div>
-            <input id="notify-desktop" type="checkbox" disabled>
+            <div class="settings-preference-copy"><span id="notify-desktop-label" class="settings-preference-label">Desktop notifications</span><small id="notify-desktop-help">System notifications; browser permission required.</small></div>
+            <input id="notify-desktop" type="checkbox" disabled aria-labelledby="notify-desktop-label" class="settings-switch" role="switch" aria-describedby="notify-desktop-help">
           </div>
         </div>
       </section>
@@ -249,24 +249,24 @@
             <div class="settings-panel-heading"><h3 id="context-input-title">Input & output</h3></div>
             <div class="settings-group-body">
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="context-preflight-mode">Context preflight</label><small id="context-preflight-help">How local input estimates affect requests.</small></div>
+                <div class="settings-preference-copy"><span id="context-preflight-mode-label" class="settings-preference-label">Context preflight</span><small id="context-preflight-help">How local input estimates affect requests.</small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="context_preflight_mode" aria-label="Restore default context preflight" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                  <select id="context-preflight-mode" data-app-setting="context_preflight_mode" aria-describedby="context-preflight-help" required disabled><option value="" disabled selected>Select a mode</option><option value="warn">Warn</option><option value="block">Block</option><option value="off">Off</option></select>
+                  <select id="context-preflight-mode" data-app-setting="context_preflight_mode" aria-describedby="context-preflight-help" required disabled aria-labelledby="context-preflight-mode-label"><option value="" disabled selected>Select a mode</option><option value="warn">Warn</option><option value="block">Block</option><option value="off">Off</option></select>
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="context-token-budget">Working context budget (tokens)</label><small id="context-token-budget-help">Local estimate and summary budget, separate from model capacity. Warn allows larger inputs. An explicit output limit is reserved here.</small></div>
+                <div class="settings-preference-copy"><span id="context-token-budget-label" class="settings-preference-label">Working context budget (tokens)</span><small id="context-token-budget-help">Local estimate and summary budget, separate from model capacity. Warn allows larger inputs. An explicit output limit is reserved here.</small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="context_token_budget" aria-label="Restore default working context budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                  <input id="context-token-budget" type="number" min="1024" step="1" data-app-setting="context_token_budget" aria-describedby="context-token-budget-help app-input-budget" required disabled>
+                  <input id="context-token-budget" type="number" min="1024" step="1" data-app-setting="context_token_budget" aria-describedby="context-token-budget-help app-input-budget" required disabled aria-labelledby="context-token-budget-label">
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="context-output-reserve">Output limit (tokens)</label><small id="context-output-reserve-help">Leave blank to use the provider default. A value limits output and reasoning for replies and summaries and may cut a response short.</small></div>
+                <div class="settings-preference-copy"><span id="context-output-reserve-label" class="settings-preference-label">Output limit (tokens)</span><small id="context-output-reserve-help">Leave blank to use the provider default. A value limits output and reasoning for replies and summaries and may cut a response short.</small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="context_output_reserve" aria-label="Use the provider default output limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                  <input id="context-output-reserve" type="number" min="1" step="1" placeholder="Provider default" data-app-setting="context_output_reserve" aria-describedby="context-output-reserve-help app-input-budget" disabled>
+                  <input id="context-output-reserve" type="number" min="1" step="1" placeholder="Provider default" data-app-setting="context_output_reserve" aria-describedby="context-output-reserve-help app-input-budget" disabled aria-labelledby="context-output-reserve-label">
                 </div>
               </div>
               <div class="settings-policy-summary">
@@ -279,24 +279,24 @@
             <div class="settings-group-body">
               <p class="field-hint">Memory summaries make model calls and consume tokens.</p>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="max-context-messages">Summary trigger (messages)</label><small id="max-context-messages-help">Summaries start when unsummarized messages exceed this count. Counts messages, not turns.</small></div>
+                <div class="settings-preference-copy"><span id="max-context-messages-label" class="settings-preference-label">Summary trigger (messages)</span><small id="max-context-messages-help">Summaries start when unsummarized messages exceed this count. Counts messages, not turns.</small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="max_context_messages" aria-label="Restore default summary trigger" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                  <input id="max-context-messages" type="number" min="3" step="1" data-app-setting="max_context_messages" aria-describedby="max-context-messages-help" required disabled>
+                  <input id="max-context-messages" type="number" min="3" step="1" data-app-setting="max_context_messages" aria-describedby="max-context-messages-help" required disabled aria-labelledby="max-context-messages-label">
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="keep-recent-messages">Keep recent messages</label><small id="keep-recent-messages-help">Recent messages retained outside summaries, preserving complete turns. Must be at least 2 and below the summary trigger.</small></div>
+                <div class="settings-preference-copy"><span id="keep-recent-messages-label" class="settings-preference-label">Keep recent messages</span><small id="keep-recent-messages-help">Recent messages retained outside summaries, preserving complete turns. Must be at least 2 and below the summary trigger.</small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="keep_recent_messages" aria-label="Restore default recent message count" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                  <input id="keep-recent-messages" type="number" min="2" step="1" data-app-setting="keep_recent_messages" aria-describedby="keep-recent-messages-help" required disabled>
+                  <input id="keep-recent-messages" type="number" min="2" step="1" data-app-setting="keep_recent_messages" aria-describedby="keep-recent-messages-help" required disabled aria-labelledby="keep-recent-messages-label">
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="max-summary-calls">Calls per summary job</label><small id="max-summary-calls-help">Maximum API calls allowed in one summary job.</small></div>
+                <div class="settings-preference-copy"><span id="max-summary-calls-label" class="settings-preference-label">Calls per summary job</span><small id="max-summary-calls-help">Maximum API calls allowed in one summary job.</small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="max_summary_calls" aria-label="Restore default summary call budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                  <input id="max-summary-calls" type="number" min="1" step="1" data-app-setting="max_summary_calls" aria-describedby="max-summary-calls-help" required disabled>
+                  <input id="max-summary-calls" type="number" min="1" step="1" data-app-setting="max_summary_calls" aria-describedby="max-summary-calls-help" required disabled aria-labelledby="max-summary-calls-label">
                 </div>
               </div>
             </div>
@@ -306,66 +306,66 @@
             <div class="settings-disclosure-body settings-group-body">
               <p class="settings-resource-note">Limits for local file reading and extraction, separate from model capacity. Byte values are exact. Server ceilings may lower these limits.</p>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="attachment-max-files">Attachments per selection</label><small id="attachment-max-files-help">Distinct files across all supported types.<span data-effective-setting="attachment_max_files" data-limit-key="MAX_FILES" data-unit="files" hidden></span></small></div>
+                <div class="settings-preference-copy"><span id="attachment-max-files-label" class="settings-preference-label">Attachments per selection</span><small id="attachment-max-files-help">Distinct files across all supported types.<span data-effective-setting="attachment_max_files" data-limit-key="MAX_FILES" data-unit="files" hidden></span></small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_files" aria-label="Restore default attachment count" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                  <input id="attachment-max-files" type="number" min="1" step="1" data-app-setting="attachment_max_files" aria-describedby="attachment-max-files-help" required disabled>
+                  <input id="attachment-max-files" type="number" min="1" step="1" data-app-setting="attachment_max_files" aria-describedby="attachment-max-files-help" required disabled aria-labelledby="attachment-max-files-label">
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="attachment-max-file-bytes">Original bytes per file</label><small id="attachment-max-file-bytes-help">Original size of each file. The selection total also applies.<span data-effective-setting="attachment_max_file_bytes" data-limit-key="MAX_FILE_BYTES" data-unit="bytes" hidden></span></small></div>
+                <div class="settings-preference-copy"><span id="attachment-max-file-bytes-label" class="settings-preference-label">Original bytes per file</span><small id="attachment-max-file-bytes-help">Original size of each file. The selection total also applies.<span data-effective-setting="attachment_max_file_bytes" data-limit-key="MAX_FILE_BYTES" data-unit="bytes" hidden></span></small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_file_bytes" aria-label="Restore default file byte limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                  <input id="attachment-max-file-bytes" type="number" min="1" step="1" data-app-setting="attachment_max_file_bytes" aria-describedby="attachment-max-file-bytes-help" required disabled>
+                  <input id="attachment-max-file-bytes" type="number" min="1" step="1" data-app-setting="attachment_max_file_bytes" aria-describedby="attachment-max-file-bytes-help" required disabled aria-labelledby="attachment-max-file-bytes-label">
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="attachment-max-total-bytes">Original bytes per selection</label><small id="attachment-max-total-bytes-help">Combined original size of all selected files. Memory use may exceed this total.<span data-effective-setting="attachment_max_total_bytes" data-limit-key="MAX_TOTAL_BYTES" data-unit="bytes" hidden></span></small></div>
+                <div class="settings-preference-copy"><span id="attachment-max-total-bytes-label" class="settings-preference-label">Original bytes per selection</span><small id="attachment-max-total-bytes-help">Combined original size of all selected files. Memory use may exceed this total.<span data-effective-setting="attachment_max_total_bytes" data-limit-key="MAX_TOTAL_BYTES" data-unit="bytes" hidden></span></small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_total_bytes" aria-label="Restore default combined byte limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                  <input id="attachment-max-total-bytes" type="number" min="1" step="1" data-app-setting="attachment_max_total_bytes" aria-describedby="attachment-max-total-bytes-help" required disabled>
+                  <input id="attachment-max-total-bytes" type="number" min="1" step="1" data-app-setting="attachment_max_total_bytes" aria-describedby="attachment-max-total-bytes-help" required disabled aria-labelledby="attachment-max-total-bytes-label">
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="attachment-max-text-bytes">Text bytes per file</label><small id="attachment-max-text-bytes-help">UTF-8 size of text read or extracted from each file. Oversized text is rejected, not truncated.<span data-effective-setting="attachment_max_text_bytes" data-limit-key="MAX_TEXT_BYTES" data-unit="bytes" hidden></span></small></div>
+                <div class="settings-preference-copy"><span id="attachment-max-text-bytes-label" class="settings-preference-label">Text bytes per file</span><small id="attachment-max-text-bytes-help">UTF-8 size of text read or extracted from each file. Oversized text is rejected, not truncated.<span data-effective-setting="attachment_max_text_bytes" data-limit-key="MAX_TEXT_BYTES" data-unit="bytes" hidden></span></small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_text_bytes" aria-label="Restore default text byte limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                  <input id="attachment-max-text-bytes" type="number" min="1" step="1" data-app-setting="attachment_max_text_bytes" aria-describedby="attachment-max-text-bytes-help" required disabled>
+                  <input id="attachment-max-text-bytes" type="number" min="1" step="1" data-app-setting="attachment_max_text_bytes" aria-describedby="attachment-max-text-bytes-help" required disabled aria-labelledby="attachment-max-text-bytes-label">
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="attachment-max-zip-bytes">Expanded bytes per Office file</label><small id="attachment-max-zip-bytes-help">Combined uncompressed ZIP entries in DOCX, XLSX, or PPTX, independent of original file size.<span data-effective-setting="attachment_max_zip_bytes" data-limit-key="MAX_ZIP_BYTES" data-unit="bytes" hidden></span></small></div>
+                <div class="settings-preference-copy"><span id="attachment-max-zip-bytes-label" class="settings-preference-label">Expanded bytes per Office file</span><small id="attachment-max-zip-bytes-help">Combined uncompressed ZIP entries in DOCX, XLSX, or PPTX, independent of original file size.<span data-effective-setting="attachment_max_zip_bytes" data-limit-key="MAX_ZIP_BYTES" data-unit="bytes" hidden></span></small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_zip_bytes" aria-label="Restore default expanded document byte limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                  <input id="attachment-max-zip-bytes" type="number" min="1" step="1" data-app-setting="attachment_max_zip_bytes" aria-describedby="attachment-max-zip-bytes-help" required disabled>
+                  <input id="attachment-max-zip-bytes" type="number" min="1" step="1" data-app-setting="attachment_max_zip_bytes" aria-describedby="attachment-max-zip-bytes-help" required disabled aria-labelledby="attachment-max-zip-bytes-label">
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="attachment-max-zip-members">ZIP entries per Office file</label><small id="attachment-max-zip-members-help">Entries inside a DOCX, XLSX, or PPTX archive.<span data-effective-setting="attachment_max_zip_members" data-limit-key="MAX_ZIP_MEMBERS" data-unit="entries" hidden></span></small></div>
+                <div class="settings-preference-copy"><span id="attachment-max-zip-members-label" class="settings-preference-label">ZIP entries per Office file</span><small id="attachment-max-zip-members-help">Entries inside a DOCX, XLSX, or PPTX archive.<span data-effective-setting="attachment_max_zip_members" data-limit-key="MAX_ZIP_MEMBERS" data-unit="entries" hidden></span></small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_zip_members" aria-label="Restore default document entry count" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                  <input id="attachment-max-zip-members" type="number" min="1" step="1" data-app-setting="attachment_max_zip_members" aria-describedby="attachment-max-zip-members-help" required disabled>
+                  <input id="attachment-max-zip-members" type="number" min="1" step="1" data-app-setting="attachment_max_zip_members" aria-describedby="attachment-max-zip-members-help" required disabled aria-labelledby="attachment-max-zip-members-label">
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="attachment-max-image-pixels">Decoded pixels per image</label><small id="attachment-max-image-pixels-help">Width multiplied by height. The image decoder may impose a lower limit.<span data-effective-setting="attachment_max_image_pixels" data-limit-key="MAX_IMAGE_PIXELS" data-unit="pixels" hidden></span></small></div>
+                <div class="settings-preference-copy"><span id="attachment-max-image-pixels-label" class="settings-preference-label">Decoded pixels per image</span><small id="attachment-max-image-pixels-help">Width multiplied by height. The image decoder may impose a lower limit.<span data-effective-setting="attachment_max_image_pixels" data-limit-key="MAX_IMAGE_PIXELS" data-unit="pixels" hidden></span></small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_image_pixels" aria-label="Restore default image pixel limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                  <input id="attachment-max-image-pixels" type="number" min="1" step="1" data-app-setting="attachment_max_image_pixels" aria-describedby="attachment-max-image-pixels-help" required disabled>
+                  <input id="attachment-max-image-pixels" type="number" min="1" step="1" data-app-setting="attachment_max_image_pixels" aria-describedby="attachment-max-image-pixels-help" required disabled aria-labelledby="attachment-max-image-pixels-label">
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="attachment-max-pdf-pages">Inspected pages per PDF</label><small id="attachment-max-pdf-pages-help">Maximum pages processed locally in each PDF.<span data-effective-setting="attachment_max_pdf_pages" data-limit-key="MAX_PDF_PAGES" data-unit="pages" hidden></span></small></div>
+                <div class="settings-preference-copy"><span id="attachment-max-pdf-pages-label" class="settings-preference-label">Inspected pages per PDF</span><small id="attachment-max-pdf-pages-help">Maximum pages processed locally in each PDF.<span data-effective-setting="attachment_max_pdf_pages" data-limit-key="MAX_PDF_PAGES" data-unit="pages" hidden></span></small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_pdf_pages" aria-label="Restore default PDF page limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                  <input id="attachment-max-pdf-pages" type="number" min="1" step="1" data-app-setting="attachment_max_pdf_pages" aria-describedby="attachment-max-pdf-pages-help" required disabled>
+                  <input id="attachment-max-pdf-pages" type="number" min="1" step="1" data-app-setting="attachment_max_pdf_pages" aria-describedby="attachment-max-pdf-pages-help" required disabled aria-labelledby="attachment-max-pdf-pages-label">
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><label for="attachment-max-sheet-cells">Stored cells per XLSX</label><small id="attachment-max-sheet-cells-help">Counts stored cells across all sheets; empty gaps do not count.<span data-effective-setting="attachment_max_sheet_cells" data-limit-key="MAX_SHEET_CELLS" data-unit="cells" hidden></span></small></div>
+                <div class="settings-preference-copy"><span id="attachment-max-sheet-cells-label" class="settings-preference-label">Stored cells per XLSX</span><small id="attachment-max-sheet-cells-help">Counts stored cells across all sheets; empty gaps do not count.<span data-effective-setting="attachment_max_sheet_cells" data-limit-key="MAX_SHEET_CELLS" data-unit="cells" hidden></span></small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_sheet_cells" aria-label="Restore default spreadsheet cell limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                  <input id="attachment-max-sheet-cells" type="number" min="1" step="1" data-app-setting="attachment_max_sheet_cells" aria-describedby="attachment-max-sheet-cells-help" required disabled>
+                  <input id="attachment-max-sheet-cells" type="number" min="1" step="1" data-app-setting="attachment_max_sheet_cells" aria-describedby="attachment-max-sheet-cells-help" required disabled aria-labelledby="attachment-max-sheet-cells-label">
                 </div>
               </div>
               <p id="attachment-provider-limits" class="settings-resource-note">Saved provider limits are not loaded yet.</p>
@@ -436,40 +436,40 @@
                   <p class="profile-context-note">Context options inherit app settings unless overridden. Blank model capacity declarations remain unknown; output limits are optional.</p>
                   <div class="settings-field-group" role="group" aria-label="Context overrides">
                     <div class="settings-preference-row">
-                      <div class="settings-preference-copy"><label for="profile-context-preflight">Context preflight</label><small id="profile-context-preflight-help">Uses the app preflight mode. Any explicit output limit still applies.</small></div>
+                      <div class="settings-preference-copy"><span id="profile-context-preflight-label" class="settings-preference-label">Context preflight</span><small id="profile-context-preflight-help">Uses the app preflight mode. Any explicit output limit still applies.</small></div>
                       <div class="profile-context-control">
                         <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_preflight_mode" title="Use the app preflight setting" aria-label="Use the app preflight setting" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                        <select id="profile-context-preflight" data-profile-context="context_preflight_mode" aria-describedby="profile-context-preflight-help"><option value="">Use app setting</option><option value="warn">Warn</option><option value="block">Block</option><option value="off">Off</option></select>
+                        <select id="profile-context-preflight" data-profile-context="context_preflight_mode" aria-describedby="profile-context-preflight-help" aria-labelledby="profile-context-preflight-label"><option value="">Use app setting</option><option value="warn">Warn</option><option value="block">Block</option><option value="off">Off</option></select>
                       </div>
                     </div>
                     <div class="settings-preference-row">
-                      <div class="settings-preference-copy"><label for="profile-context-input-budget">Input estimate budget (tokens)</label><small id="profile-context-input-budget-help">Local preflight budget, separate from model capacity.</small></div>
+                      <div class="settings-preference-copy"><span id="profile-context-input-budget-label" class="settings-preference-label">Input estimate budget (tokens)</span><small id="profile-context-input-budget-help">Local preflight budget, separate from model capacity.</small></div>
                       <div class="profile-context-control">
                         <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_input_budget" title="Use the app input allowance" aria-label="Use the app input allowance" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                        <input id="profile-context-input-budget" type="number" min="1" step="1" placeholder="Use app allowance" data-profile-context="context_input_budget" aria-describedby="profile-context-input-budget-help">
+                        <input id="profile-context-input-budget" type="number" min="1" step="1" placeholder="Use app allowance" data-profile-context="context_input_budget" aria-describedby="profile-context-input-budget-help" aria-labelledby="profile-context-input-budget-label">
                       </div>
                     </div>
                   </div>
                   <div class="settings-field-group" role="group" aria-label="Model limits">
                     <div class="settings-preference-row">
-                      <div class="settings-preference-copy"><label for="profile-model-context-window">Declared context window (tokens)</label><small id="profile-model-context-window-help">Combined input and output capacity. The estimate ceiling subtracts an explicit output limit when set.</small></div>
+                      <div class="settings-preference-copy"><span id="profile-model-context-window-label" class="settings-preference-label">Declared context window (tokens)</span><small id="profile-model-context-window-help">Combined input and output capacity. The estimate ceiling subtracts an explicit output limit when set.</small></div>
                       <div class="profile-context-control">
                         <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_context_window" title="Clear the context window declaration" aria-label="Clear the context window declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                        <input id="profile-model-context-window" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_context_window" aria-describedby="profile-model-context-window-help">
+                        <input id="profile-model-context-window" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_context_window" aria-describedby="profile-model-context-window-help" aria-labelledby="profile-model-context-window-label">
                       </div>
                     </div>
                     <div class="settings-preference-row">
-                      <div class="settings-preference-copy"><label for="profile-model-max-input">Declared maximum input (tokens)</label><small id="profile-model-max-input-help">Independent input ceiling, considered alongside the context window and input estimates in Warn and Block modes.</small></div>
+                      <div class="settings-preference-copy"><span id="profile-model-max-input-label" class="settings-preference-label">Declared maximum input (tokens)</span><small id="profile-model-max-input-help">Independent input ceiling, considered alongside the context window and input estimates in Warn and Block modes.</small></div>
                       <div class="profile-context-control">
                         <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_max_input_tokens" title="Clear the input limit declaration" aria-label="Clear the input limit declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                        <input id="profile-model-max-input" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_max_input_tokens" aria-describedby="profile-model-max-input-help">
+                        <input id="profile-model-max-input" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_max_input_tokens" aria-describedby="profile-model-max-input-help" aria-labelledby="profile-model-max-input-label">
                       </div>
                     </div>
                     <div class="settings-preference-row">
-                      <div class="settings-preference-copy"><label for="profile-model-max-output">Profile output limit (tokens)</label><small id="profile-model-max-output-help">Optional output and reasoning limit. The smaller explicit app or profile value applies; leave both blank for the provider default.</small></div>
+                      <div class="settings-preference-copy"><span id="profile-model-max-output-label" class="settings-preference-label">Profile output limit (tokens)</span><small id="profile-model-max-output-help">Optional output and reasoning limit. The smaller explicit app or profile value applies; leave both blank for the provider default.</small></div>
                       <div class="profile-context-control">
                         <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_max_output_tokens" title="Use the app or provider output setting" aria-label="Use the app or provider output setting" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                        <input id="profile-model-max-output" type="number" min="1" step="1" placeholder="Use app setting" data-profile-context="model_max_output_tokens" aria-describedby="profile-model-max-output-help">
+                        <input id="profile-model-max-output" type="number" min="1" step="1" placeholder="Use app setting" data-profile-context="model_max_output_tokens" aria-describedby="profile-model-max-output-help" aria-labelledby="profile-model-max-output-label">
                       </div>
                     </div>
                   </div>
@@ -562,20 +562,20 @@
         <div class="settings-panel-heading"><h3 id="settings-usage-display-title">Display preferences</h3></div>
         <div class="settings-group-body">
           <div class="settings-preference-row">
-            <div class="settings-preference-copy"><label for="display-currency">Display currency</label><small>Currency used to display estimated costs.</small></div>
-            <select id="display-currency" disabled><option selected>USD · US Dollar</option></select>
+            <div class="settings-preference-copy"><span id="display-currency-label" class="settings-preference-label">Display currency</span><small>Currency used to display estimated costs.</small></div>
+            <select id="display-currency" disabled aria-labelledby="display-currency-label"><option selected>USD · US Dollar</option></select>
           </div>
           <div class="settings-preference-row">
-            <div class="settings-preference-copy"><label for="conversion-rate">Conversion rate (1 USD)</label><small>Value of 1 USD in the display currency.</small></div>
-            <input id="conversion-rate" type="number" step="any" min="0" placeholder="Not configured" disabled>
+            <div class="settings-preference-copy"><span id="conversion-rate-label" class="settings-preference-label">Conversion rate (1 USD)</span><small>Value of 1 USD in the display currency.</small></div>
+            <input id="conversion-rate" type="number" step="any" min="0" placeholder="Not configured" disabled aria-labelledby="conversion-rate-label">
           </div>
           <div class="settings-preference-row">
-            <div class="settings-preference-copy"><label for="show-response-usage">Per-response usage</label><small>Token usage, response time, and estimated cost below each response.</small></div>
-            <input id="show-response-usage" type="checkbox" checked>
+            <div class="settings-preference-copy"><span id="show-response-usage-label" class="settings-preference-label">Per-response usage</span><small id="show-response-usage-help">Token usage, response time, and estimated cost below each response.</small></div>
+            <input id="show-response-usage" type="checkbox" checked aria-labelledby="show-response-usage-label" class="settings-switch" role="switch" aria-describedby="show-response-usage-help">
           </div>
           <div class="settings-preference-row">
-            <div class="settings-preference-copy"><label for="show-conversation-usage">Conversation usage footer</label><small>Recorded usage below the last message in each conversation.</small></div>
-            <input id="show-conversation-usage" type="checkbox" checked>
+            <div class="settings-preference-copy"><span id="show-conversation-usage-label" class="settings-preference-label">Conversation usage footer</span><small id="show-conversation-usage-help">Recorded usage below the last message in each conversation.</small></div>
+            <input id="show-conversation-usage" type="checkbox" checked aria-labelledby="show-conversation-usage-label" class="settings-switch" role="switch" aria-describedby="show-conversation-usage-help">
           </div>
         </div>
       </section>

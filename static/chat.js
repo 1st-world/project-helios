@@ -49,7 +49,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
       <div><dt>Estimated cost (USD)</dt><dd data-usage-field="cost">—</dd></div>
     </dl>
     <p data-usage-completeness></p>
-    <details class="usage-details"><summary>Usage and coverage details</summary><div class="usage-details-body"><p data-usage-notes></p></div></details>
+    <details class="usage-details"><summary><i data-lucide="chevron-down" class="usage-details-chevron" aria-hidden="true"></i><span>Usage and coverage details</span></summary><div class="usage-details-body"><p data-usage-notes></p></div></details>
   `;
   const footerDetails = usageFooter.querySelector('.usage-details');
   const footerDisclosure = createDisclosure(footerDetails, footerDetails.querySelector(':scope > .usage-details-body'));
