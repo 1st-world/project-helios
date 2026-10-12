@@ -413,8 +413,8 @@
             <div class="settings-group-body profile-editor-fields">
               <input type="hidden" id="editing-profile-id" value="">
               <div class="form-grid-2">
-                <label>Profile name<input id="profile-name" required placeholder="e.g. EastUS GPT-5.6 Sol"></label>
-                <label>Deployment name<input id="azure-deployment" required placeholder="e.g. gpt-5.6-sol"></label>
+                <label>Profile name<input id="profile-name" required placeholder="e.g. EastUS GPT-6.1 Sol"></label>
+                <label>Deployment name<input id="azure-deployment" required placeholder="e.g. gpt-6.1-sol"></label>
               </div>
               <label>Azure endpoint<input id="azure-endpoint" type="url" required placeholder="https://your-resource.cognitiveservices.azure.com/"></label>
               <div class="profile-key-field">
@@ -499,11 +499,11 @@
                   <div class="pricing-tier-block">
                     <div class="tier-header">
                       <span class="tier-pill standard"><i data-lucide="layers-2" aria-hidden="true"></i>Standard context</span>
-                      <span class="tier-range" id="standard-range-label">&lt; 128K tokens</span>
+                      <span class="tier-range" id="standard-range-label">&le; 272K tokens</span>
                     </div>
                     <div class="form-grid-2">
-                      <label>Input price ($ / 1M)<input id="azure-input-price" type="number" step="any" min="0" placeholder="e.g. 5.00"></label>
-                      <label>Output price ($ / 1M)<input id="azure-output-price" type="number" step="any" min="0" placeholder="e.g. 30.00"></label>
+                      <label>Input price ($ / 1M)<input id="azure-input-price" type="number" step="any" min="0" placeholder="e.g. 2.00"></label>
+                      <label>Output price ($ / 1M)<input id="azure-output-price" type="number" step="any" min="0" placeholder="e.g. 10.00"></label>
                     </div>
                     <div class="form-grid-2">
                       <label>Cache read price ($ / 1M)<input id="azure-cache-read-price" type="number" step="any" min="0" placeholder="Not configured" aria-describedby="cache-pricing-hint"></label>
@@ -517,7 +517,7 @@
                       <i data-lucide="git-commit-vertical" class="threshold-icon"></i>
                       <label class="threshold-tag" for="azure-long-threshold">Threshold breakpoint</label>
                       <div class="threshold-input-wrap">
-                        <input id="azure-long-threshold" type="number" step="1000" min="1000" placeholder="128000" aria-describedby="long-pricing-hint">
+                        <input id="azure-long-threshold" type="number" step="1" min="1" placeholder="272000" aria-describedby="long-pricing-hint">
                         <span class="threshold-unit">tokens</span>
                       </div>
                     </div>
@@ -526,17 +526,17 @@
                   <div class="pricing-tier-block">
                     <div class="tier-header">
                       <span class="tier-pill long"><i data-lucide="layers" aria-hidden="true"></i>Long context</span>
-                      <span class="tier-range" id="long-range-label">&ge; 128K tokens</span>
+                      <span class="tier-range" id="long-range-label">&gt; 272K tokens</span>
                     </div>
                     <div class="form-grid-2">
-                      <label>Long input price ($ / 1M)<input id="azure-long-input-price" type="number" step="any" min="0" placeholder="e.g. 10.00"></label>
-                      <label>Long output price ($ / 1M)<input id="azure-long-output-price" type="number" step="any" min="0" placeholder="e.g. 45.00"></label>
+                      <label>Long input price ($ / 1M)<input id="azure-long-input-price" type="number" step="any" min="0" placeholder="e.g. 4.00"></label>
+                      <label>Long output price ($ / 1M)<input id="azure-long-output-price" type="number" step="any" min="0" placeholder="e.g. 15.00"></label>
                     </div>
                     <div class="form-grid-2">
                       <label>Long cache read price ($ / 1M)<input id="azure-long-cache-read-price" type="number" step="any" min="0" placeholder="Use standard rate" aria-describedby="cache-pricing-hint long-pricing-hint"></label>
                       <label>Long cache write price ($ / 1M)<input id="azure-long-cache-write-price" type="number" step="any" min="0" placeholder="Use standard rate" aria-describedby="cache-pricing-hint long-pricing-hint"></label>
                     </div>
-                    <span id="long-pricing-hint" class="field-hint">Long-context rates apply when input tokens, including cache tokens, reach the threshold. Each blank rate uses its corresponding standard rate.</span>
+                    <span id="long-pricing-hint" class="field-hint">Long-context rates apply above the input-token breakpoint, including cache tokens. A blank breakpoint uses 272K. Each blank rate uses its corresponding standard rate.</span>
                   </div>
                 </div>
               </details>

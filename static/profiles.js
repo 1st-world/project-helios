@@ -373,19 +373,24 @@ export function createProfiles({ isGenerating }) {
     selectSettingsPanel(selectedPanel, true);
   }
 
+  function readThreshold() {
+    const input = $('#azure-long-threshold');
+    return input.value === '' && !input.validity.badInput ? Number(input.placeholder) : input.valueAsNumber;
+  }
+
   function updateThresholdLabels() {
     const inputEl = $('#azure-long-threshold');
     if (!inputEl) return;
-    const raw = inputEl.value.trim();
-    const val = parseInt(raw, 10);
-    let display = '128K';
-    if (!isNaN(val) && val > 0) {
+    inputEl.setCustomValidity('');
+    const val = readThreshold();
+    let display = '—';
+    if (Number.isSafeInteger(val) && val > 0) {
       display = (val >= 1000 && val % 1000 === 0) ? `${val / 1000}K` : val.toLocaleString();
     }
     const stdLabel = $('#standard-range-label');
     const longLabel = $('#long-range-label');
-    if (stdLabel) stdLabel.textContent = `< ${display} tokens`;
-    if (longLabel) longLabel.textContent = `≥ ${display} tokens`;
+    if (stdLabel) stdLabel.textContent = `≤ ${display} tokens`;
+    if (longLabel) longLabel.textContent = `> ${display} tokens`;
   }
 
   function setGenerating(value) {
@@ -454,6 +459,10 @@ export function createProfiles({ isGenerating }) {
       if (state.saving || !hasUnsavedChanges()) return;
       profileContext.validate();
       validateCachePrices();
+      const thresholdInput = $('#azure-long-threshold');
+      const threshold = readThreshold();
+      thresholdInput.setCustomValidity(Number.isSafeInteger(threshold) && threshold > 0
+        ? '' : 'Enter a positive whole number the browser can represent exactly, or leave blank for the default breakpoint.');
       const invalid = [...$('#azure-settings-form').querySelectorAll('input, select')].find(input => !input.checkValidity());
       if (invalid) {
         const disclosure = invalid.closest('details');
@@ -490,13 +499,9 @@ export function createProfiles({ isGenerating }) {
       } else if (editingId) {
         payload.clear_output_price = true;
       }
-      const thresholdVal = $('#azure-long-threshold').value.trim();
       const longInVal = $('#azure-long-input-price').value.trim();
       const longOutVal = $('#azure-long-output-price').value.trim();
-      if (thresholdVal !== '') {
-        const parsedTh = parseInt(thresholdVal, 10);
-        if (!isNaN(parsedTh) && parsedTh > 0) payload.long_context_threshold = parsedTh;
-      }
+      payload.long_context_threshold = threshold;
       if (longInVal !== '') {
         const parsedLongIn = parseFloat(longInVal);
         if (!isNaN(parsedLongIn) && parsedLongIn >= 0) payload.long_input_price_per_million = parsedLongIn;

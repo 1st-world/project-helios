@@ -27,7 +27,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from config import settings
 from models.app_settings import AppSettings, DEFAULT_APP_SETTINGS
-from models.profile import CONTEXT_FIELDS, ConnectionProfile
+from models.profile import (
+    CONTEXT_FIELDS, DEFAULT_LONG_CONTEXT_THRESHOLD, ConnectionProfile,
+)
 from services.ai_service import AIService
 from services.attachment_errors import ProviderAttachmentError
 from services.attachment_service import (
@@ -346,7 +348,9 @@ class CreateProfileRequest(ProfileContextSettings):
     deployment: str = Field(min_length=1, max_length=256)
     input_price_per_million: float | None = Field(default=None, ge=0)
     output_price_per_million: float | None = Field(default=None, ge=0)
-    long_context_threshold: int | None = Field(default=128_000, ge=1)
+    long_context_threshold: int | None = Field(
+        default=DEFAULT_LONG_CONTEXT_THRESHOLD, ge=1,
+    )
     long_input_price_per_million: float | None = Field(default=None, ge=0)
     long_output_price_per_million: float | None = Field(default=None, ge=0)
     cache_read_price_per_million: float | None = Field(default=None, ge=0, allow_inf_nan=False)

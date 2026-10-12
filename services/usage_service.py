@@ -4,6 +4,8 @@ from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 
+from models.profile import DEFAULT_LONG_CONTEXT_THRESHOLD
+
 
 def _value(source: object | None, name: str) -> object | None:
     """Read a usage field from a provider object or a replayed JSON mapping."""
@@ -157,7 +159,7 @@ class UsageService:
         threshold = (
             long_context_threshold
             if long_context_threshold is not None
-            else 128_000
+            else DEFAULT_LONG_CONTEXT_THRESHOLD
         )
         has_long_rates = (
             long_input_price_per_million is not None
@@ -168,7 +170,7 @@ class UsageService:
         is_long_tier = bool(
             has_long_rates
             and input_tokens is not None
-            and input_tokens >= threshold
+            and input_tokens > threshold
         )
 
         if is_long_tier:

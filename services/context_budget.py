@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from models.app_settings import DEFAULT_APP_SETTINGS
 from services.token_estimator import text_tokens
 
 
@@ -26,7 +27,7 @@ class ContextBudget:
     """Reserve an optional user output cap within local working limits and bound summaries."""
 
     # These are local working limits, not advertised model context sizes.
-    token_budget: int = 32_768
+    token_budget: int = DEFAULT_APP_SETTINGS.context_token_budget
     output_reserve: int | None = None
     max_summary_calls: int = 8
 

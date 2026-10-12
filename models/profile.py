@@ -4,6 +4,10 @@ from dataclasses import dataclass, field
 from uuid import uuid4
 
 
+# GPT-6 long-context pricing starts above this input-token breakpoint.
+DEFAULT_LONG_CONTEXT_THRESHOLD = 272_000
+
+
 CONTEXT_FIELDS = (
     "context_preflight_mode", "context_input_budget", "model_context_window",
     "model_max_input_tokens", "model_max_output_tokens",
@@ -21,7 +25,7 @@ class ConnectionProfile:
     deployment: str = ""
     input_price_per_million: float | None = None
     output_price_per_million: float | None = None
-    long_context_threshold: int | None = 128_000
+    long_context_threshold: int | None = DEFAULT_LONG_CONTEXT_THRESHOLD
     long_input_price_per_million: float | None = None
     long_output_price_per_million: float | None = None
     cache_read_price_per_million: float | None = None
@@ -107,7 +111,7 @@ class ConnectionProfile:
             long_context_threshold=(
                 int(threshold)
                 if threshold is not None and str(threshold).strip() != ""
-                else 128_000
+                else DEFAULT_LONG_CONTEXT_THRESHOLD
             ),
             long_input_price_per_million=(
                 float(long_in)

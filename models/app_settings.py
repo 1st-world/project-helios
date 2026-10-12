@@ -9,7 +9,7 @@ class AppSettings:
 
     max_context_messages: int = 16
     keep_recent_messages: int = 10
-    context_token_budget: int = 32_768
+    context_token_budget: int = 262_144
     # Omit the provider output cap unless the user explicitly chooses one.
     context_output_reserve: int | None = None
     max_summary_calls: int = 8

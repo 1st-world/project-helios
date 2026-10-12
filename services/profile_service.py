@@ -6,7 +6,9 @@ from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
-from models.profile import CONTEXT_FIELDS, ConnectionProfile
+from models.profile import (
+    CONTEXT_FIELDS, DEFAULT_LONG_CONTEXT_THRESHOLD, ConnectionProfile,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +104,7 @@ class ProfileService:
         deployment: str,
         input_price_per_million: float | None = None,
         output_price_per_million: float | None = None,
-        long_context_threshold: int | None = 128_000,
+        long_context_threshold: int | None = DEFAULT_LONG_CONTEXT_THRESHOLD,
         long_input_price_per_million: float | None = None,
         long_output_price_per_million: float | None = None,
         cache_read_price_per_million: float | None = None,
@@ -128,7 +130,7 @@ class ProfileService:
             long_context_threshold=(
                 long_context_threshold
                 if long_context_threshold is not None
-                else 128_000
+                else DEFAULT_LONG_CONTEXT_THRESHOLD
             ),
             long_input_price_per_million=long_input_price_per_million,
             long_output_price_per_million=long_output_price_per_million,
