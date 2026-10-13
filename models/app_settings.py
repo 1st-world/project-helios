@@ -7,8 +7,9 @@ from dataclasses import dataclass
 class AppSettings:
     """Hold immutable user preferences for context work and local file resources."""
 
-    max_context_messages: int = 16
-    keep_recent_messages: int = 10
+    # Null selects model capacity, zero disables summaries, and a positive value is an override.
+    summary_trigger_tokens: int | None = None
+    keep_recent_tokens: int = 65_536
     context_token_budget: int = 262_144
     # Omit the provider output cap unless the user explicitly chooses one.
     context_output_reserve: int | None = None
@@ -41,14 +42,17 @@ class AppSettings:
             if name == "context_preflight_mode":
                 continue
             value = getattr(self, name)
-            if name == "context_output_reserve" and value is None:
+            if name in {"context_output_reserve", "summary_trigger_tokens"} and value is None:
                 continue
-            if type(value) is not int or value < 1:
+            minimum = 0 if name == "summary_trigger_tokens" else 1
+            if type(value) is not int or value < minimum:
+                if minimum == 0:
+                    raise ValueError("Summary trigger tokens must be a nonnegative integer.")
                 raise ValueError(f"{name} must be a positive integer.")
         if self.context_token_budget - (self.context_output_reserve or 0) < 1024:
             raise ValueError("Context token budget must exceed the output reserve by at least 1024.")
-        if not 2 <= self.keep_recent_messages < self.max_context_messages:
-            raise ValueError("Keep recent messages must be at least 2 and smaller than max context messages.")
+        if self.summary_trigger_tokens and self.keep_recent_tokens >= self.summary_trigger_tokens:
+            raise ValueError("Keep recent tokens must be smaller than the enabled summary trigger.")
 
     def to_dict(self) -> dict:
         """Return policy fields without including subclass storage or asset paths."""

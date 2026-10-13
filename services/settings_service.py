@@ -36,9 +36,22 @@ class SettingsService:
             values = json.loads(data)
             if not isinstance(values, dict):
                 raise ValueError("Settings must be an object.")
+            legacy = {"max_context_messages", "keep_recent_messages"} & values.keys()
+            if legacy:
+                trigger = values.get("max_context_messages", 16)
+                recent = values.get("keep_recent_messages", 10)
+                if (
+                    type(trigger) is not int or type(recent) is not int
+                    or not 2 <= recent < trigger
+                ):
+                    raise ValueError("Legacy message-count settings are invalid.")
+                # Message counts have no reliable token equivalent; retain any explicit new settings.
+                values = {name: value for name, value in values.items() if name not in legacy}
             self.current = self.prepare_update(values)
         except (UnicodeError, ValueError, TypeError) as exc:
             raise SettingsStorageError("Application settings are invalid; repair settings.json before starting.") from exc
+        if legacy:
+            self.save(self.current)
 
     def prepare_update(self, changes: dict) -> AppSettings:
         """Validate a partial update; omitted fields stay and null restores defaults."""

@@ -19,6 +19,8 @@ class PromptBuilder:
         "For mixed-language conversations, preserve original technical terms, code, and file names. "
         "Retain still-valid decisions, constraints, and unresolved questions from existing memory, even when the new transcript does not repeat them. "
         "Consolidate repeated information and shorten verbose wording while preserving distinct relevant details. "
+        "Marked message fragments are continuations, not complete messages. "
+        "Preserve unresolved conditions and code dependencies until later fragments supply the missing context. "
         "Update prior facts only when the transcript explicitly corrects or supersedes them. "
         "Write clear, concise Markdown bullet points."
     )

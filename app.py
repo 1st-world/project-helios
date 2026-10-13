@@ -124,8 +124,8 @@ context_budget = ContextBudget(
 memory_service = ConversationMemoryService(
     ai_service,
     conversation_manager,
-    application_settings.max_context_messages,
-    application_settings.keep_recent_messages,
+    application_settings.summary_trigger_tokens,
+    application_settings.keep_recent_tokens,
     context_budget,
 )
 
@@ -267,8 +267,8 @@ class UpdateSettingsRequest(BaseModel):
     """Validate partial app preferences while allowing null to restore defaults."""
 
     model_config = ConfigDict(extra="forbid")
-    max_context_messages: int | None = Field(default=None, ge=3, strict=True)
-    keep_recent_messages: int | None = Field(default=None, ge=2, strict=True)
+    summary_trigger_tokens: int | None = Field(default=None, ge=0, strict=True)
+    keep_recent_tokens: int | None = Field(default=None, ge=1, strict=True)
     context_token_budget: int | None = Field(default=None, ge=1, strict=True)
     context_output_reserve: int | None = Field(default=None, ge=1, strict=True)
     max_summary_calls: int | None = Field(default=None, ge=1, strict=True)
@@ -700,6 +700,7 @@ def application_settings_response() -> dict:
             for name in vars(AttachmentService) if name.startswith("MAX_")
         },
         "provider_limits": {"enforcement": "provider"},
+        "summary_policy": memory_service.summary_policy(),
         "applies_to": "new_requests",
     }
 
@@ -728,7 +729,7 @@ async def update_application_settings(payload: UpdateSettingsRequest):
         new_ai = ai_service.with_output_limit(candidate.context_output_reserve)
         new_memory = memory_service.with_settings(
             new_ai, new_budget,
-            candidate.max_context_messages, candidate.keep_recent_messages,
+            candidate.summary_trigger_tokens, candidate.keep_recent_tokens,
         )
         settings_service.save(candidate)
     except ValueError as exc:
@@ -788,6 +789,7 @@ async def context_policy_settings(profile_id: str | None = None):
         "mode": policy.mode, "input_budget": policy.input_budget,
         "declared_model_input_limit": policy.declared_model_input_limit,
         "max_output_tokens": policy.max_output_tokens,
+        "summary_policy": memory_service.summary_policy(profile_id),
         "local_attachment_limits": {
             name: getattr(attachment_service, name)
             for name in vars(AttachmentService) if name.startswith("MAX_")
@@ -947,6 +949,7 @@ async def chat(payload: ChatRequest):
             profile_id,
             history_end=history_end,
             persist_memory=payload.regenerate_message_index is None,
+            summary_policy=request_memory.summary_policy(profile_id),
             preflight_mode=policy.mode,
             input_limit=min(
                 policy.input_budget,

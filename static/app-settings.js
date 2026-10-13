@@ -10,11 +10,11 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   const resetButtons = [...form.querySelectorAll('[data-reset-setting]')];
   const resetLabels = new Map(resetButtons.map(button => [button, button.getAttribute('aria-label')]));
   const effectiveLabels = [...form.querySelectorAll('[data-effective-setting]')];
-  const state = { saved: null, defaults: null, localLimits: null, resets: new Set(), loading: false, saving: false, controller: null, feedback: null };
+  const state = { saved: null, defaults: null, localLimits: null, summaryPolicy: null, resets: new Set(), loading: false, saving: false, controller: null, feedback: null };
   const modeHelp = {
     warn: 'Allows requests with estimated input-limit warnings. Warnings alone do not force history summaries.',
     block: 'May summarize history or reject requests when input estimates exceed limits. Estimates can differ from actual usage.',
-    off: 'Skips input estimates. Explicit output limits, local attachment checks, and background memory summaries still apply.'
+    off: 'Skips admission estimates. Explicit output limits, attachment checks, and token-based memory summaries still apply.'
   };
 
   function setStatus(message, type = 'info') {
@@ -30,7 +30,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   }
 
   function valueOf(input) {
-    if (input.dataset.appSetting === 'context_output_reserve' && input.value === '' && !input.validity.badInput) return null;
+    if (['context_output_reserve', 'summary_trigger_tokens'].includes(input.dataset.appSetting) && input.value === '' && !input.validity.badInput) return null;
     return input.tagName === 'SELECT' ? input.value : input.valueAsNumber;
   }
 
@@ -73,6 +73,12 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     const output = valueOf(fields.get('context_output_reserve'));
     const budget = fields.get('context_token_budget').valueAsNumber - (output ?? 0);
     $('#app-input-budget').textContent = `Draft input estimate budget, before profile or request overrides: ${Number.isSafeInteger(budget) && budget >= 0 ? `${budget.toLocaleString()} tokens` : '—'}. ${output === null ? 'Output limit: provider default.' : 'An explicit output limit is reserved in the working budget.'}`;
+    const trigger = valueOf(fields.get('summary_trigger_tokens'));
+    const policy = state.summaryPolicy;
+    $('#summary-trigger-tokens-help').textContent = trigger === null
+      ? `Automatic: 90% of declared model input allowance. ${policy?.capacity_source === 'profile' && Number.isSafeInteger(policy.summary_input_limit) ? `Last loaded active connection threshold: ${Math.floor(policy.summary_input_limit * 0.9).toLocaleString()} tokens.` : 'Model capacity is unknown; declare input or context capacity in Connections.'}`
+      : trigger === 0 ? 'Automatic summaries are disabled. Block mode can still summarize to fit its budget.'
+      : 'Summarize above this estimate, including current input. Complete turns stay intact. Block mode can still summarize to fit its budget.';
     showAttachmentLimits();
   }
 
@@ -90,7 +96,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     resetButtons.forEach(button => {
       const value = state.defaults?.[button.dataset.resetSetting];
       const label = resetLabels.get(button);
-      const formatted = value === undefined ? '' : value === null ? 'Provider default' : typeof value === 'number' ? value.toLocaleString() : value.charAt(0).toUpperCase() + value.slice(1);
+      const formatted = value === undefined ? '' : value === null ? button.dataset.resetSetting === 'summary_trigger_tokens' ? 'Automatic' : 'Provider default' : typeof value === 'number' ? value.toLocaleString() : value.charAt(0).toUpperCase() + value.slice(1);
       button.title = value === undefined ? label : `${label} (default: ${formatted})`;
       button.setAttribute('aria-label', button.title);
     });
@@ -101,8 +107,8 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     for (const name of fields.keys()) {
       for (const values of [data?.settings, data?.defaults]) {
         const value = values?.[name];
-        if (name === 'context_output_reserve' && value === null) continue;
-        if (name === 'context_preflight_mode' ? !Object.hasOwn(modeHelp, value) : !Number.isSafeInteger(value) || value < 1) {
+        if (['context_output_reserve', 'summary_trigger_tokens'].includes(name) && value === null) continue;
+        if (name === 'context_preflight_mode' ? !Object.hasOwn(modeHelp, value) : !Number.isSafeInteger(value) || value < (name === 'summary_trigger_tokens' ? 0 : 1)) {
           throw new Error('Could not read the saved settings. Reload Settings before editing.');
         }
       }
@@ -110,6 +116,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     state.saved = { ...data.settings };
     state.defaults = { ...data.defaults };
     state.localLimits = { ...data.local_attachment_limits };
+    state.summaryPolicy = data.summary_policy || null;
     fillSaved();
   }
 
@@ -164,7 +171,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   function validate() {
     clearValidation();
     for (const input of fields.values()) {
-      if (input.dataset.appSetting === 'context_output_reserve' && valueOf(input) === null) continue;
+      if (['context_output_reserve', 'summary_trigger_tokens'].includes(input.dataset.appSetting) && valueOf(input) === null) continue;
       if (input.tagName !== 'SELECT' && (!Number.isSafeInteger(input.valueAsNumber) || input.valueAsNumber < Number(input.min))) {
         input.setCustomValidity(`Enter a whole number of at least ${input.min} that the browser can represent exactly.`);
       }
@@ -172,8 +179,9 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     const budget = fields.get('context_token_budget');
     const reserve = fields.get('context_output_reserve');
     if (budget.valueAsNumber - (valueOf(reserve) ?? 0) < 1024) budget.setCustomValidity('The context budget must leave at least 1,024 input tokens after any explicit output reservation.');
-    const recent = fields.get('keep_recent_messages');
-    if (recent.valueAsNumber >= fields.get('max_context_messages').valueAsNumber) recent.setCustomValidity('Keep recent messages must be smaller than the summary trigger.');
+    const trigger = fields.get('summary_trigger_tokens').valueAsNumber;
+    const recent = fields.get('keep_recent_tokens');
+    if (trigger > 0 && recent.valueAsNumber >= trigger) recent.setCustomValidity('Keep recent tokens must be smaller than the enabled summary trigger.');
     for (const input of fields.values()) {
       if (!input.checkValidity()) input.setAttribute('aria-invalid', 'true');
     }
@@ -260,6 +268,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
       state.saved = null;
       state.defaults = null;
       state.localLimits = null;
+      state.summaryPolicy = null;
       fillSaved();
       setStatus('');
     });

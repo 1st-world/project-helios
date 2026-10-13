@@ -18,6 +18,7 @@ from services.attachment_errors import ProviderAttachmentError
 from services.context_budget import ContextWindowExceeded
 from services.call_usage_store import CallUsageStore, utc_timestamp
 from services.profile_service import ProfileService
+from services.model_context import MemoryCapacity
 from services.prompt_builder import PromptBuilder
 from services.summary_usage_store import SummaryUsageStore
 from services.usage_service import UsageService
@@ -68,6 +69,18 @@ class AIService:
         snapshot = copy(self)
         snapshot.max_output_tokens = max_output_tokens
         return snapshot
+
+    def memory_capacity(self, profile_id: str | None = None) -> MemoryCapacity:
+        """Read declared capacity without a provider lookup or response-model interpretation."""
+        profile = None
+        if self.profile_service:
+            profile = (
+                self.profile_service.get_profile(profile_id)
+                if profile_id else self.profile_service.get_active_profile()
+            )
+        if profile is None:
+            return MemoryCapacity()
+        return MemoryCapacity.resolve(profile, self.output_limit(profile))
 
     async def close(self) -> None:
         """Closes all cached client connections when the application shuts down."""

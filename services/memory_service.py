@@ -2,10 +2,12 @@
 
 import asyncio
 import logging
+import re
 from contextlib import asynccontextmanager
 from copy import copy
 from dataclasses import replace
 
+from models.app_settings import DEFAULT_APP_SETTINGS
 from models.conversation import Conversation
 from models.message import Message
 from services.ai_service import AIService
@@ -18,6 +20,7 @@ from services.context_budget import (
 )
 from services.conversation_service import ConversationManager
 from services.prompt_builder import PromptBuilder
+from services.model_context import MemoryCapacity
 
 logger = logging.getLogger(__name__)
 
@@ -29,17 +32,24 @@ class ConversationMemoryService:
         self,
         ai_service: AIService,
         conversation_manager: ConversationManager,
-        max_context_messages: int,
-        keep_recent_messages: int,
+        summary_trigger_tokens: int | None = DEFAULT_APP_SETTINGS.summary_trigger_tokens,
+        keep_recent_tokens: int = DEFAULT_APP_SETTINGS.keep_recent_tokens,
         context_budget: ContextBudget | None = None,
     ) -> None:
-        """Bind services, normalize history limits, and initialize summary coordination."""
+        """Bind services, validate token policy, and initialize summary coordination."""
         self.ai_service = ai_service
         self.conversation_manager = conversation_manager
-        self.max_context_messages = max(2, max_context_messages)
-        self.keep_recent_messages = max(
-            2, min(keep_recent_messages, self.max_context_messages - 1)
-        )
+        if (
+            (
+                summary_trigger_tokens is not None
+                and (type(summary_trigger_tokens) is not int or summary_trigger_tokens < 0)
+            )
+            or type(keep_recent_tokens) is not int or keep_recent_tokens < 1
+            or (summary_trigger_tokens and keep_recent_tokens >= summary_trigger_tokens)
+        ):
+            raise ValueError("Summary token settings require a nonnegative trigger and a smaller positive retention target when enabled.")
+        self.summary_trigger_tokens = summary_trigger_tokens
+        self.keep_recent_tokens = keep_recent_tokens
         self._running: set[str] = set()
         self._pending: dict[
             str, tuple[Conversation, str | None, "ConversationMemoryService"]
@@ -49,15 +59,85 @@ class ConversationMemoryService:
 
     def with_settings(
         self, ai_service: AIService, context_budget: ContextBudget,
-        max_context_messages: int, keep_recent_messages: int,
+        summary_trigger_tokens: int | None, keep_recent_tokens: int,
     ) -> "ConversationMemoryService":
         """Snapshot work policy while sharing per-conversation summary coordination."""
         snapshot = copy(self)
         snapshot.ai_service = ai_service
         snapshot.context_budget = context_budget
-        snapshot.max_context_messages = max_context_messages
-        snapshot.keep_recent_messages = keep_recent_messages
+        snapshot.summary_trigger_tokens = summary_trigger_tokens
+        snapshot.keep_recent_tokens = keep_recent_tokens
         return snapshot
+
+    def summary_policy(self, profile_id: str | None = None) -> dict:
+        """Resolve automatic or manual compaction independently of input admission."""
+        resolver = getattr(self.ai_service, "memory_capacity", None)
+        capacity = resolver(profile_id) if resolver else MemoryCapacity()
+        allowance = capacity.input_limit
+        trigger = self.summary_trigger_tokens
+        mode = "disabled" if trigger == 0 else "manual" if trigger is not None else "auto"
+        if mode == "auto":
+            trigger = allowance * 9 // 10 if allowance is not None else None
+            if trigger is None or trigger < 1:
+                trigger = None
+                mode = "unavailable"
+        return {
+            "mode": mode, "trigger_tokens": trigger,
+            "keep_recent_tokens": self.keep_recent_tokens,
+            "summary_input_limit": allowance if allowance is not None else self.context_budget.input_limit,
+            "capacity_source": capacity.source,
+        }
+
+    @staticmethod
+    def _fragment_end(text: str, offset: int, stop: int) -> int:
+        """Prefer paragraph and fenced-block boundaries, then lines, before a character fallback."""
+        position = 0
+        fence = None
+        preferred, outside, lines = [], [], []
+        for line in text.splitlines(keepends=True):
+            begin = position
+            position += len(line)
+            marker = re.match(r"^[ \t]{0,3}(`{3,}|~{3,})", line)
+            if marker:
+                run = marker.group(1)
+                if fence is None:
+                    if offset < begin <= stop:
+                        preferred.append(begin)
+                    fence = (run[0], len(run))
+                elif (
+                    run[0] == fence[0] and len(run) >= fence[1]
+                    and not line[marker.end():].strip()
+                ):
+                    fence = None
+                    if offset < position <= stop:
+                        preferred.append(position)
+            if offset < position <= stop:
+                lines.append(position)
+                if fence is None:
+                    outside.append(position)
+                    if not line.strip():
+                        preferred.append(position)
+            if position > stop:
+                break
+        return max(preferred or outside or lines, default=stop)
+
+    def _recent_cutoff(self, history: list[Message], start: int) -> int:
+        """Choose a complete-turn cutoff while retaining the newest turn and a token-target suffix."""
+        suffix = [0] * (len(history) + 1)
+        for index in range(len(history) - 1, start - 1, -1):
+            suffix[index] = suffix[index + 1] + self.context_budget.message_tokens(
+                history[index].role, history[index].content,
+            )
+        if suffix[start] <= self.keep_recent_tokens:
+            return start
+        boundaries = self.turn_boundaries(history)
+        # Keep the latest completed turn and any following unfinished messages intact.
+        last_cutoff = boundaries[-2] if len(boundaries) >= 2 else start
+        candidates = [boundary for boundary in boundaries if start < boundary <= last_cutoff]
+        for boundary in candidates:
+            if suffix[boundary] <= self.keep_recent_tokens:
+                return boundary
+        return candidates[-1] if candidates else start
 
     @asynccontextmanager
     async def _exclusive(self, conversation_id: str):
@@ -123,48 +203,62 @@ class ConversationMemoryService:
             The message chunk, next history index, and character offset within
             that next message; the offset is zero at a message boundary.
         """
-        chunk = []
-        while start < end:
-            message = history[start]
-            prefix = "[continued message fragment]\n" if offset else ""
-            remainder = replace(
-                message, content=prefix + message.content[offset:]
+        prefix = "[continued message fragment]\n" if offset else ""
+        message = history[start]
+
+        def candidate(stop: int) -> list[Message]:
+            """Copy a candidate range while continuing only its first message."""
+            return [
+                replace(message, content=prefix + message.content[offset:]),
+                *[replace(item) for item in history[start + 1 : stop]],
+            ]
+
+        # A token trigger can accumulate thousands of short messages; avoid recounting every growing prefix.
+        low, high = start, end
+        while low < high:
+            middle = (low + high + 1) // 2
+            if self._summary_size(previous, candidate(middle)) <= limit:
+                low = middle
+            else:
+                high = middle - 1
+        if low > start:
+            # Keep user/assistant groups together whenever a complete turn fits.
+            boundaries = [
+                boundary for boundary in self.turn_boundaries(history[:end])
+                if start < boundary <= low
+            ]
+            if boundaries:
+                low = boundaries[-1]
+            return candidate(low), low, 0
+
+        # Split oversized API input without advancing coverage until the complete turn is summarized.
+        low, high = 0, len(message.content) - offset - 1
+        while low < high:
+            middle = (low + high + 1) // 2
+            fragment = replace(
+                message,
+                content=prefix + message.content[offset : offset + middle] + "\n[message continues]",
             )
-            if self._summary_size(previous, [*chunk, remainder]) <= limit:
-                chunk.append(remainder)
-                start, offset = start + 1, 0
-                continue
-            if chunk:
-                break
-            # Split oversized API input without advancing saved coverage until the complete turn is summarized.
-            low, high = 0, len(message.content) - offset - 1
-            while low < high:
-                middle = (low + high + 1) // 2
-                fragment = replace(
-                    message,
-                    content=prefix
-                    + message.content[offset : offset + middle]
-                    + "\n[message continues]",
-                )
-                if self._summary_size(previous, [fragment]) <= limit:
-                    low = middle
-                else:
-                    high = middle - 1
-            if low < 1:
-                raise ContextBudgetExceeded(
-                    "Existing memory cannot fit the summary input budget. Increase the context budget or shorten the conversation."
-                )
-            chunk.append(
-                replace(
-                    message,
-                    content=prefix
-                    + message.content[offset : offset + low]
-                    + "\n[message continues]",
-                )
+            if self._summary_size(previous, [fragment]) <= limit:
+                low = middle
+            else:
+                high = middle - 1
+        if low < 1:
+            raise ContextBudgetExceeded(
+                "Existing memory cannot fit the summary input budget. Increase the context budget or shorten the conversation."
             )
-            offset += low
-            break
-        return chunk, start, offset
+        stop = self._fragment_end(message.content, offset, offset + low)
+        # Token merges can make a shorter textual prefix cost slightly more tokens.
+        semantic = replace(
+            message,
+            content=prefix + message.content[offset:stop] + "\n[message continues]",
+        )
+        if self._summary_size(previous, [semantic]) <= limit:
+            low = stop - offset
+        fragment = replace(
+            message, content=prefix + message.content[offset : offset + low] + "\n[message continues]",
+        )
+        return [fragment], start, offset + low
 
     async def _summarize_prefix(
         self,
@@ -226,8 +320,9 @@ class ConversationMemoryService:
         attachment_content: list[dict] | None = None,
         visual_tokens: int = 0,
         preflight_mode: str = "block",
+        summary_policy: dict | None = None,
     ) -> tuple[str, list[dict]]:
-        """Prepare the full request and compact it only when estimate blocking is selected."""
+        """Compact full-request context when memory policy requests it or explicit blocking requires it."""
         builder = PromptBuilder()
         limit = (
             input_limit
@@ -263,13 +358,25 @@ class ConversationMemoryService:
             conversation.summarized_message_count,
             attachment_content=attachment_content,
         )
-        # Advisory admission must not spend summary calls to enforce an optional estimate.
-        if preflight_mode in {"warn", "off"}:
+        memory_policy = summary_policy or self.summary_policy(profile_id)
+        trigger = memory_policy["trigger_tokens"]
+        automatic = (
+            bool(trigger)
+            and len(self.turn_boundaries(original_messages[:end])) >= 2
+        )
+        if preflight_mode in {"warn", "off"} and not automatic:
             return prepared
+        estimated = self.context_budget.estimate(*prepared, visual_tokens=visual_tokens)
+        auto_needed = automatic and estimated > trigger
         # Requests that already fit can proceed while background memory is being generated.
         if (
-            self.context_budget.estimate(*prepared, visual_tokens=visual_tokens)
-            <= limit
+            not auto_needed and (preflight_mode != "block" or estimated <= limit)
+        ):
+            return prepared
+        if (
+            conversation.id in self._running
+            and estimated <= memory_policy["summary_input_limit"]
+            and (preflight_mode != "block" or estimated <= limit)
         ):
             return prepared
         async with self._exclusive(conversation.id):
@@ -292,20 +399,27 @@ class ConversationMemoryService:
             original_count = start
             boundaries = self.turn_boundaries(history)
             work = [0]
-            while self.context_budget.estimate(*inputs, visual_tokens=visual_tokens) > limit:
+            while True:
+                estimate = self.context_budget.estimate(*inputs, visual_tokens=visual_tokens)
+                must_fit = preflight_mode == "block" and estimate > limit
+                auto_needed = automatic and estimate > trigger
+                if not must_fit and not auto_needed:
+                    break
                 candidates = [
                     boundary for boundary in boundaries if boundary > start
+                    and (must_fit or boundary < boundaries[-1])
                 ]
                 if not candidates:
+                    if not must_fit:
+                        break
                     raise ContextBudgetExceeded(
                         "The remaining context cannot fit without dropping an unfinished turn. Shorten the input or increase the context budget."
                     )
-                preferred = [
-                    boundary
-                    for boundary in candidates
-                    if boundary <= len(history) - self.keep_recent_messages
-                ]
-                cutoff = preferred[-1] if preferred else candidates[0]
+                preferred = self._recent_cutoff(history, start)
+                cutoff = preferred if preferred in candidates else candidates[0]
+                summary_limit = memory_policy["summary_input_limit"]
+                if must_fit:
+                    summary_limit = min(limit, summary_limit)
                 try:
                     summary = await self._summarize_prefix(
                         conversation,
@@ -316,16 +430,19 @@ class ConversationMemoryService:
                         summary,
                         profile_id,
                         work,
-                        min(limit, self.context_budget.input_limit),
+                        summary_limit,
                     )
-                except (
-                    ContextBudgetExceeded,
-                    ContextChangedError,
-                    SummaryUnavailableError,
-                ):
+                except ContextChangedError:
+                    raise
+                except (ContextBudgetExceeded, SummaryUnavailableError):
+                    if not must_fit:
+                        logger.warning("Automatic conversation summary deferred; retaining original request.")
+                        return prepared
                     raise
                 except Exception as exc:
                     logger.exception("Pre-flight conversation summary failed")
+                    if not must_fit:
+                        return prepared
                     raise SummaryUnavailableError(
                         "Could not summarize conversation history. Please retry."
                     ) from exc
@@ -367,8 +484,8 @@ class ConversationMemoryService:
                     attempt = (
                         current.version, requested_profile_id,
                         requested_memory.context_budget,
-                        requested_memory.max_context_messages,
-                        requested_memory.keep_recent_messages,
+                        requested_memory.summary_trigger_tokens,
+                        requested_memory.keep_recent_tokens,
                     )
                     if attempt == last_attempt:
                         continue
@@ -389,22 +506,20 @@ class ConversationMemoryService:
             return
         start_version = conversation.version
         previous_summary = conversation.memory_summary
-        unsummarized_count = (
-            len(conversation.messages) - conversation.summarized_message_count
-        )
-        if unsummarized_count <= self.max_context_messages:
+        policy = self.summary_policy(profile_id)
+        trigger = policy["trigger_tokens"]
+        if not trigger:
             return
         history = [replace(message) for message in conversation.messages]
-        boundaries = [
-            end
-            for end in self.turn_boundaries(history)
-            if conversation.summarized_message_count
-            < end
-            <= len(history) - self.keep_recent_messages
-        ]
-        if not boundaries:
+        instructions, inputs = PromptBuilder().build(
+            history, "", memory_summary=previous_summary,
+            summarized_message_count=conversation.summarized_message_count,
+        )
+        if self.context_budget.estimate(instructions, inputs[:-1]) <= trigger:
             return
-        cutoff = boundaries[-1]
+        cutoff = self._recent_cutoff(history, conversation.summarized_message_count)
+        if cutoff <= conversation.summarized_message_count:
+            return
         try:
             summary = await self._summarize_prefix(
                 conversation,
@@ -415,7 +530,7 @@ class ConversationMemoryService:
                 previous_summary,
                 profile_id,
                 [0],
-                self.context_budget.input_limit,
+                policy["summary_input_limit"],
             )
             if summary:
                 applied = (

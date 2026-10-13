@@ -49,6 +49,11 @@ class ContextBudget:
         return self.token_budget - (self.output_reserve or 0)
 
     @staticmethod
+    def message_tokens(role: str, content: str) -> int:
+        """Estimate one stored text message with the same framing used for requests."""
+        return 32 + text_tokens(role) + text_tokens(content)
+
+    @staticmethod
     def estimate(
         instructions: str, inputs: list[dict], *, visual_tokens: int = 0
     ) -> int:
@@ -56,11 +61,11 @@ class ContextBudget:
         estimate = 256 + text_tokens(instructions) + visual_tokens
         has_visual = False
         for item in inputs:
-            estimate += 32 + text_tokens(item["role"])
             content = item["content"]
             if isinstance(content, str):
-                estimate += text_tokens(content)
+                estimate += ContextBudget.message_tokens(item["role"], content)
                 continue
+            estimate += 32 + text_tokens(item["role"])
             for part in content:
                 estimate += 32
                 if part["type"] == "input_text":

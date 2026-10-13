@@ -256,7 +256,7 @@
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><span id="context-token-budget-label" class="settings-preference-label">Working context budget (tokens)</span><small id="context-token-budget-help">Local estimate and summary budget, separate from model capacity. Warn allows larger inputs. An explicit output limit is reserved here.</small></div>
+                <div class="settings-preference-copy"><span id="context-token-budget-label" class="settings-preference-label">Working context budget (tokens)</span><small id="context-token-budget-help">Local admission budget and summary fallback when model capacity is unknown. Warn allows larger inputs. An explicit output limit is reserved here.</small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="context_token_budget" aria-label="Restore default working context budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="context-token-budget" type="number" min="1024" step="1" data-app-setting="context_token_budget" aria-describedby="context-token-budget-help app-input-budget" required disabled aria-labelledby="context-token-budget-label">
@@ -277,19 +277,19 @@
           <section class="settings-group" aria-labelledby="context-summary-title">
             <div class="settings-panel-heading"><h3 id="context-summary-title">Memory summaries</h3></div>
             <div class="settings-group-body">
-              <p class="field-hint">Memory summaries make model calls and consume tokens.</p>
+              <p class="field-hint">Summaries use token estimates. Before sending, the estimate includes the question, instructions, history, memory, and attachments. Each summary consumes tokens.</p>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><span id="max-context-messages-label" class="settings-preference-label">Summary trigger (messages)</span><small id="max-context-messages-help">Summaries start when unsummarized messages exceed this count. Counts messages, not turns.</small></div>
+                <div class="settings-preference-copy"><span id="summary-trigger-tokens-label" class="settings-preference-label">Summary trigger (tokens)</span><small id="summary-trigger-tokens-help">Start above this token estimate. Use 0 to disable automatic summaries. Block mode can still summarize to fit its budget.</small></div>
                 <div class="settings-preference-control">
-                  <button class="quiet settings-default-reset" type="button" data-reset-setting="max_context_messages" aria-label="Restore default summary trigger" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                  <input id="max-context-messages" type="number" min="3" step="1" data-app-setting="max_context_messages" aria-describedby="max-context-messages-help" required disabled aria-labelledby="max-context-messages-label">
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="summary_trigger_tokens" aria-label="Restore default summary token trigger" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <input id="summary-trigger-tokens" type="number" min="0" step="1" placeholder="Automatic" data-app-setting="summary_trigger_tokens" aria-describedby="summary-trigger-tokens-help" disabled aria-labelledby="summary-trigger-tokens-label">
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><span id="keep-recent-messages-label" class="settings-preference-label">Keep recent messages</span><small id="keep-recent-messages-help">Recent messages retained outside summaries, preserving complete turns. Must be at least 2 and below the summary trigger.</small></div>
+                <div class="settings-preference-copy"><span id="keep-recent-tokens-label" class="settings-preference-label">Keep recent tokens</span><small id="keep-recent-tokens-help">Recent original text target. Complete turns stay intact; the newest completed turn may exceed this target.</small></div>
                 <div class="settings-preference-control">
-                  <button class="quiet settings-default-reset" type="button" data-reset-setting="keep_recent_messages" aria-label="Restore default recent message count" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                  <input id="keep-recent-messages" type="number" min="2" step="1" data-app-setting="keep_recent_messages" aria-describedby="keep-recent-messages-help" required disabled aria-labelledby="keep-recent-messages-label">
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="keep_recent_tokens" aria-label="Restore default recent token target" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <input id="keep-recent-tokens" type="number" min="1" step="1" data-app-setting="keep_recent_tokens" aria-describedby="keep-recent-tokens-help" required disabled aria-labelledby="keep-recent-tokens-label">
                 </div>
               </div>
               <div class="settings-preference-row">

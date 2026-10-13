@@ -11,7 +11,7 @@ export function createProfileContext({ isSaving }) {
   const modeHelp = {
     warn: 'Allows requests with estimated input-limit warnings. Warnings alone do not force history summaries.',
     block: 'May summarize history or reject requests when input estimates exceed limits. Estimates can differ from actual usage.',
-    off: 'Skips input estimates. Explicit output limits, local attachment checks, and background memory summaries still apply.'
+    off: 'Skips admission estimates. Explicit output limits, attachment checks, and token-based memory summaries still apply.'
   };
 
   function updateControls() {
@@ -70,7 +70,8 @@ export function createProfileContext({ isSaving }) {
         `Preflight: ${data.mode.charAt(0).toUpperCase() + data.mode.slice(1)}.`,
         `Input estimate budget: ${data.input_budget.toLocaleString()} tokens.`,
         `Declared input ceiling: ${data.declared_model_input_limit === null ? 'Unknown' : `${data.declared_model_input_limit.toLocaleString()} tokens`}.`,
-        `Output limit: ${data.max_output_tokens === null ? 'Provider default' : `${data.max_output_tokens.toLocaleString()} tokens`}.`
+        `Output limit: ${data.max_output_tokens === null ? 'Provider default' : `${data.max_output_tokens.toLocaleString()} tokens`}.`,
+        `Summary trigger: ${data.summary_policy?.mode === 'disabled' ? 'Disabled' : Number.isSafeInteger(data.summary_policy?.trigger_tokens) ? `${data.summary_policy.trigger_tokens.toLocaleString()} tokens (${data.summary_policy.mode})` : 'Automatic; model capacity unknown'}.`
       ].join('\n');
       state.loaded = true;
     } catch (error) {
