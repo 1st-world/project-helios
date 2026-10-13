@@ -66,7 +66,11 @@ function reportNotes(report) {
   if (total.unknown_timestamp_calls) lines.push(`${total.unknown_timestamp_calls.toLocaleString()} calls have an unknown start date.`);
   if (report.unknown_timestamp_calls_excluded) lines.push(`${report.unknown_timestamp_calls_excluded.toLocaleString()} calls with unknown dates were excluded from this date range.`);
   if (report.recording_errors || report.import_errors) lines.push(`History storage errors: ${report.recording_errors.toLocaleString()} recording, ${report.import_errors.toLocaleString()} import. Totals may omit calls.`);
-  if (report.tracking_started_at) lines.push(`Tracking started: ${formatTimestamp(report.tracking_started_at)}.`);
+  if (report.conversation_tracking_started_at) {
+    lines.push(`Tracking started for this conversation: ${formatTimestamp(report.conversation_tracking_started_at)}.`);
+  } else if (report.tracking_started_at) {
+    lines.push(`App tracking started: ${formatTimestamp(report.tracking_started_at)}.`);
+  }
   if (total.cost_status !== 'complete' || total.coverage_incomplete) lines.push('Known estimates do not establish the full usage or Azure bill for this selection.');
   return lines.join('\n');
 }

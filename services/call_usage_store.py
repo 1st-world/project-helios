@@ -341,10 +341,22 @@ class CallUsageStore:
                     result[field] = "partial"
         return result
 
+    def _includes_untracked_history(
+        self, lower: str | None, conversation_start: str | None,
+    ) -> bool:
+        """Bound coverage by selected dates and conversation creation."""
+        if conversation_start is not None:
+            lower = (
+                max(lower, conversation_start)
+                if lower is not None else conversation_start
+            )
+        return lower is None or lower < self.tracking_started_at
+
     def totals(
         self, *, conversation_id: str | None = None, kind: str | None = None,
         timezone_name: str = "UTC", start_date: date | None = None,
         end_date: date | None = None,
+        conversation_created_at: datetime | None = None,
     ) -> dict:
         """Return cumulative and local-date usage with explicit historical coverage limits."""
         clause, parameters, zone, lower = self._selection(
@@ -375,7 +387,13 @@ class CallUsageStore:
                 "SELECT COUNT(*) FROM usage_calls" + base_clause + null_clause,
                 base_parameters,
             ).fetchone()[0]
-        untracked_history = lower is None or lower < self.tracking_started_at
+        conversation_start = (
+            utc_timestamp(conversation_created_at)
+            if conversation_id is not None else None
+        )
+        untracked_history = self._includes_untracked_history(
+            lower, conversation_start
+        )
         storage_errors = bool(self.recording_errors or self.import_errors)
         daily = []
         for day in sorted(by_date):
@@ -386,26 +404,35 @@ class CallUsageStore:
                 if day != "unknown" else None
             )
             incomplete = (
-                local_start is None or local_start < self.tracking_started_at
+                local_start is None
+                or self._includes_untracked_history(
+                    local_start, conversation_start
+                )
                 or storage_errors or unknown_timestamps_excluded > 0
             )
             daily.append({
                 "date": day if day != "unknown" else None,
                 **self._coverage(self._totals(by_date[day]), incomplete),
             })
+        totals = self._totals(records)
         return {
             "timezone": timezone_name,
             "start_date": start_date.isoformat() if start_date else None,
             "end_date": end_date.isoformat() if end_date else None,
             "tracking_started_at": self.tracking_started_at,
+            "conversation_tracking_started_at": (
+                max(conversation_start, utc_timestamp(self.tracking_started_at))
+                if conversation_start is not None else None
+            ),
             "historical_coverage_complete": False,
             "range_includes_untracked_history": untracked_history,
             "recording_errors": self.recording_errors,
             "import_errors": self.import_errors,
             "unknown_timestamp_calls_excluded": unknown_timestamps_excluded,
-            "totals": self._coverage(self._totals(records), (
+            "totals": self._coverage(totals, (
                 untracked_history or storage_errors
                 or unknown_timestamps_excluded > 0
+                or totals["unknown_timestamp_calls"] > 0
             )),
             "by_date": daily,
         }

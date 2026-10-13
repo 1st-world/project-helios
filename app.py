@@ -167,9 +167,16 @@ async def call_usage(
 ):
     """Return cumulative call usage and daily buckets in the requested IANA timezone."""
     try:
+        conversation = (
+            conversation_manager.get(conversation_id)
+            if conversation_id is not None else None
+        )
         report = call_usage_store.totals(
             conversation_id=conversation_id, kind=kind,
             timezone_name=timezone, start_date=start_date, end_date=end_date,
+            conversation_created_at=(
+                conversation.created_at if conversation is not None else None
+            ),
         )
         report["revision"] = call_usage_store.revision(conversation_id)
         return report
