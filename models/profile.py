@@ -10,8 +10,27 @@ DEFAULT_LONG_CONTEXT_THRESHOLD = 272_000
 
 CONTEXT_FIELDS = (
     "context_preflight_mode", "context_input_budget", "model_context_window",
-    "model_max_input_tokens", "model_max_output_tokens",
+    "model_max_input_tokens", "output_token_limit",
+    "declared_model_max_output_tokens",
 )
+
+
+def normalize_output_limit_settings(settings: dict) -> dict:
+    """Move the deprecated output-cap alias into its canonical field, rejecting conflicts."""
+    normalized = dict(settings)
+    if "model_max_output_tokens" not in normalized:
+        return normalized
+    legacy_limit = normalized.pop("model_max_output_tokens")
+    if (
+        "output_token_limit" in normalized
+        and (
+            type(normalized["output_token_limit"]) is not type(legacy_limit)
+            or normalized["output_token_limit"] != legacy_limit
+        )
+    ):
+        raise ValueError("Output token limit and its deprecated alias must match.")
+    normalized.setdefault("output_token_limit", legacy_limit)
+    return normalized
 
 
 @dataclass
@@ -36,10 +55,11 @@ class ConnectionProfile:
     context_input_budget: int | None = None
     model_context_window: int | None = None
     model_max_input_tokens: int | None = None
-    model_max_output_tokens: int | None = None
+    output_token_limit: int | None = None
+    declared_model_max_output_tokens: int | None = None
 
     def __post_init__(self) -> None:
-        """Validate optional context declarations without guessing from deployment names."""
+        """Validate optional declarations and user limits without guessing from deployment names."""
         if self.context_preflight_mode not in {None, "warn", "block", "off"}:
             raise ValueError("Context preflight mode must be warn, block, off, or null.")
         for name in CONTEXT_FIELDS[1:]:
@@ -56,7 +76,12 @@ class ConnectionProfile:
             and self.deployment.strip()
         )
 
-    def to_dict(self, include_sensitive: bool = False) -> dict:
+    def to_dict(
+        self,
+        include_sensitive: bool = False,
+        *,
+        include_legacy_output_limit: bool = False,
+    ) -> dict:
         """Serialize profile settings, exposing the API key only when explicitly requested."""
         data = {
             "id": self.id,
@@ -78,6 +103,8 @@ class ConnectionProfile:
         }
         if include_sensitive:
             data["api_key"] = self.api_key
+        if include_legacy_output_limit:
+            data["model_max_output_tokens"] = self.output_token_limit
         return data
 
     @classmethod
@@ -92,6 +119,11 @@ class ConnectionProfile:
         cache_write = data.get("cache_write_price_per_million")
         long_cache_read = data.get("long_cache_read_price_per_million")
         long_cache_write = data.get("long_cache_write_price_per_million")
+        context_settings = {name: data.get(name) for name in CONTEXT_FIELDS}
+        if "output_token_limit" not in data:
+            context_settings["output_token_limit"] = data.get(
+                "model_max_output_tokens"
+            )
         return cls(
             id=str(data.get("id") or uuid4()),
             name=str(data.get("name") or "Azure Profile").strip(),
@@ -145,5 +177,5 @@ class ConnectionProfile:
                 and str(long_cache_write).strip() != ""
                 else None
             ),
-            **{name: data.get(name) for name in CONTEXT_FIELDS},
+            **context_settings,
         )

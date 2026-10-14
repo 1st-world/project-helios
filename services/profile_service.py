@@ -8,9 +8,17 @@ from uuid import uuid4
 
 from models.profile import (
     CONTEXT_FIELDS, DEFAULT_LONG_CONTEXT_THRESHOLD, ConnectionProfile,
+    normalize_output_limit_settings,
 )
 
 logger = logging.getLogger(__name__)
+
+
+class _UnsetOutputLimit:
+    """Distinguish omitted output-cap keywords from explicitly cleared values."""
+
+
+_UNSET_OUTPUT_LIMIT = _UnsetOutputLimit()
 
 
 class ProfileService:
@@ -68,7 +76,8 @@ class ProfileService:
     def list_profiles(self) -> list[dict]:
         """Return all profiles with their API keys excluded."""
         return [
-            p.to_dict(include_sensitive=False) for p in self._profiles.values()
+            p.to_dict(include_sensitive=False, include_legacy_output_limit=True)
+            for p in self._profiles.values()
         ]
 
     def get_active_profile(self) -> ConnectionProfile | None:
@@ -115,10 +124,21 @@ class ProfileService:
         context_input_budget: int | None = None,
         model_context_window: int | None = None,
         model_max_input_tokens: int | None = None,
-        model_max_output_tokens: int | None = None,
+        model_max_output_tokens: int | None | _UnsetOutputLimit = (
+            _UNSET_OUTPUT_LIMIT
+        ),
+        *,
+        output_token_limit: int | None | _UnsetOutputLimit = _UNSET_OUTPUT_LIMIT,
+        declared_model_max_output_tokens: int | None = None,
     ) -> ConnectionProfile:
         """Create a normalized profile and select it when no active profile exists."""
         cleaned_name = name.strip() or "New Azure Profile"
+        output_settings = {}
+        if model_max_output_tokens is not _UNSET_OUTPUT_LIMIT:
+            output_settings["model_max_output_tokens"] = model_max_output_tokens
+        if output_token_limit is not _UNSET_OUTPUT_LIMIT:
+            output_settings["output_token_limit"] = output_token_limit
+        output_settings = normalize_output_limit_settings(output_settings)
         profile = ConnectionProfile(
             id=str(uuid4()),
             name=cleaned_name,
@@ -142,7 +162,8 @@ class ProfileService:
             context_input_budget=context_input_budget,
             model_context_window=model_context_window,
             model_max_input_tokens=model_max_input_tokens,
-            model_max_output_tokens=model_max_output_tokens,
+            output_token_limit=output_settings.get("output_token_limit"),
+            declared_model_max_output_tokens=declared_model_max_output_tokens,
         )
         self._profiles[profile.id] = profile
         if not self._active_profile_id:
@@ -180,7 +201,7 @@ class ProfileService:
         profile = self.get_profile(profile_id)
         if not profile:
             raise ValueError("Profile not found.")
-        changes = context_settings or {}
+        changes = normalize_output_limit_settings(context_settings or {})
         if set(changes) - set(CONTEXT_FIELDS):
             raise ValueError("Unknown context setting.")
         validated = replace(profile, **changes)
@@ -246,7 +267,10 @@ class ProfileService:
         return {
             "active_profile_id": self._active_profile_id,
             "active_profile": (
-                active.to_dict(include_sensitive=False) if active else None
+                active.to_dict(
+                    include_sensitive=False,
+                    include_legacy_output_limit=True,
+                ) if active else None
             ),
             "profiles": self.list_profiles(),
         }

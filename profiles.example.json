@@ -21,7 +21,8 @@
       "context_input_budget": null,
       "model_context_window": null,
       "model_max_input_tokens": null,
-      "model_max_output_tokens": null,
+      "output_token_limit": null,
+      "declared_model_max_output_tokens": null,
       "api_key": "YOUR_API_KEY_HERE"
     },
     {
@@ -44,7 +45,8 @@
       "context_input_budget": null,
       "model_context_window": null,
       "model_max_input_tokens": null,
-      "model_max_output_tokens": null,
+      "output_token_limit": null,
+      "declared_model_max_output_tokens": null,
       "api_key": "YOUR_API_KEY_HERE"
     }
   ]

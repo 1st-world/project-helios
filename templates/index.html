@@ -433,7 +433,7 @@
                   <i data-lucide="chevron-down" class="settings-disclosure-chevron" aria-hidden="true"></i>
                 </summary>
                 <div class="settings-disclosure-body">
-                  <p class="profile-context-note">Context options inherit app settings unless overridden. Blank model capacity declarations remain unknown; output limits are optional.</p>
+                  <p class="profile-context-note">Context options inherit app settings unless overridden. Blank model capacity declarations remain unknown; output limits are optional and separate from declared model capacity.</p>
                   <div class="settings-field-group" role="group" aria-label="Context overrides">
                     <div class="settings-preference-row">
                       <div class="settings-preference-copy"><span id="profile-context-preflight-label" class="settings-preference-label">Context preflight</span><small id="profile-context-preflight-help">Uses the app preflight mode. Any explicit output limit still applies.</small></div>
@@ -447,6 +447,13 @@
                       <div class="profile-context-control">
                         <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_input_budget" title="Use the app input allowance" aria-label="Use the app input allowance" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                         <input id="profile-context-input-budget" type="number" min="1" step="1" placeholder="Use app allowance" data-profile-context="context_input_budget" aria-describedby="profile-context-input-budget-help" aria-labelledby="profile-context-input-budget-label">
+                      </div>
+                    </div>
+                    <div class="settings-preference-row">
+                      <div class="settings-preference-copy"><span id="profile-model-max-output-label" class="settings-preference-label">Profile output limit (tokens)</span><small id="profile-model-max-output-help">Optional output and reasoning limit. The smaller explicit app or profile value applies; leave both blank for the provider default.</small></div>
+                      <div class="profile-context-control">
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="output_token_limit" title="Use the app or provider output setting" aria-label="Use the app or provider output setting" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <input id="profile-model-max-output" type="number" min="1" step="1" placeholder="Use app setting" data-profile-context="output_token_limit" aria-describedby="profile-model-max-output-help" aria-labelledby="profile-model-max-output-label">
                       </div>
                     </div>
                   </div>
@@ -466,10 +473,10 @@
                       </div>
                     </div>
                     <div class="settings-preference-row">
-                      <div class="settings-preference-copy"><span id="profile-model-max-output-label" class="settings-preference-label">Profile output limit (tokens)</span><small id="profile-model-max-output-help">Optional output and reasoning limit. The smaller explicit app or profile value applies; leave both blank for the provider default.</small></div>
+                      <div class="settings-preference-copy"><span id="profile-declared-model-max-output-label" class="settings-preference-label">Declared maximum output (tokens)</span><small id="profile-declared-model-max-output-help">Stores model capacity information only. This does not set an output limit; the provider determines what the deployment can generate.</small></div>
                       <div class="profile-context-control">
-                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_max_output_tokens" title="Use the app or provider output setting" aria-label="Use the app or provider output setting" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                        <input id="profile-model-max-output" type="number" min="1" step="1" placeholder="Use app setting" data-profile-context="model_max_output_tokens" aria-describedby="profile-model-max-output-help" aria-labelledby="profile-model-max-output-label">
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="declared_model_max_output_tokens" title="Clear the output capacity declaration" aria-label="Clear the output capacity declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <input id="profile-declared-model-max-output" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="declared_model_max_output_tokens" aria-describedby="profile-declared-model-max-output-help" aria-labelledby="profile-declared-model-max-output-label">
                       </div>
                     </div>
                   </div>

@@ -52,7 +52,7 @@ class AIService:
         """Return the smallest explicit output cap or defer to the provider."""
         limits = (
             value
-            for value in (self.max_output_tokens, profile.model_max_output_tokens)
+            for value in (self.max_output_tokens, profile.output_token_limit)
             if value is not None
         )
         return min(limits, default=None)

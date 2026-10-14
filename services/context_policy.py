@@ -18,6 +18,7 @@ class ContextPolicy:
     input_budget: int
     declared_model_input_limit: int | None = None
     max_output_tokens: int | None = None
+    declared_model_max_output_tokens: int | None = None
 
     def __post_init__(self) -> None:
         """Reject invalid estimate policy settings before provider access."""
@@ -41,7 +42,7 @@ class ContextPolicy:
         limits = []
         output_limits = (
             value
-            for value in (budget.output_reserve, profile.model_max_output_tokens)
+            for value in (budget.output_reserve, profile.output_token_limit)
             if value is not None
         )
         output = min(output_limits, default=None)
@@ -54,6 +55,7 @@ class ContextPolicy:
             input_budget or profile.context_input_budget or budget.input_limit,
             min(limits) if limits else None,
             output,
+            profile.declared_model_max_output_tokens,
         )
 
     def assess(
@@ -78,6 +80,7 @@ class ContextPolicy:
             "input_budget": self.input_budget,
             "declared_model_input_limit": self.declared_model_input_limit,
             "max_output_tokens": self.max_output_tokens,
+            "declared_model_max_output_tokens": self.declared_model_max_output_tokens,
             "estimated_input_tokens": estimate,
             "estimate_is_exact": False,
             "estimation_method": (

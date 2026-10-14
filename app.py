@@ -23,12 +23,13 @@ from fastapi import (
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from config import settings
 from models.app_settings import AppSettings, DEFAULT_APP_SETTINGS
 from models.profile import (
     CONTEXT_FIELDS, DEFAULT_LONG_CONTEXT_THRESHOLD, ConnectionProfile,
+    normalize_output_limit_settings,
 )
 from services.ai_service import AIService
 from services.attachment_errors import ProviderAttachmentError
@@ -339,11 +340,29 @@ class WorkspaceRootRequest(BaseModel):
 
 
 class ProfileContextSettings(ContextRequestOptions):
-    """Validate optional model declarations that never depend on deployment aliases."""
+    """Validate separate user limits and model declarations with legacy cap aliases."""
 
+    output_token_limit: int | None = Field(default=None, ge=1, strict=True)
     model_context_window: int | None = Field(default=None, ge=1, strict=True)
     model_max_input_tokens: int | None = Field(default=None, ge=1, strict=True)
-    model_max_output_tokens: int | None = Field(default=None, ge=1, strict=True)
+    declared_model_max_output_tokens: int | None = Field(default=None, ge=1, strict=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_output_limit(cls, values: object) -> object:
+        """Keep legacy output cap requests compatible without reinterpreting metadata."""
+        if not isinstance(values, dict):
+            return values
+        try:
+            return normalize_output_limit_settings(values)
+        except ValueError as exc:
+            # Field-scoped errors must not echo credentials from the full profile body.
+            raise ValidationError.from_exception_data(cls.__name__, [{
+                "type": "value_error",
+                "loc": ("output_token_limit",),
+                "input": values.get("output_token_limit"),
+                "ctx": {"error": exc},
+            }]) from exc
 
 
 class CreateProfileRequest(ProfileContextSettings):
@@ -789,6 +808,7 @@ async def context_policy_settings(profile_id: str | None = None):
         "mode": policy.mode, "input_budget": policy.input_budget,
         "declared_model_input_limit": policy.declared_model_input_limit,
         "max_output_tokens": policy.max_output_tokens,
+        "declared_model_max_output_tokens": policy.declared_model_max_output_tokens,
         "summary_policy": memory_service.summary_policy(profile_id),
         "local_attachment_limits": {
             name: getattr(attachment_service, name)
