@@ -1,4 +1,4 @@
-"""Fit conversation context into local budgets and persist summaries of completed turns."""
+"""Apply selected memory thresholds separately from input admission and preserve completed-turn coverage."""
 
 import asyncio
 import logging
@@ -322,7 +322,7 @@ class ConversationMemoryService:
         preflight_mode: str = "block",
         summary_policy: dict | None = None,
     ) -> tuple[str, list[dict]]:
-        """Compact full-request context when memory policy requests it or explicit blocking requires it."""
+        """Apply memory thresholds and enforce blocking without forcing history summaries."""
         builder = PromptBuilder()
         limit = (
             input_limit
@@ -333,6 +333,19 @@ class ConversationMemoryService:
         )
         if preflight_mode not in {"warn", "block", "off"}:
             raise ValueError("Context preflight mode must be warn, block, or off.")
+
+        def admit(inputs: tuple[str, list[dict]]) -> tuple[str, list[dict]]:
+            """Reject estimated input only when the selected policy explicitly blocks it."""
+            if (
+                preflight_mode == "block"
+                and self.context_budget.estimate(*inputs, visual_tokens=visual_tokens) > limit
+            ):
+                raise ContextBudgetExceeded(
+                    "The estimated input exceeds the selected preflight limit. "
+                    "Increase the limit, reduce the input, or change the preflight mode."
+                )
+            return inputs
+
         if (
             preflight_mode == "block"
             and self.context_budget.estimate(
@@ -350,35 +363,35 @@ class ConversationMemoryService:
             raise ContextChangedError(
                 "The requested conversation history is no longer available."
             )
+        memory_policy = summary_policy or self.summary_policy(profile_id)
+        memory_disabled = memory_policy["mode"] == "disabled"
         prepared = builder.build(
             original_messages[:end],
             user_prompt,
             workspace_context,
-            conversation.memory_summary,
-            conversation.summarized_message_count,
+            "" if memory_disabled else conversation.memory_summary,
+            0 if memory_disabled else conversation.summarized_message_count,
             attachment_content=attachment_content,
         )
-        memory_policy = summary_policy or self.summary_policy(profile_id)
         trigger = memory_policy["trigger_tokens"]
         automatic = (
-            bool(trigger)
+            not memory_disabled
+            and bool(trigger)
             and len(self.turn_boundaries(original_messages[:end])) >= 2
         )
-        if preflight_mode in {"warn", "off"} and not automatic:
-            return prepared
+        if not automatic:
+            return admit(prepared)
         estimated = self.context_budget.estimate(*prepared, visual_tokens=visual_tokens)
         auto_needed = automatic and estimated > trigger
         # Requests that already fit can proceed while background memory is being generated.
-        if (
-            not auto_needed and (preflight_mode != "block" or estimated <= limit)
-        ):
-            return prepared
+        if not auto_needed:
+            return admit(prepared)
         if (
             conversation.id in self._running
             and estimated <= memory_policy["summary_input_limit"]
             and (preflight_mode != "block" or estimated <= limit)
         ):
-            return prepared
+            return admit(prepared)
         async with self._exclusive(conversation.id):
             if original_messages is not conversation.messages:
                 raise ContextChangedError(
@@ -401,25 +414,18 @@ class ConversationMemoryService:
             work = [0]
             while True:
                 estimate = self.context_budget.estimate(*inputs, visual_tokens=visual_tokens)
-                must_fit = preflight_mode == "block" and estimate > limit
                 auto_needed = automatic and estimate > trigger
-                if not must_fit and not auto_needed:
+                if not auto_needed:
                     break
                 candidates = [
                     boundary for boundary in boundaries if boundary > start
-                    and (must_fit or boundary < boundaries[-1])
+                    and boundary < boundaries[-1]
                 ]
                 if not candidates:
-                    if not must_fit:
-                        break
-                    raise ContextBudgetExceeded(
-                        "The remaining context cannot fit without dropping an unfinished turn. Shorten the input or increase the context budget."
-                    )
+                    break
                 preferred = self._recent_cutoff(history, start)
                 cutoff = preferred if preferred in candidates else candidates[0]
                 summary_limit = memory_policy["summary_input_limit"]
-                if must_fit:
-                    summary_limit = min(limit, summary_limit)
                 try:
                     summary = await self._summarize_prefix(
                         conversation,
@@ -435,22 +441,19 @@ class ConversationMemoryService:
                 except ContextChangedError:
                     raise
                 except (ContextBudgetExceeded, SummaryUnavailableError):
-                    if not must_fit:
-                        logger.warning("Automatic conversation summary deferred; retaining original request.")
-                        return prepared
-                    raise
-                except Exception as exc:
+                    logger.warning("Automatic conversation summary deferred; retaining original request.")
+                    self._check_version(conversation, version)
+                    return admit(prepared)
+                except Exception:
                     logger.exception("Pre-flight conversation summary failed")
-                    if not must_fit:
-                        return prepared
-                    raise SummaryUnavailableError(
-                        "Could not summarize conversation history. Please retry."
-                    ) from exc
+                    self._check_version(conversation, version)
+                    return admit(prepared)
                 start = cutoff
                 inputs = builder.build(
                     history, user_prompt, workspace_context, summary, start, attachment_content=attachment_content,
                 )
             self._check_version(conversation, version)
+            admit(inputs)
             if persist_memory and start > original_count:
                 if not self.conversation_manager.update_memory_if_version_matches(
                     conversation, summary, start, expected_version=version

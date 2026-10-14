@@ -13,7 +13,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   const state = { saved: null, defaults: null, localLimits: null, summaryPolicy: null, resets: new Set(), loading: false, saving: false, controller: null, feedback: null };
   const modeHelp = {
     warn: 'Allows requests with estimated input-limit warnings. Warnings alone do not force history summaries.',
-    block: 'May summarize history or reject requests when input estimates exceed limits. Estimates can differ from actual usage.',
+    block: 'Rejects requests when input estimates exceed selected limits. Summaries follow the separate memory threshold.',
     off: 'Skips admission estimates. Explicit output limits, attachment checks, and token-based memory summaries still apply.'
   };
 
@@ -77,8 +77,8 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     const policy = state.summaryPolicy;
     $('#summary-trigger-tokens-help').textContent = trigger === null
       ? `Automatic: 90% of declared model input allowance. ${policy?.capacity_source === 'profile' && Number.isSafeInteger(policy.summary_input_limit) ? `Last loaded active connection threshold: ${Math.floor(policy.summary_input_limit * 0.9).toLocaleString()} tokens.` : 'Model capacity is unknown; declare input or context capacity in Connections.'}`
-      : trigger === 0 ? 'Automatic summaries are disabled. Block mode can still summarize to fit its budget.'
-      : 'Summarize above this estimate, including current input. Complete turns stay intact. Block mode can still summarize to fit its budget.';
+      : trigger === 0 ? 'Summaries are disabled. Requests use original conversation history.'
+      : 'Summarize above this estimate, including current input. Complete turns stay intact. Block mode checks the resulting input separately.';
     showAttachmentLimits();
   }
 

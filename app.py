@@ -1003,7 +1003,6 @@ async def chat(payload: ChatRequest):
         )
     else:
         user_message = conversation.messages[payload.regenerate_message_index]
-    turn_version = conversation.version
     turn_messages = conversation.messages
 
     async def events():
@@ -1013,7 +1012,6 @@ async def chat(payload: ChatRequest):
         usage_call_id = None
         profile_data = None
         completed = False
-        request_instructions, request_messages = instructions, input_messages
         try:
             start_event = {
                 "type": "start", "conversation_id": conversation.id,
@@ -1038,65 +1036,27 @@ async def chat(payload: ChatRequest):
                     "message": "The estimated input exceeds the selected budget or declared model limit. The estimate is approximate; this request is allowed in warning mode.",
                 }
                 yield f"data: {json.dumps(warning)}\n\n"
-            for attempt in range(2):
-                try:
-                    async with aclosing(request_ai.stream(
-                        request_instructions,
-                        request_messages,
-                        profile_id=profile_id,
-                        conversation_id=conversation.id,
-                        call_kind=(
-                            "regeneration" if payload.regenerate_message_index
-                            is not None else "chat"
-                        ),
-                    )) as reply_stream:
-                        async for event in reply_stream:
-                            if event["type"] == "delta":
-                                answer += event["text"]
-                            elif event["type"] == "usage":
-                                usage_data = event.get("usage")
-                                profile_data = event.get("profile")
-                                usage_call_id = event.get("call_id")
-                            elif event["type"] == "done":
-                                completed = True
-                                continue
-                            yield f"data: {json.dumps(event)}\n\n"
-                    break
-                except ContextWindowExceeded:
-                    # Retry a confirmed context-limit error only before streaming text, using a smaller input.
-                    if (
-                        attempt
-                        or answer
-                        or usage_data is not None
-                        or completed
-                    ):
-                        raise
-                    if conversation.version != turn_version:
-                        raise ContextChangedError(
-                            "Conversation changed before context recovery. Please retry."
-                        )
-                    reduced_limit = (
-                        request_budget.estimate(
-                            request_instructions, request_messages,
-                            visual_tokens=attachments.visual_tokens,
-                        )
-                        * 3
-                        // 4
-                    )
-                    request_instructions, request_messages = (
-                        await request_memory.prepare_context(
-                            conversation,
-                            user_prompt,
-                            workspace_context,
-                            profile_id,
-                            history_end=history_end,
-                            persist_memory=payload.regenerate_message_index
-                            is None,
-                            input_limit=reduced_limit,
-                            preflight_mode="block",
-                            **attachment_options,
-                        )
-                    )
+            async with aclosing(request_ai.stream(
+                instructions,
+                input_messages,
+                profile_id=profile_id,
+                conversation_id=conversation.id,
+                call_kind=(
+                    "regeneration" if payload.regenerate_message_index
+                    is not None else "chat"
+                ),
+            )) as reply_stream:
+                async for event in reply_stream:
+                    if event["type"] == "delta":
+                        answer += event["text"]
+                    elif event["type"] == "usage":
+                        usage_data = event.get("usage")
+                        profile_data = event.get("profile")
+                        usage_call_id = event.get("call_id")
+                    elif event["type"] == "done":
+                        completed = True
+                        continue
+                    yield f"data: {json.dumps(event)}\n\n"
 
             if not completed:
                 raise RuntimeError("Response stream ended before completion.")
@@ -1159,6 +1119,12 @@ async def chat(payload: ChatRequest):
                 "Discarded response for an unavailable conversation: %s",
                 conversation.id,
             )
+        except ContextWindowExceeded:
+            error = {
+                "type": "error", "code": "provider_context_length_exceeded",
+                "message": "The provider rejected this request because its input context is too large. Reduce the input or choose another deployment before sending again.",
+            }
+            yield f"data: {json.dumps(error)}\n\n"
         except ProviderAttachmentError as exc:
             error = {
                 "type": "error", "code": exc.code, "message": str(exc),

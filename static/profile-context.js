@@ -10,7 +10,7 @@ export function createProfileContext({ isSaving }) {
   const state = { profile: null, controller: null, loaded: false };
   const modeHelp = {
     warn: 'Allows requests with estimated input-limit warnings. Warnings alone do not force history summaries.',
-    block: 'May summarize history or reject requests when input estimates exceed limits. Estimates can differ from actual usage.',
+    block: 'Rejects requests when input estimates exceed selected limits. Summaries follow the separate memory threshold.',
     off: 'Skips admission estimates. Explicit output limits, attachment checks, and token-based memory summaries still apply.'
   };
 

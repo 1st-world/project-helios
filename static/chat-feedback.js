@@ -25,6 +25,7 @@ export function describeRequestError(payload, fallback = 'Request failed.', stat
   const code = cleanText(detail?.code);
   const blocked = code === 'context_preflight_blocked';
   const title = blocked ? 'Context preflight blocked'
+    : code === 'provider_context_length_exceeded' ? 'Provider context limit exceeded'
     : code === 'attachment_model_unsupported' ? 'Attachment unsupported by model'
     : code.startsWith('attachment_') ? 'Attachment request failed' : 'Request failed';
   const details = [];
@@ -38,6 +39,9 @@ export function describeRequestError(payload, fallback = 'Request failed.', stat
     details.push('The local preflight uses approximate estimates. This is not a confirmed rejection by the model.');
     details.push(tokenLimit(detail.input_budget, 'Selected input budget'));
     details.push(tokenLimit(detail.declared_model_input_limit, 'Declared model input limit'));
+  }
+  if (code === 'provider_context_length_exceeded') {
+    details.push('The API provider confirmed that this request exceeds its context limit.');
   }
   if (status) details.push(status);
   return { title, message: message || fallback, details: details.filter(Boolean) };
