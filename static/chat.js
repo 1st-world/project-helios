@@ -7,7 +7,7 @@ import { calendarDate, formatMessageTimestamp, getTimezone } from './timezone.js
 import { createDisclosure } from './disclosure.js';
 import { showActionDialog } from './dialogs.js';
 
-export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmentMetadata, clearFocusFiles, onGeneratingChange, onConversationChange }) {
+export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmentMetadata, clearFocusFiles, onGeneratingChange, onConversationChange, openSettings }) {
   const state = {
     conversationId: null,
     conversationVersion: null,
@@ -157,7 +157,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
       feedbackRegion.remove();
       return;
     }
-    items.forEach(({ type, title, message, details, recovery }) => {
+    items.forEach(({ type, title, message, details, recovery, actions = [], sourceCreatedAt }) => {
       const notice = document.createElement('div');
       notice.className = `chat-request-notice ${type}`;
       const heading = document.createElement('strong');
@@ -171,6 +171,30 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
         explanation.textContent = details.join('\n');
         notice.append(explanation);
       }
+      const controls = document.createElement('div');
+      controls.className = 'chat-request-notice-actions';
+      const labels = { question: 'Review question', attachments: 'Review attachments', connections: 'Connection settings', usage: 'Review usage', limits: 'Review input budget', output: 'Review output limits' };
+      actions.forEach(action => {
+        if (!labels[action]) return;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'quiet-btn';
+        button.dataset.mutatesConversation = '';
+        button.disabled = state.generating;
+        button.textContent = labels[action];
+        button.onclick = () => {
+          if (state.generating) return;
+          if (action === 'attachments') $('#load-file').click();
+          else if (action === 'question') {
+            const source = sourceCreatedAt && [...chat.querySelectorAll('.message.user')].find(node => messageMetadata.get(node)?.created_at === sourceCreatedAt);
+            if (source) {
+              source.scrollIntoView({ block: 'center', behavior: 'smooth' });
+              source.querySelector('[aria-label="Edit message"]')?.click();
+            } else prompt.focus();
+          } else openSettings?.({ connections: 'connections', usage: 'usage', limits: 'context', output: 'context' }[action]);
+        };
+        controls.append(button);
+      });
       if (recovery) {
         const action = document.createElement('button');
         action.type = 'button';
@@ -179,8 +203,9 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
         action.disabled = state.generating || recovery.used === true;
         action.textContent = 'Summarize once & retry…';
         action.onclick = () => recoverResponse(recovery);
-        notice.append(action);
+        controls.append(action);
       }
+      if (controls.childElementCount) notice.append(controls);
       feedbackRegion.append(notice);
     });
     chat.insertBefore(feedbackRegion, usageFooter.parentElement === chat ? usageFooter : null);
@@ -188,7 +213,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
 
   function addRequestFeedback(request, type, feedback) {
     const wasNearBottom = isNearBottom();
-    request.items.push({ type, ...feedback });
+    request.items.push({ type, ...feedback, sourceCreatedAt: request.sourceCreatedAt });
     state.requestFeedback.set(request.conversationId, request.items);
     if (request.conversationId === state.conversationId) {
       renderRequestFeedback();
@@ -630,7 +655,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     if (messageEditor) return toast('Save or cancel your message edit before sending.', 'info');
     const text = options.prompt ?? prompt.value.trim();
     if (!text || state.generating) return;
-    const requestFeedback = { conversationId: state.conversationId, items: [] };
+    const requestFeedback = { conversationId: state.conversationId, items: [], sourceCreatedAt: options.sourceCreatedAt };
     state.requestFeedback.delete(state.conversationId);
     renderRequestFeedback();
     const user = options.appendUser !== false ? appendMessage('user', text) : null;
@@ -681,6 +706,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
           if (event.type === 'start') {
             requestStarted = true;
             requestFeedback.conversationId = event.conversation_id;
+            requestFeedback.sourceCreatedAt = event.user_created_at || requestFeedback.sourceCreatedAt;
             if (!options.preserveDraft || state.conversationId === requestConversationId) onStart(event);
             if (event.user_created_at) user?.setMeta({ created_at: event.user_created_at });
           }
@@ -734,8 +760,9 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
           autoResize();
         }
         assistant.render(answer.value || '_Unable to generate a response._');
-        addRequestFeedback(requestFeedback, 'error', error.feedback || describeRequestError({ message: error.message }));
-        onError(error.message);
+        const feedback = error.feedback || describeRequestError({ message: error.message });
+        addRequestFeedback(requestFeedback, 'error', feedback);
+        onError(feedback.title);
       }
     } finally {
       state.controller = null;
@@ -786,7 +813,8 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
       });
     }
     sendMessage({ prompt: 'Recover failed request', recoveryId: recovery.id, operationId: crypto.randomUUID(),
-      appendUser: false, preserveDraft: true });
+      appendUser: false, preserveDraft: true,
+      sourceCreatedAt: messageMetadata.get([...chat.querySelectorAll('.message')][recovery.user_index])?.created_at });
   }
 
   function init() {

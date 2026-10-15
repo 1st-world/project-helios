@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from models.app_settings import DEFAULT_APP_SETTINGS
 from services.token_estimator import text_tokens
+from services.provider_errors import ContextWindowExceeded
 
 
 class ContextBudgetExceeded(ValueError):
@@ -16,10 +17,6 @@ class ContextChangedError(RuntimeError):
 
 class SummaryUnavailableError(RuntimeError):
     """A complete summary could not be produced within the work budget."""
-
-
-class ContextWindowExceeded(RuntimeError):
-    """The provider explicitly rejected the request's context length."""
 
 
 @dataclass(frozen=True)

@@ -904,6 +904,12 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:hover {
 .chat-request-notices .chat-request-notice-details {
   white-space: pre-line;
 }
+.chat-request-notices .chat-request-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  gap: 8px;
+}
 
 .typing {
   color: var(--text-muted);

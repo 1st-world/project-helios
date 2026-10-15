@@ -14,6 +14,7 @@ const chat = createChat({
   getAttachmentFiles: workspace.getAttachmentFiles,
   onAttachmentMetadata: workspace.updateAttachmentMetadata,
   clearFocusFiles: workspace.clearFocusFiles,
+  openSettings: profiles.openSettings,
   onConversationChange(id) { usage.selectConversation(id); },
   onGeneratingChange(value) {
     workspace.setGenerating(value);

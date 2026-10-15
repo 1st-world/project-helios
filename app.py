@@ -63,6 +63,7 @@ from services.prompt_builder import PromptBuilder
 from services.profile_service import (
     ProfileNotFoundError, ProfileService, ProfileStorageError,
 )
+from services.provider_errors import ConnectionConfigurationError, ProviderFailure
 from services.settings_service import SettingsService, SettingsStorageError
 from services.summary_usage_store import SummaryUsageStore
 from services.usage_service import UsageService
@@ -1015,10 +1016,25 @@ async def chat(payload: ChatRequest, request: Request = None):
         raise HTTPException(status_code=exc.status, detail={
             "code": exc.code, "message": str(exc),
         }) from None
-    except RuntimeError as exc:
+    except ConnectionConfigurationError as exc:
         if operation is not None:
             operation.close()
-        raise HTTPException(status_code=400, detail=str(exc)) from None
+        raise HTTPException(status_code=400, detail={
+            "code": "connection_not_configured", "category": "configuration",
+            "message": str(exc),
+        }) from None
+    except HTTPException:
+        if operation is not None:
+            operation.close()
+        raise
+    except Exception as exc:
+        if operation is not None:
+            operation.close()
+        logger.error("Chat preparation failed (error_type=%s)", type(exc).__name__)
+        raise HTTPException(
+            status_code=500,
+            detail=ProviderFailure("request_failed").detail(phase="preparation"),
+        ) from None
     except BaseException:
         if operation is not None:
             operation.close()
@@ -1039,10 +1055,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
         + ([payload.workspace_file] if payload.workspace_file else []),
         request_attachments,
     )
-    try:
-        profile_id = request_ai.resolve_profile_id(payload.profile_id)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    profile_id = request_ai.resolve_profile_id(payload.profile_id)
     pinned_profile = (
         data["profile"] if data else profile_service.get_profile(profile_id)
     )
@@ -1203,6 +1216,11 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
             "code": "context_recovery_unavailable",
             "message": "Connection or memory policy changed. The recovery request was stopped.",
         }) from None
+    except ProviderFailure as exc:
+        raise HTTPException(
+            status_code=exc.http_status if exc.http_status and exc.http_status >= 400 else 502,
+            detail=exc.detail(phase="summary"),
+        ) from None
     except SummaryUnavailableError as exc:
         raise HTTPException(status_code=503, detail={
             "code": "context_recovery_unavailable", "message": str(exc),
@@ -1395,16 +1413,14 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                 yield notice
             error = {
                 "type": "error", "code": "context_preflight_blocked",
+                "category": "preflight",
                 "message": str(exc), "input_budget": policy.input_budget,
             }
             yield f"data: {json.dumps(error)}\n\n"
-        except ContextWindowExceeded:
+        except ContextWindowExceeded as exc:
             for notice in policy_events():
                 yield notice
-            error = {
-                "type": "error", "code": "provider_context_length_exceeded",
-                "message": "The provider rejected this request because its input context is too large. Reduce the input or choose another deployment before sending again.",
-            }
+            error = {"type": "error", **exc.detail()}
             if not data:
                 offer = {"available": False}
                 try:
@@ -1460,9 +1476,14 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
             for notice in policy_events():
                 yield notice
             error = {
-                "type": "error", "code": exc.code, "message": str(exc),
+                "type": "error", **exc.detail(),
                 "paths": [item["path"] for item in attachments.metadata],
             }
+            yield f"data: {json.dumps(error)}\n\n"
+        except ProviderFailure as exc:
+            for notice in policy_events():
+                yield notice
+            error = {"type": "error", **exc.detail()}
             yield f"data: {json.dumps(error)}\n\n"
         except ContextChangedError as exc:
             error = {
@@ -1475,8 +1496,9 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
         except Exception as exc:
             for notice in policy_events():
                 yield notice
-            logger.exception("Chat stream failed")
-            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+            logger.error("Chat stream failed (error_type=%s)", type(exc).__name__)
+            error = {"type": "error", **ProviderFailure("request_failed").detail()}
+            yield f"data: {json.dumps(error)}\n\n"
 
     async def operation_events():
         """Release the request slot before background work and close nested provider streams."""

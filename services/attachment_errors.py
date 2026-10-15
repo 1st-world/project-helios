@@ -2,14 +2,15 @@
 
 import re
 
+from services.provider_errors import ProviderFailure
 
-class ProviderAttachmentError(RuntimeError):
+
+class ProviderAttachmentError(ProviderFailure):
     """A provider rejected native image or document input in the current request."""
 
     def __init__(self, code: str, message: str) -> None:
         """Expose a stable code without forwarding raw provider payloads."""
-        super().__init__(message)
-        self.code = code
+        super().__init__(code, message=message, category="attachment")
 
     @classmethod
     def from_provider(

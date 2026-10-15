@@ -15,11 +15,14 @@ from openai import APIConnectionError, APIError, AsyncOpenAI, RateLimitError
 from models.message import Message
 from models.profile import ConnectionProfile
 from services.attachment_errors import ProviderAttachmentError
-from services.context_budget import ContextWindowExceeded
 from services.call_usage_store import CallUsageStore, utc_timestamp
 from services.profile_service import ProfileService
 from services.model_context import MemoryCapacity
 from services.prompt_builder import PromptBuilder
+from services.provider_errors import (
+    ConnectionConfigurationError, ProviderFailure, provider_metadata,
+    safe_identifier,
+)
 from services.summary_usage_store import SummaryUsageStore
 from services.usage_service import UsageService
 
@@ -131,7 +134,7 @@ class AIService:
         except Exception:
             self.call_usage_store.recording_errors += 1
             self.call_usage_store.notify_changes()
-            logger.exception("Could not record API call usage")
+            logger.error("Could not record API call usage")
 
     def _begin_call(
         self, profile: ConnectionProfile, kind: str,
@@ -184,11 +187,11 @@ class AIService:
             if profile_id:
                 target_profile = self.profile_service.get_profile(profile_id)
                 if not target_profile:
-                    raise RuntimeError("Connection profile not found.")
+                    raise ConnectionConfigurationError("Connection profile not found.")
             else:
                 target_profile = self.profile_service.get_active_profile()
         if not target_profile or not target_profile.is_configured:
-            raise RuntimeError(
+            raise ConnectionConfigurationError(
                 "No configured Azure OpenAI profile found. Please add connection details in Settings."
             )
         return target_profile
@@ -242,6 +245,30 @@ class AIService:
             else "Not configured"
         )
 
+    @staticmethod
+    def _provider_failure(
+        error: object, profile: ConnectionProfile, inputs: list[dict], *,
+        transport: object = None, response_status: str | None = None,
+        incomplete_reason: str | None = None,
+    ) -> ProviderFailure:
+        """Classify one provider failure while retaining explicit attachment error recognition."""
+        failure = ProviderFailure.from_provider(
+            error, transport=transport, response_status=response_status,
+            incomplete_reason=incomplete_reason,
+            secrets=(profile.api_key, profile.endpoint),
+        )
+        if failure.code not in {"provider_invalid_request", "provider_error"}:
+            return failure
+        attachment = ProviderAttachmentError.from_provider(error, inputs)
+        if attachment is not None:
+            for name in (
+                "http_status", "request_id", "retry_after_seconds",
+                "response_status", "incomplete_reason", "provider_code",
+            ):
+                setattr(attachment, name, getattr(failure, name))
+            return attachment
+        return failure
+
     async def stream(
         self,
         instructions: str,
@@ -263,6 +290,8 @@ class AIService:
         response_usage = None
         completed = False
         stream = None
+        transport = None
+        has_text = False
 
         def usage_event(raw_usage: object | None) -> dict:
             """Normalize terminal usage against the profile snapshot used for this request."""
@@ -297,22 +326,33 @@ class AIService:
                 stream=True,
                 **self._output_options(profile),
             )
+            transport = getattr(stream, "response", None)
+            call.update(provider_metadata(
+                transport=transport, secrets=(profile.api_key, profile.endpoint),
+            ))
             async for event in stream:
                 if event.type == "response.created":
-                    response_id = getattr(
-                        getattr(event, "response", None), "id", None
+                    response_id = safe_identifier(
+                        getattr(getattr(event, "response", None), "id", None),
+                        (profile.api_key, profile.endpoint),
                     )
                     if response_id:
                         call["response_id"] = response_id
                         self._record_call(call)
-                elif event.type == "response.output_text.delta":
+                elif event.type in {
+                    "response.output_text.delta", "response.refusal.delta",
+                }:
+                    has_text = has_text or bool(event.delta.strip())
                     yield {"type": "delta", "text": event.delta}
                 elif event.type == "response.completed":
                     completed = True
                     response_usage = getattr(event.response, "usage", None)
                     self._finish_call(
                         call, status="completed",
-                        response_id=getattr(event.response, "id", None),
+                        response_id=safe_identifier(
+                            getattr(event.response, "id", None),
+                            (profile.api_key, profile.endpoint),
+                        ),
                         usage=usage_event(response_usage)["usage"],
                     )
                 elif event.type in {"response.failed", "response.incomplete"}:
@@ -323,110 +363,89 @@ class AIService:
                         getattr(response, "incomplete_details", None),
                         "reason", None,
                     )
+                    failure = self._provider_failure(
+                        error, profile, input_messages, transport=transport,
+                        response_status=event.type.removeprefix("response."),
+                        incomplete_reason=reason,
+                    )
                     self._finish_call(
                         call, status=event.type.removeprefix("response."),
-                        response_id=getattr(response, "id", None),
-                        error_code=getattr(error, "code", None),
-                        incomplete_reason=reason,
+                        response_id=safe_identifier(
+                            getattr(response, "id", None),
+                            (profile.api_key, profile.endpoint),
+                        ),
+                        **failure.record_details(),
                         usage=usage_event(raw_usage)["usage"],
                     )
-                    if (
-                        getattr(error, "code", None)
-                        == "context_length_exceeded"
-                    ):
-                        raise ContextWindowExceeded(
-                            "The model's input context limit was exceeded."
-                        )
                     if raw_usage is not None:
                         terminal_usage = usage_event(raw_usage)
-                        terminal_usage["response_status"] = getattr(
-                            response, "status", None
-                        )
+                        terminal_usage["usage"] = call["usage"]
+                        terminal_usage["response_status"] = failure.response_status
                         yield terminal_usage
-                    reason = getattr(
-                        getattr(response, "incomplete_details", None),
-                        "reason",
-                        None,
-                    )
-                    attachment_error = ProviderAttachmentError.from_provider(
-                        error, input_messages
-                    )
-                    if attachment_error:
-                        raise attachment_error
-                    raise RuntimeError(
-                        "Azure OpenAI response did not complete."
-                        + (f" Reason: {reason}." if reason else "")
-                    )
+                    raise failure
                 elif event.type == "error":
+                    failure = self._provider_failure(
+                        event, profile, input_messages, transport=transport,
+                        response_status="failed",
+                    )
                     self._finish_call(
-                        call, status="failed",
-                        error_code=getattr(event, "code", None),
+                        call, status="failed", **failure.record_details(),
                     )
-                    if (
-                        getattr(event, "code", None)
-                        == "context_length_exceeded"
-                    ):
-                        raise ContextWindowExceeded(
-                            "The model's input context limit was exceeded."
-                        )
-                    attachment_error = ProviderAttachmentError.from_provider(
-                        event, input_messages
-                    )
-                    if attachment_error:
-                        raise attachment_error
-                    raise RuntimeError(
-                        "Azure OpenAI returned a streaming error."
-                    )
+                    raise failure
             if not completed:
+                failure = ProviderFailure(
+                    "provider_stream_interrupted",
+                    **provider_metadata(
+                        transport=transport, secrets=(profile.api_key, profile.endpoint),
+                    ),
+                )
                 self._finish_call(
                     call, status="interrupted",
                     interruption_reason="stream_ended_without_terminal_response",
+                    **failure.record_details(),
                 )
-                raise RuntimeError(
-                    "Azure OpenAI stream ended before the response completed."
-                )
+                raise failure
             final_usage = usage_event(response_usage)
             final_usage["usage"] = call["usage"]
+            empty_failure = None
+            if not has_text:
+                empty_failure = ProviderFailure(
+                    "provider_response_empty", response_status="completed",
+                    **provider_metadata(
+                        transport=transport, secrets=(profile.api_key, profile.endpoint),
+                    ),
+                )
+                call.update(empty_failure.record_details())
+                self._record_call(call)
             yield final_usage
+            if empty_failure is not None:
+                raise empty_failure
             yield {"type": "done"}
         except (APIConnectionError, RateLimitError, APIError) as exc:
+            failure = self._provider_failure(
+                exc, profile, input_messages, transport=transport,
+            )
             self._finish_call(
-                call, status="failed", error_code=exc.code,
-                http_status=getattr(exc, "status_code", None),
+                call, status="failed", **failure.record_details(),
             )
-            if exc.code == "context_length_exceeded":
-                raise ContextWindowExceeded(
-                    "The model's input context limit was exceeded."
-                ) from exc
-            attachment_error = ProviderAttachmentError.from_provider(
-                exc, input_messages
-            )
-            if attachment_error:
-                logger.warning(
-                    "Attachment request rejected for profile %s: %s",
-                    profile.id, attachment_error.code,
-                )
-                raise attachment_error from exc
-            logger.exception(
-                "Azure API failure for profile %s (%s)",
-                profile.name,
-                profile.id,
-            )
-            raise RuntimeError(
-                f"Azure OpenAI request failed for '{profile.name}'. Check credentials and deployment."
-            ) from exc
-        except (ContextWindowExceeded, ProviderAttachmentError):
+            logger.warning("Provider request failed (call_id=%s, code=%s, status=%s)", call["id"], failure.code, failure.http_status)
+            raise failure from None
+        except ProviderFailure as exc:
+            logger.warning("Provider response failed (call_id=%s, code=%s)", call["id"], exc.code)
             raise
         except (asyncio.CancelledError, GeneratorExit):
             self._finish_call(call, status="cancelled")
             raise
-        except Exception:
+        except Exception as exc:
             self._finish_call(call, status="failed")
-            logger.exception("Unexpected streaming interruption")
-            raise
+            logger.error("Unexpected streaming interruption (call_id=%s, error_type=%s)", call["id"], type(exc).__name__)
+            raise ProviderFailure() from None
         finally:
             if stream is not None and callable(getattr(stream, "close", None)):
-                await stream.close()
+                try:
+                    await stream.close()
+                except Exception as exc:
+                    logger.warning("Provider stream cleanup failed (call_id=%s, error_type=%s)", call["id"], type(exc).__name__)
 
     async def summarize_memory(
         self,
@@ -454,6 +473,23 @@ class AIService:
                 **self._output_options(profile),
             )
             # Account before validation or memory adoption, even if the caller is stale.
+            metadata = provider_metadata(
+                response, secrets=(profile.api_key, profile.endpoint),
+            )
+            response_id = safe_identifier(
+                getattr(response, "id", None), (profile.api_key, profile.endpoint),
+            )
+            failure = None
+            if response.status != "completed":
+                failure = self._provider_failure(
+                    getattr(response, "error", None), profile, [],
+                    response_status=response.status,
+                    incomplete_reason=getattr(
+                        getattr(response, "incomplete_details", None), "reason", None,
+                    ),
+                )
+                for name, value in metadata.items():
+                    setattr(failure, name, value)
             raw_usage = getattr(response, "usage", None)
             usage = None
             if raw_usage is not None:
@@ -471,26 +507,20 @@ class AIService:
                     long_cache_write_price_per_million=profile.long_cache_write_price_per_million,
                 ).to_dict()
             self._finish_call(
-                call, status=response.status,
-                response_id=getattr(response, "id", None), usage=usage,
-                incomplete_reason=getattr(
-                    getattr(response, "incomplete_details", None), "reason", None
-                ),
-                error_code=getattr(getattr(response, "error", None), "code", None),
+                call,
+                status=(failure.response_status or "failed") if failure else "completed",
+                response_id=response_id, usage=usage,
+                **(failure.record_details() if failure else metadata),
             )
             try:
                 self.summary_usage_store.record(
                     conversation_id=conversation_id,
                     usage_call_id=call["id"],
-                    response_id=getattr(response, "id", None),
+                    response_id=response_id,
                     profile_id=profile.id,
                     deployment=profile.deployment,
-                    status=response.status,
-                    incomplete_reason=getattr(
-                        getattr(response, "incomplete_details", None),
-                        "reason",
-                        None,
-                    ),
+                    status=call["status"],
+                    incomplete_reason=failure.incomplete_reason if failure else None,
                     max_output_tokens=getattr(
                         response, "max_output_tokens", None
                     ),
@@ -498,43 +528,24 @@ class AIService:
                 )
             except Exception:
                 self.summary_usage_store.recording_errors += 1
-                logger.exception("Could not record summary usage")
-            if response.status != "completed":
-                if (
-                    getattr(getattr(response, "error", None), "code", None)
-                    == "context_length_exceeded"
-                ):
-                    raise ContextWindowExceeded(
-                        "The summary input context limit was exceeded."
-                    )
-                logger.warning(
-                    "Conversation memory response was not completed (status=%s, reason=%s, max_output_tokens=%s)",
-                    response.status,
-                    getattr(
-                        getattr(response, "incomplete_details", None),
-                        "reason",
-                        None,
-                    ),
-                    getattr(response, "max_output_tokens", None),
-                )
-                return ""
+                logger.error("Could not record summary usage")
+            if failure is not None:
+                raise failure
             return response.output_text.strip()
         except (APIConnectionError, RateLimitError, APIError) as exc:
+            failure = self._provider_failure(exc, profile, [])
             self._finish_call(
-                call, status="failed", error_code=exc.code,
-                http_status=getattr(exc, "status_code", None),
+                call, status="failed", **failure.record_details(),
             )
-            if exc.code == "context_length_exceeded":
-                raise ContextWindowExceeded(
-                    "The summary input context limit was exceeded."
-                ) from exc
-            logger.exception("Azure API failure while compacting conversation")
-            raise RuntimeError(
-                "Could not compact conversation memory."
-            ) from exc
+            logger.warning("Provider summary failed (call_id=%s, code=%s, status=%s)", call["id"], failure.code, failure.http_status)
+            raise failure from None
+        except ProviderFailure as exc:
+            logger.warning("Provider summary response failed (call_id=%s, code=%s)", call["id"], exc.code)
+            raise
         except asyncio.CancelledError:
             self._finish_call(call, status="cancelled")
             raise
-        except Exception:
+        except Exception as exc:
             self._finish_call(call, status="failed")
-            raise
+            logger.error("Unexpected summary failure (call_id=%s, error_type=%s)", call["id"], type(exc).__name__)
+            raise ProviderFailure() from None

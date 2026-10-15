@@ -646,8 +646,8 @@ class ConversationMemoryService:
                     logger.warning("Automatic conversation summary deferred; retaining original request.")
                     self._check_version(conversation, version)
                     return admit(prepared)
-                except Exception:
-                    logger.exception("Pre-flight conversation summary failed")
+                except Exception as exc:
+                    logger.error("Pre-flight conversation summary failed (error_type=%s)", type(exc).__name__)
                     self._check_version(conversation, version)
                     return admit(prepared)
                 start = cutoff
@@ -773,6 +773,6 @@ class ConversationMemoryService:
             )
         except (SummaryUnavailableError, ContextBudgetExceeded) as exc:
             logger.warning("Conversation memory deferred: %s", exc)
-        except Exception:
+        except Exception as exc:
             # Memory is an optimization; a failed summary must not interrupt the user response.
-            logger.exception("Conversation memory compaction failed")
+            logger.error("Conversation memory compaction failed (error_type=%s)", type(exc).__name__)

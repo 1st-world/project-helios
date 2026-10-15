@@ -586,5 +586,5 @@ export function createProfiles({ isGenerating }) {
     $('#azure-long-threshold').addEventListener('input', updateThresholdLabels);
   }
 
-  return { init, load: loadProfiles, checkHealth: health, setGenerating, hasUnsavedChanges, isSaving: () => state.saving, getActiveProfileId: () => state.activeProfileId };
+  return { init, load: loadProfiles, checkHealth: health, setGenerating, hasUnsavedChanges, isSaving: () => state.saving, getActiveProfileId: () => state.activeProfileId, openSettings: openSettingsDialog };
 }
