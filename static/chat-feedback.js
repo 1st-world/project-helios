@@ -26,6 +26,8 @@ export function describeRequestError(payload, fallback = 'Request failed.', stat
   const blocked = code === 'context_preflight_blocked';
   const title = blocked ? 'Context preflight blocked'
     : code === 'provider_context_length_exceeded' ? 'Provider context limit exceeded'
+    : code === 'context_recovery_unavailable' ? 'One-time recovery unavailable'
+    : code === 'conversation_request_in_progress' ? 'Conversation request in progress'
     : code === 'attachment_model_unsupported' ? 'Attachment unsupported by model'
     : code.startsWith('attachment_') ? 'Attachment request failed' : 'Request failed';
   const details = [];
@@ -42,9 +44,11 @@ export function describeRequestError(payload, fallback = 'Request failed.', stat
   }
   if (code === 'provider_context_length_exceeded') {
     details.push('The API provider confirmed that this request exceeds its context limit.');
+    if (detail.recovery?.available === false && cleanText(detail.recovery.reason)) details.push(cleanText(detail.recovery.reason));
   }
   if (status) details.push(status);
-  return { title, message: message || fallback, details: details.filter(Boolean) };
+  return { title, message: message || fallback, details: details.filter(Boolean),
+    ...(code === 'provider_context_length_exceeded' && detail.recovery?.available === true ? { recovery: detail.recovery } : {}) };
 }
 
 export function describeContextWarning(event, policy = null) {

@@ -157,7 +157,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
       feedbackRegion.remove();
       return;
     }
-    items.forEach(({ type, title, message, details }) => {
+    items.forEach(({ type, title, message, details, recovery }) => {
       const notice = document.createElement('div');
       notice.className = `chat-request-notice ${type}`;
       const heading = document.createElement('strong');
@@ -170,6 +170,16 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
         explanation.className = 'chat-request-notice-details';
         explanation.textContent = details.join('\n');
         notice.append(explanation);
+      }
+      if (recovery) {
+        const action = document.createElement('button');
+        action.type = 'button';
+        action.className = 'quiet-btn';
+        action.dataset.mutatesConversation = '';
+        action.disabled = state.generating || recovery.used === true;
+        action.textContent = 'Summarize once & retry…';
+        action.onclick = () => recoverResponse(recovery);
+        notice.append(action);
       }
       feedbackRegion.append(notice);
     });
@@ -646,7 +656,9 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
           attachment_files: getAttachmentFiles(),
           profile_id: getActiveProfileId(),
           regenerate_message_index: options.regenerateMessageIndex,
-          expected_conversation_version: options.expectedConversationVersion
+          expected_conversation_version: options.expectedConversationVersion,
+          recovery_id: options.recoveryId,
+          operation_id: options.operationId
         }),
         signal: state.controller.signal
       });
@@ -755,6 +767,26 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     });
     sendMessage({ prompt: content, regenerateMessageIndex: userIndex, appendUser: false,
       preserveDraft: true, expectedConversationVersion: state.conversationVersion });
+  }
+
+  async function recoverResponse(recovery) {
+    if (state.generating || messageEditor || recovery.used || !state.conversationId) return;
+    const conversationId = state.conversationId;
+    const version = state.conversationVersion;
+    const calls = Number.isSafeInteger(recovery.summary_call_limit) ? recovery.summary_call_limit : 'the configured number of';
+    if (!await showActionDialog({ title: 'Summarize once and retry?',
+      description: `Use ${recovery.profile_name || 'the failed connection'} to summarize older complete turns. This can make up to ${calls} paid summary calls and one paid reply request. Reuse the failed request's question, workspace, and attachments, and preserve its latest complete turn. The summary is used only for this attempt. Automatic memory and saved memory stay unchanged.${recovery.replaces_following ? ' If successful, the new response replaces the selected response and removes all following messages.' : ''}`,
+      confirmLabel: 'Allow summary & retry', danger: recovery.replaces_following === true })) return;
+    if (state.generating || state.conversationId !== conversationId || state.conversationVersion !== version || recovery.used) return;
+    recovery.used = true;
+    if (Number.isSafeInteger(recovery.user_index) && recovery.user_index >= 0) {
+      [...chat.querySelectorAll('.message')].slice(recovery.user_index + 1).forEach(message => {
+        disposeMessageDisclosures(message);
+        message.remove();
+      });
+    }
+    sendMessage({ prompt: 'Recover failed request', recoveryId: recovery.id, operationId: crypto.randomUUID(),
+      appendUser: false, preserveDraft: true });
   }
 
   function init() {

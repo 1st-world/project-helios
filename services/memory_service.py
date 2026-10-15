@@ -133,8 +133,10 @@ class ConversationMemoryService:
         snapshot.keep_recent_tokens = keep_recent_tokens
         return snapshot
 
-    def capture_policy(self, profile_id: str | None = None) -> MemoryPolicySnapshot:
-        """Capture explicit per-connection permission and a feasible summary plan."""
+    def capture_policy(
+        self, profile_id: str | None = None, *, one_shot: bool = False,
+    ) -> MemoryPolicySnapshot:
+        """Capture automatic permission or a request-only grant with a feasible summary plan."""
         current_profile = self._profile(profile_id)
         profile = replace(current_profile) if current_profile is not None else None
         output_limit = (
@@ -147,8 +149,8 @@ class ConversationMemoryService:
             if profile else MemoryCapacity()
         )
         allowance = capacity.input_limit
-        trigger = self.summary_trigger_tokens
-        enabled = profile is not None and profile.memory_enabled is True
+        trigger = None if one_shot else self.summary_trigger_tokens
+        enabled = profile is not None and (one_shot or profile.memory_enabled is True)
         state = "ready"
         reason = capacity.reason
         mode = "manual" if trigger is not None else "auto"
@@ -167,7 +169,7 @@ class ConversationMemoryService:
             trigger = 0 if self.summary_trigger_tokens == 0 else None
         if not enabled:
             reason = "disabled"
-        elif self.summary_trigger_tokens == 0:
+        elif self.summary_trigger_tokens == 0 and not one_shot:
             reason = "threshold_disabled"
         elif state == "stopped":
             reason = "policy_changed"
@@ -186,7 +188,7 @@ class ConversationMemoryService:
             "output_headroom": capacity.headroom,
             "headroom_source": capacity.headroom_source,
             "input_only": capacity.reason == "input_only",
-            "revision": self._revision.value,
+            "revision": self._revision.value, "one_shot": one_shot,
         }
         snapshot = MemoryPolicySnapshot(
             policy, self._revision.value, self._settings_signature(), profile,
@@ -424,6 +426,72 @@ class ConversationMemoryService:
                 )
             start, offset = next_start, next_offset
         return previous
+
+    def recovery_plan(
+        self, history: list[Message], user_prompt: str, workspace_context: str,
+        snapshot: MemoryPolicySnapshot, *, attachment_content=None,
+        visual_tokens: int = 0, input_limit: int | None = None,
+    ) -> tuple[int, int]:
+        """Reject irreducible fixed input before paying to summarize older complete turns."""
+        if not snapshot.policy.get("one_shot") or snapshot.policy["state"] != "ready":
+            raise SummaryUnavailableError("Deployment information is required before a one-time summary can be planned.")
+        boundaries = self.turn_boundaries(history)
+        if len(boundaries) < 2:
+            raise SummaryUnavailableError("There are no older complete turns to summarize while preserving the latest complete turn. Edit the input or choose another deployment.")
+        cutoff = boundaries[-2]
+        target = snapshot.policy["capacity_input_limit"]
+        if input_limit is not None:
+            target = min(target, input_limit)
+        retained = PromptBuilder().build(
+            history[cutoff:], user_prompt, workspace_context,
+            attachment_content=attachment_content,
+        )
+        if self.context_budget.estimate(
+            *retained, visual_tokens=visual_tokens,
+        ) >= target:
+            raise ContextBudgetExceeded("The question, workspace, attachments, and latest complete turn already reach the recovery input allowance. Reduce these inputs or choose another deployment; no summary call was started.")
+        return cutoff, target
+
+    async def prepare_recovery(
+        self, conversation: Conversation, user_prompt: str, workspace_context: str,
+        profile_id: str, *, history_end: int, summary_policy: MemoryPolicySnapshot,
+        attachment_content=None, visual_tokens: int = 0,
+        input_limit: int | None = None,
+    ) -> tuple[str, list[dict]]:
+        """Summarize original older turns once for this reply without adopting stored memory."""
+        version = conversation.version
+        history = [replace(message) for message in conversation.messages[:history_end]]
+        cutoff, target = self.recovery_plan(
+            history, user_prompt, workspace_context, summary_policy,
+            attachment_content=attachment_content, visual_tokens=visual_tokens,
+            input_limit=input_limit,
+        )
+        async with self._exclusive(conversation.id):
+            self._check_version(conversation, version)
+            self._check_policy(summary_policy)
+            summary = await self._summarize_prefix(
+                conversation, version, history, 0, cutoff, "", profile_id, [0],
+                summary_policy.policy["summary_input_limit"], summary_policy,
+            )
+            self._check_version(conversation, version)
+            self._check_policy(summary_policy)
+            builder = PromptBuilder()
+            inputs = builder.build(
+                history, user_prompt, workspace_context, summary, cutoff,
+                attachment_content=attachment_content,
+            )
+            original = builder.build(
+                history, user_prompt, workspace_context,
+                attachment_content=attachment_content,
+            )
+            estimated = self.context_budget.estimate(
+                *inputs, visual_tokens=visual_tokens,
+            )
+            if estimated > target or estimated >= self.context_budget.estimate(
+                *original, visual_tokens=visual_tokens,
+            ):
+                raise SummaryUnavailableError("The one-time summary did not produce a smaller input within the recovery allowance. No reply call was started. Edit the input or choose another deployment.")
+            return inputs
 
     async def prepare_context(
         self,

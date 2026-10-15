@@ -55,7 +55,10 @@ from services.folder_picker_service import (
     FolderPickerService,
     PickerReconnectingError,
 )
-from services.memory_service import ConversationMemoryService
+from services.context_recovery import ContextRecoveryRegistry, RecoveryError
+from services.memory_service import (
+    ConversationMemoryService, MemoryPolicyChangedError,
+)
 from services.prompt_builder import PromptBuilder
 from services.profile_service import (
     ProfileNotFoundError, ProfileService, ProfileStorageError,
@@ -103,6 +106,7 @@ attachment_service = AttachmentService(
     limits=application_settings.attachment_limits(),
 )
 folder_picker_service = FolderPickerService()
+context_recovery = ContextRecoveryRegistry()
 usage_service = UsageService()
 summary_usage_store = SummaryUsageStore(
     settings.logs_root / "summary_usage.sqlite3"
@@ -349,6 +353,15 @@ class ChatRequest(ContextRequestOptions):
     profile_id: str | None = None
     regenerate_message_index: int | None = Field(default=None, ge=0)
     expected_conversation_version: int | None = Field(default=None, ge=0)
+    recovery_id: UUID | None = None
+    operation_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def validate_recovery_operation(self):
+        """Require an explicit operation identifier alongside a recovery receipt."""
+        if (self.recovery_id is None) != (self.operation_id is None):
+            raise ValueError("Recovery and operation identifiers must be supplied together.")
+        return self
 
 
 class AttachmentSelectionRequest(ContextRequestOptions):
@@ -933,10 +946,91 @@ async def inspect_attachments(payload: AttachmentSelectionRequest):
 
 
 @app.post("/api/chat")
-async def chat(payload: ChatRequest):
+async def chat(payload: ChatRequest, request: Request = None):
+    """Claim one conversation and honor explicit, one-use recovery authorization."""
+    operation = None
+    try:
+        operation_id = str(payload.operation_id) if payload.operation_id else None
+        ticket = (
+            context_recovery.get(str(payload.recovery_id))
+            if payload.recovery_id else None
+        )
+        if ticket is not None:
+            data = ticket.data
+            conversation = data["conversation"]
+            if (
+                not conversation_manager.is_active(conversation)
+                or conversation.messages is not data["messages"]
+                or conversation.version != data["version"]
+                or not data["memory"].policy_is_current(data["summary_policy"])
+            ):
+                raise RecoveryError("The conversation or connection policy changed after this failure. Review the current input and send a new request.")
+            payload = ChatRequest(
+                prompt=data["prompt"], conversation_id=conversation.id,
+                profile_id=data["profile_id"],
+                regenerate_message_index=data["user_index"],
+                expected_conversation_version=data["version"],
+            )
+        else:
+            ai_service.resolve_profile_id(payload.profile_id)
+            conversation = (
+                conversation_manager.get(payload.conversation_id or "")
+                if payload.regenerate_message_index is not None
+                else conversation_manager.get_or_create(payload.conversation_id)
+            )
+            if conversation is None:
+                raise HTTPException(status_code=404, detail="Conversation not found.")
+        operation = context_recovery.begin(
+            conversation.id, ticket=ticket,
+            operation_id=operation_id,
+        )
+        if ticket is None or request is None:
+            return await prepare_chat(payload, conversation, operation)
+        response = None
+        failure = None
+        async with anyio.create_task_group() as tasks:
+            async def watch_disconnect():
+                """Cancel unsent paid recovery work when its authorizing client disconnects."""
+                while True:
+                    event = await request.receive()
+                    if event["type"] == "http.disconnect":
+                        tasks.cancel_scope.cancel()
+                        return
+
+            tasks.start_soon(watch_disconnect)
+            try:
+                response = await prepare_chat(payload, conversation, operation)
+            except Exception as exc:
+                failure = exc
+            finally:
+                tasks.cancel_scope.cancel()
+        if failure is not None:
+            raise failure
+        if response is None:
+            raise HTTPException(status_code=499, detail="Recovery request cancelled.")
+        return response
+    except RecoveryError as exc:
+        if operation is not None:
+            operation.close()
+        raise HTTPException(status_code=exc.status, detail={
+            "code": exc.code, "message": str(exc),
+        }) from None
+    except RuntimeError as exc:
+        if operation is not None:
+            operation.close()
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except BaseException:
+        if operation is not None:
+            operation.close()
+        raise
+
+
+async def prepare_chat(payload: ChatRequest, conversation, operation):
     """Prepare a versioned conversation turn and return its server-sent response stream."""
-    request_ai = ai_service
-    request_memory = memory_service
+    ticket = operation.ticket
+    data = ticket.data if ticket is not None else None
+    request_ai = data["ai"] if data else ai_service
+    request_memory = data["memory"] if data else memory_service
     request_attachments = attachment_service
     request_budget = context_budget
     request_settings = settings_service.current
@@ -949,18 +1043,22 @@ async def chat(payload: ChatRequest):
         profile_id = request_ai.resolve_profile_id(payload.profile_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    pinned_profile = profile_service.get_profile(profile_id)
+    pinned_profile = (
+        data["profile"] if data else profile_service.get_profile(profile_id)
+    )
     pinned_profile = replace(pinned_profile) if pinned_profile is not None else None
-    request_memory_policy = request_memory.capture_policy(profile_id)
+    request_memory_policy = (
+        data["summary_policy"] if data else request_memory.capture_policy(profile_id)
+    )
+    recovery_policy = (
+        request_memory_policy if data
+        else request_memory.capture_policy(profile_id, one_shot=True)
+    )
     background_tasks = BackgroundTasks()
     if payload.regenerate_message_index is None:
-        conversation = conversation_manager.get_or_create(
-            payload.conversation_id
-        )
         history_end = len(conversation.messages)
         user_prompt = payload.prompt
     else:
-        conversation = conversation_manager.get(payload.conversation_id or "")
         if not conversation:
             raise HTTPException(
                 status_code=404, detail="Conversation not found."
@@ -986,66 +1084,72 @@ async def chat(payload: ChatRequest):
         history_end = payload.regenerate_message_index
         user_prompt = source_message.content
     request_messages = conversation.messages
-    workspace_root = workspace_service.root
-    workspace_context = workspace_service.project_context()
-    selected_files = list(payload.workspace_files)
-    if payload.workspace_file:
-        selected_files.append(payload.workspace_file)
-    try:
-        attachments = (
-            await anyio.to_thread.run_sync(
-                request_attachments.prepare, payload.attachment_files
-            ) if payload.attachment_files else PreparedAttachments()
-        )
-        if workspace_service.root != workspace_root:
-            raise AttachmentError(
-                "attachment_workspace_changed",
-                "Workspace changed while reading attachments. Select the files again.",
-                "", 409,
+    if data:
+        workspace_context, attachments = data["workspace_context"], data["attachments"]
+    else:
+        workspace_root = workspace_service.root
+        workspace_context = workspace_service.project_context()
+        selected_files = list(payload.workspace_files)
+        if payload.workspace_file:
+            selected_files.append(payload.workspace_file)
+        try:
+            attachments = (
+                await anyio.to_thread.run_sync(
+                    request_attachments.prepare, payload.attachment_files
+                ) if payload.attachment_files else PreparedAttachments()
             )
-    except AttachmentError as exc:
-        raise HTTPException(
-            status_code=exc.status_code, detail=exc.detail()
-        ) from exc
-    try:
-        attached_paths = {
-            workspace_service._resolve(item["path"])
-            for item in attachments.metadata
-        }
-        workspace_context += workspace_service.selected_context(
-            selected_files, exclude_paths=attached_paths,
-            max_file_bytes=min(
-                request_attachments.MAX_FILE_BYTES,
-                request_attachments.MAX_TEXT_BYTES,
-            ),
-            max_total_bytes=max(
-                0, request_attachments.MAX_TOTAL_BYTES - sum(
-                    item["size_bytes"] for item in attachments.metadata
+            if workspace_service.root != workspace_root:
+                raise AttachmentError(
+                    "attachment_workspace_changed",
+                    "Workspace changed while reading attachments. Select the files again.",
+                    "", 409,
+                )
+        except AttachmentError as exc:
+            raise HTTPException(
+                status_code=exc.status_code, detail=exc.detail()
+            ) from exc
+        try:
+            attached_paths = {
+                workspace_service._resolve(item["path"])
+                for item in attachments.metadata
+            }
+            workspace_context += workspace_service.selected_context(
+                selected_files, exclude_paths=attached_paths,
+                max_file_bytes=min(
+                    request_attachments.MAX_FILE_BYTES,
+                    request_attachments.MAX_TEXT_BYTES,
                 ),
-            ),
-            max_files=request_attachments.MAX_FILES,
-        )
-    except WorkspaceAccessError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if workspace_service.root != workspace_root:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "attachment_workspace_changed",
-                "message": "Workspace changed while reading attachments. Select the files again.",
-            },
-        )
+                max_total_bytes=max(
+                    0, request_attachments.MAX_TOTAL_BYTES - sum(
+                        item["size_bytes"] for item in attachments.metadata
+                    ),
+                ),
+                max_files=request_attachments.MAX_FILES,
+            )
+        except WorkspaceAccessError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if workspace_service.root != workspace_root:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "attachment_workspace_changed",
+                    "message": "Workspace changed while reading attachments. Select the files again.",
+                },
+            )
     if (
         not conversation_manager.is_active(conversation)
         or conversation.messages is not request_messages
     ):
         raise HTTPException(status_code=409, detail="Conversation changed while preparing input. Please retry.")
-    policy = resolve_context_policy(
-        profile_id, payload.context_preflight_mode, payload.context_input_budget,
-        budget=request_budget, app_settings=request_settings,
-        input_budget_mode=payload.context_input_budget_mode,
-        profile_data=pinned_profile,
-    )
+    if data:
+        policy = data["context_policy"]
+    else:
+        policy = resolve_context_policy(
+            profile_id, payload.context_preflight_mode, payload.context_input_budget,
+            budget=request_budget, app_settings=request_settings,
+            input_budget_mode=payload.context_input_budget_mode,
+            profile_data=pinned_profile,
+        )
     attachment_options = (
         {
             "attachment_content": attachments.content,
@@ -1058,23 +1162,34 @@ async def chat(payload: ChatRequest):
         user_prompt, workspace_context, attachment_content=attachments.content or None,
     )
     try:
-        instructions, input_messages = await request_memory.prepare_context(
-            conversation,
-            user_prompt,
-            workspace_context,
-            profile_id,
-            history_end=history_end,
-            persist_memory=payload.regenerate_message_index is None,
-            summary_policy=request_memory_policy,
-            preflight_mode=policy.mode if policy.input_budget is not None else "off",
-            input_limit=policy.input_budget,
-            **attachment_options,
-        )
+        if data:
+            instructions, input_messages = await request_memory.prepare_recovery(
+                conversation, user_prompt, workspace_context, profile_id,
+                history_end=history_end, summary_policy=request_memory_policy,
+                input_limit=policy.input_budget if policy.mode == "block" else None,
+                **attachment_options,
+            )
+        else:
+            instructions, input_messages = await request_memory.prepare_context(
+                conversation,
+                user_prompt,
+                workspace_context,
+                profile_id,
+                history_end=history_end,
+                persist_memory=payload.regenerate_message_index is None,
+                summary_policy=request_memory_policy,
+                preflight_mode=policy.mode if policy.input_budget is not None else "off",
+                input_limit=policy.input_budget,
+                **attachment_options,
+            )
     except ContextBudgetExceeded as exc:
         raise HTTPException(
             status_code=413,
             detail={
-                "code": "context_preflight_blocked",
+                "code": (
+                    "context_recovery_unavailable" if data
+                    else "context_preflight_blocked"
+                ),
                 "message": str(exc),
                 "mode": policy.mode,
                 "input_budget": policy.input_budget,
@@ -1083,8 +1198,23 @@ async def chat(payload: ChatRequest):
         ) from exc
     except ContextChangedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except MemoryPolicyChangedError:
+        raise HTTPException(status_code=409, detail={
+            "code": "context_recovery_unavailable",
+            "message": "Connection or memory policy changed. The recovery request was stopped.",
+        }) from None
     except SummaryUnavailableError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise HTTPException(status_code=503, detail={
+            "code": "context_recovery_unavailable", "message": str(exc),
+        }) from None
+    except Exception:
+        if not data:
+            raise
+        logger.warning("One-time recovery summary failed; no reply was submitted.")
+        raise HTTPException(status_code=503, detail={
+            "code": "context_recovery_unavailable",
+            "message": "The one-time summary failed. No reply call was started; any summary usage remains recorded.",
+        }) from None
     context_assessment = policy.assess(
         instructions, input_messages, visual_tokens=attachments.visual_tokens,
     )
@@ -1102,6 +1232,8 @@ async def chat(payload: ChatRequest):
             not using_original_context
             and not request_memory.policy_is_current(request_memory_policy)
         ):
+            if data:
+                raise ContextChangedError("The recovery permission changed before submission. No further request was sent.")
             using_original_context = True
             context_assessment = policy.assess(
                 *original_context, visual_tokens=attachments.visual_tokens,
@@ -1192,6 +1324,11 @@ async def chat(payload: ChatRequest):
 
             if not completed:
                 raise RuntimeError("Response stream ended before completion.")
+            if data and (
+                conversation.version != data["version"]
+                or not request_memory.policy_is_current(request_memory_policy)
+            ):
+                raise ContextChangedError("The recovery request became stale during generation. Its response was not saved; recorded API usage is retained.")
             msg_kwargs = {}
             if usage_call_id is not None:
                 msg_kwargs["usage_call_id"] = usage_call_id
@@ -1237,12 +1374,13 @@ async def chat(payload: ChatRequest):
                     expected_messages=turn_messages,
                     **msg_kwargs,
                 )
-            background_tasks.add_task(
-                request_memory.compact_if_needed,
-                conversation,
-                profile_id=profile_id,
-                summary_policy=request_memory_policy,
-            )
+            if not data:
+                background_tasks.add_task(
+                    request_memory.compact_if_needed,
+                    conversation,
+                    profile_id=profile_id,
+                    summary_policy=request_memory_policy,
+                )
             done_event = {
                 "type": "done", "created_at": saved_message.created_at.isoformat(),
             }
@@ -1267,6 +1405,56 @@ async def chat(payload: ChatRequest):
                 "type": "error", "code": "provider_context_length_exceeded",
                 "message": "The provider rejected this request because its input context is too large. Reduce the input or choose another deployment before sending again.",
             }
+            if not data:
+                offer = {"available": False}
+                try:
+                    if (
+                        conversation.messages is not turn_messages
+                        or not conversation_manager.is_active(conversation)
+                        or not request_memory.policy_is_current(recovery_policy)
+                    ):
+                        raise ContextChangedError("The conversation or policy changed after this request.")
+                    request_memory.recovery_plan(
+                        request_messages[:history_end], user_prompt,
+                        workspace_context, recovery_policy,
+                        input_limit=(
+                            policy.input_budget if policy.mode == "block" else None
+                        ),
+                        **attachment_options,
+                    )
+                    user_index = (
+                        payload.regenerate_message_index
+                        if payload.regenerate_message_index is not None
+                        else len(turn_messages) - 1
+                    )
+                    recovery_id = context_recovery.issue({
+                        "conversation": conversation, "messages": turn_messages,
+                        "version": conversation.version, "user_index": user_index,
+                        "prompt": user_prompt, "profile_id": profile_id,
+                        "profile": pinned_profile, "ai": request_ai,
+                        "memory": request_memory, "summary_policy": recovery_policy,
+                        "workspace_context": workspace_context,
+                        "attachments": attachments, "context_policy": policy,
+                    })
+                    if recovery_id is None:
+                        raise SummaryUnavailableError("This failed request is too large for the temporary recovery cache. Reduce the selected input or choose another deployment.")
+                    offer = {
+                        "available": True, "id": recovery_id,
+                        "profile_name": (
+                            pinned_profile.name if pinned_profile
+                            else "Selected connection"
+                        ),
+                        "summary_call_limit": request_budget.max_summary_calls,
+                        "expires_in_seconds": context_recovery.ttl,
+                        "replaces_following": user_index + 1 < len(turn_messages),
+                        "user_index": user_index,
+                    }
+                except (
+                    ContextBudgetExceeded, SummaryUnavailableError,
+                    ContextChangedError,
+                ) as exc:
+                    offer["reason"] = str(exc)
+                error["recovery"] = offer
             yield f"data: {json.dumps(error)}\n\n"
         except ProviderAttachmentError as exc:
             for notice in policy_events():
@@ -1276,14 +1464,31 @@ async def chat(payload: ChatRequest):
                 "paths": [item["path"] for item in attachments.metadata],
             }
             yield f"data: {json.dumps(error)}\n\n"
+        except ContextChangedError as exc:
+            error = {
+                "type": "error", "message": str(exc),
+                "code": (
+                    "context_recovery_unavailable" if data else "conversation_changed"
+                ),
+            }
+            yield f"data: {json.dumps(error)}\n\n"
         except Exception as exc:
             for notice in policy_events():
                 yield notice
             logger.exception("Chat stream failed")
             yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
 
+    async def operation_events():
+        """Release the request slot before background work and close nested provider streams."""
+        try:
+            async with aclosing(events()) as source:
+                async for packet in source:
+                    yield packet
+        finally:
+            operation.close()
+
     return ChatStreamingResponse(
-        events(),
+        operation_events(), operation=operation,
         media_type="text/event-stream",
         background=background_tasks,
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
@@ -1293,13 +1498,22 @@ async def chat(payload: ChatRequest):
 class ChatStreamingResponse(StreamingResponse):
     """Close the reply generator deterministically when an ASGI client disconnects."""
 
+    def __init__(self, *args, operation=None, **kwargs):
+        """Retain request ownership even if a client disconnects before iteration begins."""
+        super().__init__(*args, **kwargs)
+        self.operation = operation
+
     async def __call__(self, scope, receive, send) -> None:
         """Shield final generator cleanup from the streaming task's cancellation scope."""
         try:
             await super().__call__(scope, receive, send)
         finally:
             with anyio.CancelScope(shield=True):
-                await self.body_iterator.aclose()
+                try:
+                    await self.body_iterator.aclose()
+                finally:
+                    if self.operation is not None:
+                        self.operation.close()
 
 
 if __name__ == "__main__":
