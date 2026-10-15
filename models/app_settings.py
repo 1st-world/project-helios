@@ -7,7 +7,7 @@ from dataclasses import dataclass
 class AppSettings:
     """Hold immutable user preferences for context work and local file resources."""
 
-    # Null selects model capacity, zero disables summaries, and a positive value is an override.
+    # Null suggests an automatic threshold for enabled profiles; zero pauses memory.
     summary_trigger_tokens: int | None = None
     keep_recent_tokens: int = 65_536
     context_token_budget: int = 262_144

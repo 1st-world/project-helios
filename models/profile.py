@@ -13,7 +13,10 @@ CONTEXT_FIELDS = (
     "model_context_window",
     "model_max_input_tokens", "output_token_limit",
     "declared_model_max_output_tokens",
+    "memory_output_headroom",
 )
+
+PROFILE_POLICY_FIELDS = (*CONTEXT_FIELDS, "memory_enabled")
 
 
 def normalize_output_limit_settings(settings: dict) -> dict:
@@ -59,9 +62,13 @@ class ConnectionProfile:
     output_token_limit: int | None = None
     declared_model_max_output_tokens: int | None = None
     context_input_budget_mode: str | None = None
+    memory_enabled: bool | None = False
+    memory_output_headroom: int | None = None
 
     def __post_init__(self) -> None:
         """Validate optional declarations and user limits without guessing from deployment names."""
+        if self.memory_enabled is not None and type(self.memory_enabled) is not bool:
+            raise ValueError("Memory enabled must be a boolean or null for unreviewed settings.")
         if self.context_preflight_mode not in {None, "warn", "block", "off"}:
             raise ValueError("Context preflight mode must be warn, block, off, or null.")
         if self.context_input_budget_mode is None:
@@ -119,7 +126,7 @@ class ConnectionProfile:
             "long_cache_write_price_per_million": self.long_cache_write_price_per_million,
             "is_configured": self.is_configured,
             "has_api_key": bool(self.api_key.strip()),
-            **{name: getattr(self, name) for name in CONTEXT_FIELDS},
+            **{name: getattr(self, name) for name in PROFILE_POLICY_FIELDS},
         }
         if include_sensitive:
             data["api_key"] = self.api_key
@@ -140,6 +147,7 @@ class ConnectionProfile:
         long_cache_read = data.get("long_cache_read_price_per_million")
         long_cache_write = data.get("long_cache_write_price_per_million")
         context_settings = {name: data.get(name) for name in CONTEXT_FIELDS}
+        context_settings["memory_enabled"] = data.get("memory_enabled")
         context_settings["context_input_budget_mode"] = data.get(
             "context_input_budget_mode", "legacy"
         )

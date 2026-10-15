@@ -5,6 +5,7 @@ import json
 import logging
 import mimetypes
 from contextlib import aclosing, asynccontextmanager
+from dataclasses import replace
 from datetime import date
 from logging.handlers import RotatingFileHandler
 from typing import ClassVar, Literal
@@ -29,7 +30,7 @@ from config import settings
 from models.app_settings import AppSettings, DEFAULT_APP_SETTINGS
 from models.input_budget import normalize_input_budget_settings
 from models.profile import (
-    CONTEXT_FIELDS, DEFAULT_LONG_CONTEXT_THRESHOLD, ConnectionProfile,
+    PROFILE_POLICY_FIELDS, DEFAULT_LONG_CONTEXT_THRESHOLD, ConnectionProfile,
     normalize_output_limit_settings,
 )
 from services.ai_service import AIService
@@ -55,6 +56,7 @@ from services.folder_picker_service import (
     PickerReconnectingError,
 )
 from services.memory_service import ConversationMemoryService
+from services.prompt_builder import PromptBuilder
 from services.profile_service import ProfileNotFoundError, ProfileService
 from services.settings_service import SettingsService, SettingsStorageError
 from services.summary_usage_store import SummaryUsageStore
@@ -375,6 +377,8 @@ class ProfileContextSettings(ContextRequestOptions):
     model_max_input_tokens: int | None = Field(default=None, ge=1, strict=True)
     declared_model_max_output_tokens: int | None = Field(default=None, ge=1, strict=True)
     context_input_budget_mode: Literal["inherit", "unlimited", "custom", "legacy"] | None = None
+    memory_enabled: bool | None = Field(default=False, strict=True)
+    memory_output_headroom: int | None = Field(default=None, ge=1, strict=True)
 
     @model_validator(mode="before")
     @classmethod
@@ -481,7 +485,7 @@ async def create_profile(payload: CreateProfileRequest):
             cache_write_price_per_million=payload.cache_write_price_per_million,
             long_cache_read_price_per_million=payload.long_cache_read_price_per_million,
             long_cache_write_price_per_million=payload.long_cache_write_price_per_million,
-            **{name: getattr(payload, name) for name in CONTEXT_FIELDS},
+            **{name: getattr(payload, name) for name in PROFILE_POLICY_FIELDS},
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -490,6 +494,7 @@ async def create_profile(payload: CreateProfileRequest):
         raise HTTPException(
             status_code=400, detail="Could not create connection profile."
         )
+    memory_service.invalidate_policy()
     return profile_service.get_summary()
 
 
@@ -521,7 +526,7 @@ async def update_profile(profile_id: str, payload: UpdateProfileRequest):
             clear_long_cache_read_price=payload.clear_long_cache_read_price,
             clear_long_cache_write_price=payload.clear_long_cache_write_price,
             context_settings={
-                name: getattr(payload, name) for name in CONTEXT_FIELDS
+                name: getattr(payload, name) for name in PROFILE_POLICY_FIELDS
                 if name in payload.model_fields_set
             },
         )
@@ -534,6 +539,7 @@ async def update_profile(profile_id: str, payload: UpdateProfileRequest):
         raise HTTPException(
             status_code=400, detail="Could not update connection profile."
         )
+    memory_service.invalidate_policy()
     return profile_service.get_summary()
 
 
@@ -543,6 +549,7 @@ async def delete_profile(profile_id: str):
     deleted = profile_service.delete_profile(profile_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Profile not found.")
+    memory_service.invalidate_policy()
     return profile_service.get_summary()
 
 
@@ -553,6 +560,7 @@ async def set_active_profile(profile_id: str):
         profile_service.set_active_profile(profile_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+    memory_service.invalidate_policy()
     return profile_service.get_summary()
 
 
@@ -795,6 +803,7 @@ async def update_application_settings(payload: UpdateSettingsRequest):
             "code": "settings_save_failed", "message": str(exc),
         }) from exc
     # No await separates disk publication from the event-loop policy swap.
+    new_memory.invalidate_policy()
     attachment_service, ai_service, context_budget, memory_service = (
         new_attachments, new_ai, new_budget, new_memory,
     )
@@ -821,9 +830,10 @@ def resolve_context_policy(
     default_mode: str | None = None,
     input_budget_mode: str | None = None,
     app_settings: AppSettings | None = None,
+    profile_data: ConnectionProfile | None = None,
 ) -> ContextPolicy:
     """Resolve defaults and optional profile settings without contacting the provider."""
-    profile = (
+    profile = profile_data or (
         profile_service.get_profile(profile_id)
         if profile_id else profile_service.get_active_profile()
     )
@@ -913,6 +923,9 @@ async def chat(payload: ChatRequest):
         profile_id = request_ai.resolve_profile_id(payload.profile_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    pinned_profile = profile_service.get_profile(profile_id)
+    pinned_profile = replace(pinned_profile) if pinned_profile is not None else None
+    request_memory_policy = request_memory.capture_policy(profile_id)
     background_tasks = BackgroundTasks()
     if payload.regenerate_message_index is None:
         conversation = conversation_manager.get_or_create(
@@ -946,6 +959,7 @@ async def chat(payload: ChatRequest):
             )
         history_end = payload.regenerate_message_index
         user_prompt = source_message.content
+    request_messages = conversation.messages
     workspace_root = workspace_service.root
     workspace_context = workspace_service.project_context()
     selected_files = list(payload.workspace_files)
@@ -995,10 +1009,16 @@ async def chat(payload: ChatRequest):
                 "message": "Workspace changed while reading attachments. Select the files again.",
             },
         )
+    if (
+        not conversation_manager.is_active(conversation)
+        or conversation.messages is not request_messages
+    ):
+        raise HTTPException(status_code=409, detail="Conversation changed while preparing input. Please retry.")
     policy = resolve_context_policy(
         profile_id, payload.context_preflight_mode, payload.context_input_budget,
         budget=request_budget, app_settings=request_settings,
         input_budget_mode=payload.context_input_budget_mode,
+        profile_data=pinned_profile,
     )
     attachment_options = (
         {
@@ -1006,6 +1026,10 @@ async def chat(payload: ChatRequest):
             "visual_tokens": attachments.visual_tokens,
         }
         if attachments.content else {}
+    )
+    original_context = PromptBuilder().build(
+        [replace(message) for message in request_messages[:history_end]],
+        user_prompt, workspace_context, attachment_content=attachments.content or None,
     )
     try:
         instructions, input_messages = await request_memory.prepare_context(
@@ -1015,7 +1039,7 @@ async def chat(payload: ChatRequest):
             profile_id,
             history_end=history_end,
             persist_memory=payload.regenerate_message_index is None,
-            summary_policy=request_memory.summary_policy(profile_id),
+            summary_policy=request_memory_policy,
             preflight_mode=policy.mode if policy.input_budget is not None else "off",
             input_limit=policy.input_budget,
             **attachment_options,
@@ -1038,6 +1062,30 @@ async def chat(payload: ChatRequest):
     context_assessment = policy.assess(
         instructions, input_messages, visual_tokens=attachments.visual_tokens,
     )
+    using_original_context = False
+
+    def current_inputs() -> tuple[str, list[dict]]:
+        """Bypass revoked memory immediately before submitting an unsent reply."""
+        nonlocal context_assessment, using_original_context
+        if (
+            not conversation_manager.is_active(conversation)
+            or conversation.messages is not turn_messages
+        ):
+            raise ContextChangedError("Conversation changed before the request was sent. Please retry.")
+        if (
+            not using_original_context
+            and not request_memory.policy_is_current(request_memory_policy)
+        ):
+            using_original_context = True
+            context_assessment = policy.assess(
+                *original_context, visual_tokens=attachments.visual_tokens,
+            )
+        if context_assessment["blocked"]:
+            raise ContextBudgetExceeded("Original history exceeds the selected input budget after memory was stopped.")
+        return original_context if using_original_context else (instructions, input_messages)
+
+    if pinned_profile is not None and isinstance(request_ai, AIService):
+        request_ai = request_ai.with_profile(pinned_profile, prepare_reply=current_inputs)
     if payload.regenerate_message_index is None:
         user_message = conversation_manager.add_message(
             conversation, "user", user_prompt
@@ -1053,7 +1101,32 @@ async def chat(payload: ChatRequest):
         usage_call_id = None
         profile_data = None
         completed = False
+        reported_assessment = None
+
+        def policy_events():
+            """Report the final estimate again if memory revocation changed the actual input."""
+            nonlocal reported_assessment
+            if reported_assessment == context_assessment:
+                return
+            changed = reported_assessment is not None
+            reported_assessment = dict(context_assessment)
+            if (
+                changed or attachments.metadata or context_assessment["warning"]
+                or payload.context_preflight_mode is not None
+                or payload.context_input_budget is not None
+                or payload.context_input_budget_mode is not None
+            ):
+                event = {"type": "context_policy", **context_assessment}
+                yield f"data: {json.dumps(event)}\n\n"
+            if context_assessment["warning"]:
+                warning = {
+                    "type": "context_warning", "code": "context_estimate_exceeded",
+                    "message": "The estimated input exceeds the selected input budget. The estimate is approximate; this request is allowed in warning mode.",
+                }
+                yield f"data: {json.dumps(warning)}\n\n"
+
         try:
+            outgoing_instructions, outgoing_messages = current_inputs()
             start_event = {
                 "type": "start", "conversation_id": conversation.id,
                 "user_created_at": user_message.created_at.isoformat(),
@@ -1064,23 +1137,12 @@ async def chat(payload: ChatRequest):
                     "type": "attachments", "files": attachments.metadata,
                 }
                 yield f"data: {json.dumps(metadata_event)}\n\n"
-            if (
-                attachments.metadata or context_assessment["warning"]
-                or payload.context_preflight_mode is not None
-                or payload.context_input_budget is not None
-                or payload.context_input_budget_mode is not None
-            ):
-                policy_event = {"type": "context_policy", **context_assessment}
-                yield f"data: {json.dumps(policy_event)}\n\n"
-            if context_assessment["warning"]:
-                warning = {
-                    "type": "context_warning", "code": "context_estimate_exceeded",
-                    "message": "The estimated input exceeds the selected input budget. The estimate is approximate; this request is allowed in warning mode.",
-                }
-                yield f"data: {json.dumps(warning)}\n\n"
+            for notice in policy_events():
+                yield notice
+            outgoing_instructions, outgoing_messages = current_inputs()
             async with aclosing(request_ai.stream(
-                instructions,
-                input_messages,
+                outgoing_instructions,
+                outgoing_messages,
                 profile_id=profile_id,
                 conversation_id=conversation.id,
                 call_kind=(
@@ -1089,6 +1151,8 @@ async def chat(payload: ChatRequest):
                 ),
             )) as reply_stream:
                 async for event in reply_stream:
+                    for notice in policy_events():
+                        yield notice
                     if event["type"] == "delta":
                         answer += event["text"]
                     elif event["type"] == "usage":
@@ -1151,6 +1215,7 @@ async def chat(payload: ChatRequest):
                 request_memory.compact_if_needed,
                 conversation,
                 profile_id=profile_id,
+                summary_policy=request_memory_policy,
             )
             done_event = {
                 "type": "done", "created_at": saved_message.created_at.isoformat(),
@@ -1161,19 +1226,33 @@ async def chat(payload: ChatRequest):
                 "Discarded response for an unavailable conversation: %s",
                 conversation.id,
             )
+        except ContextBudgetExceeded as exc:
+            for notice in policy_events():
+                yield notice
+            error = {
+                "type": "error", "code": "context_preflight_blocked",
+                "message": str(exc), "input_budget": policy.input_budget,
+            }
+            yield f"data: {json.dumps(error)}\n\n"
         except ContextWindowExceeded:
+            for notice in policy_events():
+                yield notice
             error = {
                 "type": "error", "code": "provider_context_length_exceeded",
                 "message": "The provider rejected this request because its input context is too large. Reduce the input or choose another deployment before sending again.",
             }
             yield f"data: {json.dumps(error)}\n\n"
         except ProviderAttachmentError as exc:
+            for notice in policy_events():
+                yield notice
             error = {
                 "type": "error", "code": exc.code, "message": str(exc),
                 "paths": [item["path"] for item in attachments.metadata],
             }
             yield f"data: {json.dumps(error)}\n\n"
         except Exception as exc:
+            for notice in policy_events():
+                yield notice
             logger.exception("Chat stream failed")
             yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
 

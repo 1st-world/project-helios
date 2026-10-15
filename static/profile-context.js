@@ -15,6 +15,7 @@ export function createProfileContext({ isSaving }) {
   };
 
   function savedValue(name) {
+    if (name === 'memory_enabled') return state.profile ? state.profile[name] ?? null : false;
     if (name === 'context_input_budget_mode') return state.profile ? state.profile[name] ?? 'legacy' : 'inherit';
     if (name === 'output_token_limit' && state.profile && !Object.hasOwn(state.profile, name)) {
       return state.profile.model_max_output_tokens ?? null;
@@ -26,10 +27,12 @@ export function createProfileContext({ isSaving }) {
     const budgetMode = fields.get('context_input_budget_mode').value;
     fields.get('context_input_budget').disabled = isSaving() || budgetMode !== 'custom';
     fields.get('context_input_budget_mode').querySelector('[value="legacy"]').hidden = savedValue('context_input_budget_mode') !== 'legacy';
+    fields.get('memory_enabled').querySelector('[value=""]').hidden = savedValue('memory_enabled') !== null;
     resets.forEach(button => {
       const input = fields.get(button.dataset.clearProfileContext);
       button.hidden = button.dataset.clearProfileContext === 'context_input_budget_mode' ? input.value === 'inherit' : !input.value && !input.validity.badInput;
       if (button.dataset.clearProfileContext === 'context_input_budget' && budgetMode !== 'custom') button.hidden = true;
+      if (button.dataset.clearProfileContext === 'memory_enabled') button.hidden = input.value === 'false';
       button.disabled = isSaving() || button.hidden;
     });
     $('#profile-context-preflight-help').textContent = modeHelp[fields.get('context_preflight_mode').value]
@@ -74,6 +77,14 @@ export function createProfileContext({ isSaving }) {
         throw new Error([feedback.message, ...feedback.details].join('\n'));
       }
       const declaredOutput = data.declared_model_max_output_tokens ?? null;
+      const memory = data.summary_policy;
+      const planningHelp = {
+        missing_input_capacity: 'Add a declared maximum input or context window.',
+        missing_output_headroom: 'Add summary output headroom, an explicit output limit, or declared maximum output.',
+        invalid_capacity: 'The context window must exceed summary output headroom.',
+        capacity_too_small: 'Declared capacity is too small for a positive automatic threshold.'
+      };
+      const headroomSources = { planning: 'Planning value', output_limit: 'Selected output limit', declared_output: 'Declared maximum output', unknown: 'Unverified' };
       if (!['warn', 'block', 'off'].includes(data.mode) || (data.input_budget !== null && (!Number.isSafeInteger(data.input_budget) || data.input_budget < (data.legacy_input_policy ? 0 : 1)))
         || (data.max_output_tokens !== null && (!Number.isSafeInteger(data.max_output_tokens) || data.max_output_tokens < 1))
         || (declaredOutput !== null && (!Number.isSafeInteger(declaredOutput) || declaredOutput < 1))
@@ -88,7 +99,11 @@ export function createProfileContext({ isSaving }) {
         `Declared input ceiling: ${data.declared_model_input_limit === null ? 'Unknown' : `${data.declared_model_input_limit.toLocaleString()} tokens`}.`,
         `Declared maximum output: ${declaredOutput === null ? 'Unknown' : `${declaredOutput.toLocaleString()} tokens`}.`,
         `Output limit: ${data.max_output_tokens === null ? 'Provider default' : `${data.max_output_tokens.toLocaleString()} tokens`}.`,
-        `Summary trigger: ${data.summary_policy?.mode === 'disabled' ? 'Disabled' : Number.isSafeInteger(data.summary_policy?.trigger_tokens) ? `${data.summary_policy.trigger_tokens.toLocaleString()} tokens (${data.summary_policy.mode})` : 'Automatic; model capacity unknown'}.`
+        `Memory: ${memory?.state === 'ready' ? 'Ready · Enabled' : memory?.state === 'needs_info' ? 'Needs deployment information · Original history will be sent' : memory?.state === 'stopped' ? 'Stopped · Original history will be sent' : memory?.reason === 'threshold_disabled' ? 'Paused · Summary trigger is 0' : 'Off · Original history will be sent'}${memory?.review_required ? ' · Review needed' : ''}.`,
+        memory?.state === 'needs_info' ? planningHelp[memory.reason] || 'Check declared deployment capacity before using memory.' : '',
+        memory?.input_only ? 'Shared context capacity is unverified; planning uses declared maximum input only.' : '',
+        `Summary trigger: ${memory?.state === 'ready' && Number.isSafeInteger(memory.trigger_tokens) ? `${memory.trigger_tokens.toLocaleString()} tokens (${memory.mode === 'auto' ? 'Suggested automatic threshold' : 'Custom threshold'})` : 'Inactive'}.`,
+        memory?.state === 'ready' ? `Summary input per call: ${memory.summary_input_limit.toLocaleString()} tokens. Output planning headroom: ${memory.output_headroom === null ? 'Unverified' : `${memory.output_headroom.toLocaleString()} tokens (${headroomSources[memory.headroom_source] || 'Unverified'})`}.` : ''
       ].join('\n');
       state.loaded = true;
     } catch (error) {
@@ -105,7 +120,7 @@ export function createProfileContext({ isSaving }) {
     const result = {};
     for (const [name, input] of fields) {
       const inactiveBudget = name === 'context_input_budget' && ['inherit', 'unlimited'].includes(fields.get('context_input_budget_mode').value);
-      const value = inactiveBudget || input.value === '' ? null : input.tagName === 'SELECT' ? input.value : input.valueAsNumber;
+      const value = inactiveBudget || input.value === '' ? null : name === 'memory_enabled' ? input.value === 'true' : input.tagName === 'SELECT' ? input.value : input.valueAsNumber;
       if (!editing || value !== savedValue(name)) result[name] = value;
     }
     return result;
@@ -139,6 +154,7 @@ export function createProfileContext({ isSaving }) {
       button.onclick = () => {
         const input = fields.get(button.dataset.clearProfileContext);
         input.value = button.dataset.clearProfileContext === 'context_input_budget_mode' ? 'inherit' : '';
+        if (button.dataset.clearProfileContext === 'memory_enabled') input.value = 'false';
         if (['context_input_budget', 'context_input_budget_mode'].includes(button.dataset.clearProfileContext)) {
           fields.get('context_input_budget_mode').value = 'inherit';
           fields.get('context_input_budget').value = '';

@@ -10,7 +10,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   const resetButtons = [...form.querySelectorAll('[data-reset-setting]')];
   const resetLabels = new Map(resetButtons.map(button => [button, button.getAttribute('aria-label')]));
   const effectiveLabels = [...form.querySelectorAll('[data-effective-setting]')];
-  const state = { saved: null, defaults: null, localLimits: null, summaryPolicy: null, resets: new Set(), loading: false, saving: false, controller: null, feedback: null };
+  const state = { saved: null, defaults: null, localLimits: null, summaryPolicy: null, resets: new Set(), loading: false, saving: false, controller: null, policyController: null, feedback: null };
   const modeHelp = {
     warn: 'Allows requests with estimated input-limit warnings. Warnings alone do not force history summaries.',
     block: 'Rejects requests when input estimates exceed selected limits. Summaries follow the separate memory threshold.',
@@ -80,10 +80,13 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     $('#app-input-budget').textContent = `Draft app input budget: ${inputText}. ${inputMode === 'legacy' ? 'Review needed: previous policies reserve the output limit and may apply declared model capacity. Choose No input limit or Custom budget to finish review. ' : ''}Output limit: ${output === null ? 'Provider default' : `${output.toLocaleString()} tokens`}.`;
     const trigger = valueOf(fields.get('summary_trigger_tokens'));
     const policy = state.summaryPolicy;
+    $('#app-memory-status').textContent = policy?.state
+      ? `Saved active connection memory: ${policy.state === 'ready' ? 'Ready · Enabled' : policy.state === 'needs_info' ? 'Needs deployment information · Original history will be sent' : policy.reason === 'threshold_disabled' ? 'Paused · Summary trigger is 0' : 'Off · Original history will be sent'}${policy.review_required ? ' · Review needed' : ''}. Enable or disable memory in Connections.`
+      : 'Saved memory status is unavailable. Reopen Settings to retry.';
     $('#summary-trigger-tokens-help').textContent = trigger === null
-      ? `Automatic: 90% of declared model input allowance. ${policy?.capacity_source === 'profile' && Number.isSafeInteger(policy.summary_input_limit) ? `Last loaded active connection threshold: ${Math.floor(policy.summary_input_limit * 0.9).toLocaleString()} tokens.` : 'Model capacity is unknown; declare input or context capacity in Connections.'}`
+      ? `Suggested automatic threshold: 90% of declared input allowance. ${policy?.state === 'ready' && Number.isSafeInteger(policy.trigger_tokens) ? `Saved active threshold: ${policy.trigger_tokens.toLocaleString()} tokens.` : 'Requires enabled memory and deployment information in Connections.'}`
       : trigger === 0 ? 'Summaries are disabled. Requests use original conversation history.'
-      : 'Summarize above this estimate, including current input. Complete turns stay intact. Block mode checks the resulting input separately.';
+      : 'Enabled, ready connections summarize above this estimate, including current input. Complete turns stay intact. Block checks the resulting input separately.';
     showAttachmentLimits();
   }
 
@@ -109,6 +112,8 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   }
 
   function acceptResponse(data) {
+    state.policyController?.abort();
+    state.policyController = null;
     for (const name of fields.keys()) {
       for (const values of [data?.settings, data?.defaults]) {
         const value = values?.[name];
@@ -155,6 +160,26 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
       if (state.controller === controller) {
         state.controller = null;
         state.loading = false;
+        updateControls();
+      }
+    }
+  }
+
+  async function refreshSummaryPolicy() {
+    if (!state.saved || state.loading || state.saving || !$('#settings-dialog').open) return;
+    state.policyController?.abort();
+    const controller = new AbortController();
+    state.policyController = controller;
+    try {
+      const response = await fetch('/api/settings', { signal: controller.signal });
+      const data = await readResponse(response);
+      if (state.policyController !== controller) return;
+      state.summaryPolicy = data.summary_policy || null;
+    } catch (error) {
+      if (error.name !== 'AbortError' && state.policyController === controller) state.summaryPolicy = null;
+    } finally {
+      if (state.policyController === controller) {
+        state.policyController = null;
         updateControls();
       }
     }
@@ -270,12 +295,17 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     $('#retry-app-settings').onclick = load;
     $('#settings-dialog').addEventListener('profile-save-state-change', updateControls);
     $('#settings-dialog').addEventListener('settings-panel-change', event => {
-      if (event.detail.name === 'context') load();
+      if (event.detail.name === 'context') {
+        if (state.saved) refreshSummaryPolicy();
+        else load();
+      }
     });
     $('#settings-dialog').addEventListener('close', () => {
       if ($('#settings-dialog').open) return;
       state.controller?.abort();
+      state.policyController?.abort();
       state.controller = null;
+      state.policyController = null;
       state.loading = false;
       state.saved = null;
       state.defaults = null;

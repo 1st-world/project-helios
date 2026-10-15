@@ -5,11 +5,12 @@ import logging
 import re
 from contextlib import asynccontextmanager
 from copy import copy
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 
 from models.app_settings import DEFAULT_APP_SETTINGS
 from models.conversation import Conversation
 from models.message import Message
+from models.profile import ConnectionProfile
 from services.ai_service import AIService
 from services.context_budget import (
     ContextBudget,
@@ -23,6 +24,28 @@ from services.prompt_builder import PromptBuilder
 from services.model_context import MemoryCapacity
 
 logger = logging.getLogger(__name__)
+
+
+class MemoryPolicyChangedError(RuntimeError):
+    """Stop unsubmitted summary work or adoption after permission or policy changes."""
+
+
+@dataclass
+class _MemoryPolicyRevision:
+    """Share revocation state across immutable application settings snapshots."""
+
+    value: int = 0
+
+
+@dataclass(frozen=True)
+class MemoryPolicySnapshot:
+    """Keep public planning details and private request authorization together."""
+
+    policy: dict
+    revision: int
+    settings: tuple
+    profile: ConnectionProfile | None = field(repr=False)
+    ai_service: AIService = field(repr=False)
 
 
 class ConversationMemoryService:
@@ -52,10 +75,51 @@ class ConversationMemoryService:
         self.keep_recent_tokens = keep_recent_tokens
         self._running: set[str] = set()
         self._pending: dict[
-            str, tuple[Conversation, str | None, "ConversationMemoryService"]
+            str, tuple[
+                Conversation, str | None, "ConversationMemoryService",
+                MemoryPolicySnapshot,
+            ]
         ] = {}
         self.context_budget = context_budget or ContextBudget()
         self._locks: dict[str, tuple[asyncio.Lock, int]] = {}
+        self._revision = _MemoryPolicyRevision()
+        self._settings_revision = 0
+
+    def invalidate_policy(self) -> None:
+        """Revoke outstanding work after successfully publishing a policy change."""
+        self._revision.value += 1
+        self._settings_revision = self._revision.value
+
+    def _settings_signature(self) -> tuple:
+        """Identify settings used for planning without including mutable runtime state."""
+        return (
+            self.context_budget, self.summary_trigger_tokens,
+            self.keep_recent_tokens,
+        )
+
+    def _profile(self, profile_id: str | None) -> ConnectionProfile | None:
+        """Resolve explicit memory permission without guessing from an AI implementation."""
+        profiles = getattr(self.ai_service, "profile_service", None)
+        if profiles is None:
+            return None
+        return (
+            profiles.get_profile(profile_id) if profile_id
+            else profiles.get_active_profile()
+        )
+
+    def policy_is_current(self, snapshot: MemoryPolicySnapshot) -> bool:
+        """Check revocation and the captured connection before using summarized input."""
+        return (
+            snapshot.revision == self._revision.value == self._settings_revision
+            and snapshot.settings == self._settings_signature()
+            and snapshot.profile is not None
+            and snapshot.profile == self._profile(snapshot.profile.id)
+        )
+
+    def _check_policy(self, snapshot: MemoryPolicySnapshot) -> None:
+        """Stop a summary before submission or adoption when its permission is stale."""
+        if not self.policy_is_current(snapshot):
+            raise MemoryPolicyChangedError("Memory policy changed; original history will be used.")
 
     def with_settings(
         self, ai_service: AIService, context_budget: ContextBudget,
@@ -69,24 +133,74 @@ class ConversationMemoryService:
         snapshot.keep_recent_tokens = keep_recent_tokens
         return snapshot
 
-    def summary_policy(self, profile_id: str | None = None) -> dict:
-        """Resolve automatic or manual compaction independently of input admission."""
-        resolver = getattr(self.ai_service, "memory_capacity", None)
-        capacity = resolver(profile_id) if resolver else MemoryCapacity()
+    def capture_policy(self, profile_id: str | None = None) -> MemoryPolicySnapshot:
+        """Capture explicit per-connection permission and a feasible summary plan."""
+        current_profile = self._profile(profile_id)
+        profile = replace(current_profile) if current_profile is not None else None
+        output_limit = (
+            self.ai_service.output_limit(profile)
+            if profile is not None and isinstance(self.ai_service, AIService)
+            else None
+        )
+        capacity = (
+            MemoryCapacity.resolve(profile, output_limit)
+            if profile else MemoryCapacity()
+        )
         allowance = capacity.input_limit
         trigger = self.summary_trigger_tokens
-        mode = "disabled" if trigger == 0 else "manual" if trigger is not None else "auto"
-        if mode == "auto":
+        enabled = profile is not None and profile.memory_enabled is True
+        state = "ready"
+        reason = capacity.reason
+        mode = "manual" if trigger is not None else "auto"
+        if not enabled or trigger == 0:
+            state, mode = "off", "disabled"
+        elif self._settings_revision != self._revision.value:
+            state, mode = "stopped", "disabled"
+        elif allowance is None:
+            state, mode = "needs_info", "unavailable"
+        elif mode == "auto":
             trigger = allowance * 9 // 10 if allowance is not None else None
             if trigger is None or trigger < 1:
-                trigger = None
-                mode = "unavailable"
-        return {
+                state, mode = "needs_info", "unavailable"
+                reason = "capacity_too_small"
+        if state != "ready":
+            trigger = 0 if self.summary_trigger_tokens == 0 else None
+        if not enabled:
+            reason = "disabled"
+        elif self.summary_trigger_tokens == 0:
+            reason = "threshold_disabled"
+        elif state == "stopped":
+            reason = "policy_changed"
+        policy = {
+            "enabled": enabled, "state": state,
+            "review_required": profile is not None and profile.memory_enabled is None,
+            "reason": reason,
             "mode": mode, "trigger_tokens": trigger,
             "keep_recent_tokens": self.keep_recent_tokens,
-            "summary_input_limit": allowance if allowance is not None else self.context_budget.input_limit,
+            "summary_input_limit": (
+                min(allowance, self.context_budget.input_limit)
+                if allowance is not None else None
+            ),
+            "capacity_input_limit": allowance,
             "capacity_source": capacity.source,
+            "output_headroom": capacity.headroom,
+            "headroom_source": capacity.headroom_source,
+            "input_only": capacity.reason == "input_only",
+            "revision": self._revision.value,
         }
+        snapshot = MemoryPolicySnapshot(
+            policy, self._revision.value, self._settings_signature(), profile,
+            self.ai_service,
+        )
+        if profile is not None and isinstance(self.ai_service, AIService):
+            snapshot = replace(snapshot, ai_service=self.ai_service.with_profile(
+                profile, before_summary=lambda: self._check_policy(snapshot),
+            ))
+        return snapshot
+
+    def summary_policy(self, profile_id: str | None = None) -> dict:
+        """Expose activation and planning information without private connection data."""
+        return self.capture_policy(profile_id).policy
 
     @staticmethod
     def _fragment_end(text: str, offset: int, stop: int) -> int:
@@ -271,11 +385,13 @@ class ConversationMemoryService:
         profile_id: str | None,
         work: list[int],
         limit: int,
+        snapshot: MemoryPolicySnapshot,
     ) -> str:
         """Summarize a history range within call limits, shrinking chunks on context rejection."""
         offset = 0
         while start < end:
             self._check_version(conversation, version)
+            self._check_policy(snapshot)
             if work[0] >= self.context_budget.max_summary_calls:
                 raise SummaryUnavailableError(
                     "Conversation summary work limit reached. Shorten the input or increase the summary call budget."
@@ -285,16 +401,18 @@ class ConversationMemoryService:
             )
             work[0] += 1
             try:
-                summary = await self.ai_service.summarize_memory(
+                summary = await snapshot.ai_service.summarize_memory(
                     previous,
                     chunk,
                     profile_id=profile_id,
                     conversation_id=conversation.id,
                 )
             except ContextWindowExceeded:
+                self._check_policy(snapshot)
                 limit //= 2
                 continue
             self._check_version(conversation, version)
+            self._check_policy(snapshot)
             if not summary or not summary.strip():
                 raise SummaryUnavailableError(
                     "Conversation summary did not complete. Please retry."
@@ -320,7 +438,7 @@ class ConversationMemoryService:
         attachment_content: list[dict] | None = None,
         visual_tokens: int = 0,
         preflight_mode: str = "block",
-        summary_policy: dict | None = None,
+        summary_policy: MemoryPolicySnapshot | None = None,
     ) -> tuple[str, list[dict]]:
         """Apply memory thresholds and enforce blocking without forcing history summaries."""
         builder = PromptBuilder()
@@ -336,6 +454,12 @@ class ConversationMemoryService:
 
         def admit(inputs: tuple[str, list[dict]]) -> tuple[str, list[dict]]:
             """Reject estimated input only when the selected policy explicitly blocks it."""
+            self._check_version(conversation, version)
+            if not self.policy_is_current(snapshot):
+                inputs = builder.build(
+                    original_messages[:end], user_prompt, workspace_context,
+                    attachment_content=attachment_content,
+                )
             if (
                 preflight_mode == "block"
                 and self.context_budget.estimate(*inputs, visual_tokens=visual_tokens) > limit
@@ -357,14 +481,19 @@ class ConversationMemoryService:
                 "budget. Shorten the question or reduce selected attachments."
             )
         original_messages = conversation.messages
-        self._check_version(conversation, conversation.version)
+        version = conversation.version
+        self._check_version(conversation, version)
         end = len(original_messages) if history_end is None else history_end
         if not 0 <= end <= len(original_messages):
             raise ContextChangedError(
                 "The requested conversation history is no longer available."
             )
-        memory_policy = summary_policy or self.summary_policy(profile_id)
-        memory_disabled = memory_policy["mode"] == "disabled"
+        snapshot = summary_policy or self.capture_policy(profile_id)
+        memory_policy = snapshot.policy
+        memory_disabled = (
+            memory_policy["state"] != "ready"
+            or not self.policy_is_current(snapshot)
+        )
         prepared = builder.build(
             original_messages[:end],
             user_prompt,
@@ -399,6 +528,8 @@ class ConversationMemoryService:
                 )
             version = conversation.version
             self._check_version(conversation, version)
+            if not self.policy_is_current(snapshot):
+                return admit(prepared)
             history = [replace(message) for message in original_messages[:end]]
             summary, start = (
                 conversation.memory_summary,
@@ -437,7 +568,10 @@ class ConversationMemoryService:
                         profile_id,
                         work,
                         summary_limit,
+                        snapshot,
                     )
+                except MemoryPolicyChangedError:
+                    return admit(prepared)
                 except ContextChangedError:
                     raise
                 except (ContextBudgetExceeded, SummaryUnavailableError):
@@ -453,6 +587,8 @@ class ConversationMemoryService:
                     history, user_prompt, workspace_context, summary, start, attachment_content=attachment_content,
                 )
             self._check_version(conversation, version)
+            if not self.policy_is_current(snapshot):
+                return admit(prepared)
             admit(inputs)
             if persist_memory and start > original_count:
                 if not self.conversation_manager.update_memory_if_version_matches(
@@ -464,7 +600,8 @@ class ConversationMemoryService:
             return inputs
 
     async def compact_if_needed(
-        self, conversation: Conversation, profile_id: str | None = None
+        self, conversation: Conversation, profile_id: str | None = None,
+        *, summary_policy: MemoryPolicySnapshot | None = None,
     ) -> None:
         """Run one summary per conversation, coalescing overlapping requests.
 
@@ -473,8 +610,11 @@ class ConversationMemoryService:
         """
         if not self.conversation_manager.is_active(conversation):
             return
+        snapshot = summary_policy or self.capture_policy(profile_id)
+        if snapshot.policy["state"] != "ready" or not self.policy_is_current(snapshot):
+            return
         conversation_id = conversation.id
-        self._pending[conversation_id] = (conversation, profile_id, self)
+        self._pending[conversation_id] = (conversation, profile_id, self, snapshot)
         if conversation_id in self._running:
             return
         self._running.add(conversation_id)
@@ -483,18 +623,22 @@ class ConversationMemoryService:
             async with self._exclusive(conversation_id):
                 while conversation_id in self._pending:
                     pending = self._pending.pop(conversation_id)
-                    current, requested_profile_id, requested_memory = pending
+                    (
+                        current, requested_profile_id, requested_memory,
+                        requested_policy,
+                    ) = pending
                     attempt = (
                         current.version, requested_profile_id,
                         requested_memory.context_budget,
                         requested_memory.summary_trigger_tokens,
                         requested_memory.keep_recent_tokens,
+                        requested_policy.revision,
                     )
                     if attempt == last_attempt:
                         continue
                     last_attempt = attempt
                     await requested_memory._compact_once(
-                        current, requested_profile_id
+                        current, requested_profile_id, requested_policy,
                     )
         finally:
             # Clear busy state on cancellation so later replies can retry unfinished memory.
@@ -502,14 +646,18 @@ class ConversationMemoryService:
             self._running.discard(conversation_id)
 
     async def _compact_once(
-        self, conversation: Conversation, profile_id: str | None
+        self, conversation: Conversation, profile_id: str | None,
+        snapshot: MemoryPolicySnapshot,
     ) -> None:
         """Summarize eligible completed turns and save memory only if its version still matches."""
-        if not self.conversation_manager.is_active(conversation):
+        if (
+            not self.conversation_manager.is_active(conversation)
+            or not self.policy_is_current(snapshot)
+        ):
             return
         start_version = conversation.version
         previous_summary = conversation.memory_summary
-        policy = self.summary_policy(profile_id)
+        policy = snapshot.policy
         trigger = policy["trigger_tokens"]
         if not trigger:
             return
@@ -534,8 +682,10 @@ class ConversationMemoryService:
                 profile_id,
                 [0],
                 policy["summary_input_limit"],
+                snapshot,
             )
             if summary:
+                self._check_policy(snapshot)
                 applied = (
                     self.conversation_manager.update_memory_if_version_matches(
                         conversation,
@@ -549,7 +699,7 @@ class ConversationMemoryService:
                         "Discarded stale conversation memory: %s",
                         conversation.id,
                     )
-        except ContextChangedError:
+        except (ContextChangedError, MemoryPolicyChangedError):
             logger.debug(
                 "Discarded stale conversation memory: %s", conversation.id
             )

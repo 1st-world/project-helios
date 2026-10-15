@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from models.input_budget import normalize_input_budget_settings
 from models.profile import (
-    CONTEXT_FIELDS, DEFAULT_LONG_CONTEXT_THRESHOLD, ConnectionProfile,
+    PROFILE_POLICY_FIELDS, DEFAULT_LONG_CONTEXT_THRESHOLD, ConnectionProfile,
     normalize_output_limit_settings,
 )
 
@@ -136,6 +136,8 @@ class ProfileService:
         output_token_limit: int | None | _UnsetOutputLimit = _UNSET_OUTPUT_LIMIT,
         declared_model_max_output_tokens: int | None = None,
         context_input_budget_mode: str | None = None,
+        memory_enabled: bool | None = False,
+        memory_output_headroom: int | None = None,
     ) -> ConnectionProfile:
         """Create a normalized profile and select it when no active profile exists."""
         cleaned_name = name.strip() or "New Azure Profile"
@@ -167,6 +169,8 @@ class ProfileService:
             context_preflight_mode=context_preflight_mode,
             context_input_budget=context_input_budget,
             context_input_budget_mode=context_input_budget_mode,
+            memory_enabled=memory_enabled,
+            memory_output_headroom=memory_output_headroom,
             model_context_window=model_context_window,
             model_max_input_tokens=model_max_input_tokens,
             output_token_limit=output_settings.get("output_token_limit"),
@@ -211,7 +215,7 @@ class ProfileService:
         changes = normalize_input_budget_settings(
             normalize_output_limit_settings(context_settings or {})
         )
-        if set(changes) - set(CONTEXT_FIELDS):
+        if set(changes) - set(PROFILE_POLICY_FIELDS):
             raise ValueError("Unknown context setting.")
         validated = replace(profile, **changes)
         for field_name in changes:

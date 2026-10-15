@@ -24,6 +24,8 @@
       "model_max_input_tokens": null,
       "output_token_limit": null,
       "declared_model_max_output_tokens": null,
+      "memory_enabled": false,
+      "memory_output_headroom": null,
       "api_key": "YOUR_API_KEY_HERE"
     },
     {
@@ -49,6 +51,8 @@
       "model_max_input_tokens": null,
       "output_token_limit": null,
       "declared_model_max_output_tokens": null,
+      "memory_enabled": false,
+      "memory_output_headroom": null,
       "api_key": "YOUR_API_KEY_HERE"
     }
   ]

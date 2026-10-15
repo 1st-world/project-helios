@@ -284,16 +284,17 @@
           <section class="settings-group" aria-labelledby="context-summary-title">
             <div class="settings-panel-heading"><h3 id="context-summary-title">Memory summaries</h3></div>
             <div class="settings-group-body">
-              <p class="field-hint">Summaries use token estimates. Before sending, the estimate includes the question, instructions, history, memory, and attachments. Each summary consumes tokens.</p>
+              <p class="field-hint">Memory is Off for new connections. Enable it per connection after checking deployment capacity. Each summary makes an additional paid API call and replaces older text in the request; original messages remain stored.</p>
+              <p id="app-memory-status" class="settings-policy-values" role="status">Saved connection memory: —.</p>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><span id="context-token-budget-label" class="settings-preference-label">Summary work budget (tokens)</span><small id="context-token-budget-help">Fallback input allowance for summary work when model capacity is unknown. Independent of custom input budgets and output limits. Previous policies also use this value for input admission until reviewed.</small></div>
+                <div class="settings-preference-copy"><span id="context-token-budget-label" class="settings-preference-label">Summary work budget (tokens)</span><small id="context-token-budget-help">Maximum estimated input per summary call, within declared deployment capacity. Independent of chat input budgets and output limits. Previous input policies also use this value until reviewed.</small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="context_token_budget" aria-label="Restore default summary work budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="context-token-budget" type="number" min="1024" step="1" data-app-setting="context_token_budget" aria-describedby="context-token-budget-help" required disabled aria-labelledby="context-token-budget-label">
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><span id="summary-trigger-tokens-label" class="settings-preference-label">Summary trigger (tokens)</span><small id="summary-trigger-tokens-help">Start above this token estimate. Use 0 to disable summaries and send original history. Block mode checks the input separately.</small></div>
+                <div class="settings-preference-copy"><span id="summary-trigger-tokens-label" class="settings-preference-label">Summary trigger (tokens)</span><small id="summary-trigger-tokens-help">Applies only to enabled, ready connections. Blank uses a suggested 90% threshold; 0 pauses memory and sends original history.</small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="summary_trigger_tokens" aria-label="Restore default summary token trigger" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="summary-trigger-tokens" type="number" min="0" step="1" placeholder="Automatic" data-app-setting="summary_trigger_tokens" aria-describedby="summary-trigger-tokens-help" disabled aria-labelledby="summary-trigger-tokens-label">
@@ -448,6 +449,22 @@
                 </summary>
                 <div class="settings-disclosure-body">
                   <p class="profile-context-note">Context options inherit app settings unless overridden. Blank model capacity declarations remain unknown; output limits are optional and separate from declared model capacity.</p>
+                  <div class="settings-field-group" role="group" aria-label="Memory activation">
+                    <div class="settings-preference-row">
+                      <div class="settings-preference-copy"><span id="profile-memory-enabled-label" class="settings-preference-label">Conversation memory</span><small id="profile-memory-enabled-help">Off sends original history. On allows additional paid summary calls and uses their results in place of older request text when deployment information is ready. Saved originals remain available.</small></div>
+                      <div class="profile-context-control">
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="memory_enabled" title="Turn memory off" aria-label="Turn memory off" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <select id="profile-memory-enabled" data-profile-context="memory_enabled" aria-describedby="profile-memory-enabled-help" aria-labelledby="profile-memory-enabled-label"><option value="false">Off</option><option value="true">On · Additional API calls</option><option value="" hidden>Off · Review needed</option></select>
+                      </div>
+                    </div>
+                    <div class="settings-preference-row">
+                      <div class="settings-preference-copy"><span id="profile-memory-output-headroom-label" class="settings-preference-label">Summary output headroom (tokens)</span><small id="profile-memory-output-headroom-help">Planning allowance for output and reasoning; this does not set an API output cap. If blank, use an explicit output limit or declared maximum output. A context window requires headroom; maximum input alone can be used with shared capacity unverified.</small></div>
+                      <div class="profile-context-control">
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="memory_output_headroom" title="Clear summary planning headroom" aria-label="Clear summary planning headroom" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <input id="profile-memory-output-headroom" type="number" min="1" step="1" placeholder="From output settings" data-profile-context="memory_output_headroom" aria-describedby="profile-memory-output-headroom-help" aria-labelledby="profile-memory-output-headroom-label">
+                      </div>
+                    </div>
+                  </div>
                   <div class="settings-field-group" role="group" aria-label="Context overrides">
                     <div class="settings-preference-row">
                       <div class="settings-preference-copy"><span id="profile-input-budget-mode-label" class="settings-preference-label">Input budget</span><small id="profile-input-budget-mode-help">Inherit the app budget, remove it for this connection, or choose a custom token budget. Previous policies retain their model capacity checks until reviewed.</small></div>

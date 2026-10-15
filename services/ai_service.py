@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from copy import copy
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -26,6 +26,22 @@ from services.usage_service import UsageService
 logger = logging.getLogger(__name__)
 
 
+class _ProfileSnapshot:
+    """Expose one copied connection to a request without rereading mutable profiles."""
+
+    def __init__(self, profile: ConnectionProfile) -> None:
+        """Keep credentials, deployment declarations, and pricing fixed for one request."""
+        self.profile = replace(profile)
+
+    def get_profile(self, profile_id: str) -> ConnectionProfile | None:
+        """Return the captured connection only for its pinned identifier."""
+        return self.profile if self.profile.id == profile_id else None
+
+    def get_active_profile(self) -> ConnectionProfile:
+        """Return the captured connection regardless of later active selection changes."""
+        return self.profile
+
+
 class AIService:
     """Cache profile-specific clients and coordinate reply streams and summary usage."""
 
@@ -43,10 +59,12 @@ class AIService:
         self.call_usage_store = call_usage_store or CallUsageStore()
         self.usage_service = usage_service
         self.profile_service = profile_service
-        self._clients: dict[str, dict[str, Any]] = {}
+        self._clients: dict[tuple[str, str, str], dict[str, Any]] = {}
         if max_output_tokens is not None and max_output_tokens < 1:
             raise ValueError("The output token limit must be positive.")
         self.max_output_tokens = max_output_tokens
+        self._before_summary: Callable[[], None] | None = None
+        self._prepare_reply: Callable[[], tuple[str, list[dict]]] | None = None
 
     def output_limit(self, profile: ConnectionProfile) -> int | None:
         """Return the smallest explicit output cap or defer to the provider."""
@@ -81,6 +99,18 @@ class AIService:
         if profile is None:
             return MemoryCapacity()
         return MemoryCapacity.resolve(profile, self.output_limit(profile))
+
+    def with_profile(
+        self, profile: ConnectionProfile, *,
+        before_summary: Callable[[], None] | None = None,
+        prepare_reply: Callable[[], tuple[str, list[dict]]] | None = None,
+    ) -> "AIService":
+        """Pin connection data and recheck context immediately before a Provider call."""
+        snapshot = copy(self)
+        snapshot.profile_service = _ProfileSnapshot(profile)
+        snapshot._before_summary = before_summary
+        snapshot._prepare_reply = prepare_reply
+        return snapshot
 
     async def close(self) -> None:
         """Closes all cached client connections when the application shuts down."""
@@ -170,31 +200,26 @@ class AIService:
     async def _get_client_and_profile(
         self, profile_id: str | None = None
     ) -> tuple[AsyncOpenAI, ConnectionProfile]:
-        """Reuse a matching client or replace it when endpoint or credentials change."""
+        """Reuse connection snapshots without closing clients still used by in-flight calls."""
         target_profile = self._resolve_profile(profile_id)
         raw_endpoint = target_profile.endpoint.strip().rstrip("/")
         if raw_endpoint.endswith("/openai/v1"):
             base_url = raw_endpoint + "/"
         else:
             base_url = f"{raw_endpoint}/openai/v1/"
-        cached = self._clients.get(target_profile.id)
+        cache_key = (
+            target_profile.id, target_profile.endpoint, target_profile.api_key,
+        )
+        cached = self._clients.get(cache_key)
         if cached:
-            if (
-                cached["endpoint"] == target_profile.endpoint
-                and cached["api_key"] == target_profile.api_key
-            ):
-                return cached["client"], target_profile
-            await cached["client"].close()
+            return cached["client"], target_profile
         client = AsyncOpenAI(
             api_key=target_profile.api_key,
             base_url=base_url,
             max_retries=0,
         )
-        self._clients[target_profile.id] = {
-            "client": client,
-            "endpoint": target_profile.endpoint,
-            "api_key": target_profile.api_key,
-        }
+        # Retain older connection clients until shutdown so edits do not abort sent requests.
+        self._clients[cache_key] = {"client": client}
         return client, target_profile
 
     @property
@@ -229,6 +254,8 @@ class AIService:
         """Yield reply deltas, usage, and completion events, surfacing provider failures."""
         client, profile = await self._get_client_and_profile(profile_id)
         profile = replace(profile)
+        if self._prepare_reply is not None:
+            instructions, input_messages = self._prepare_reply()
         if call_kind not in {"chat", "regeneration"}:
             raise ValueError("Unsupported reply call kind.")
         call = self._begin_call(profile, call_kind, conversation_id)
@@ -412,6 +439,8 @@ class AIService:
         """Create a compact factual memory without modifying the visible transcript."""
         client, profile = await self._get_client_and_profile(profile_id)
         profile = replace(profile)
+        if self._before_summary is not None:
+            self._before_summary()
         instructions, request = PromptBuilder.build_memory(
             previous_summary, messages
         )
