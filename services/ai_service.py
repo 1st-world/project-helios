@@ -1,4 +1,4 @@
-"""Manage Azure OpenAI clients, stream replies, and account for conversation summaries."""
+"""Manage Foundry Responses clients, stream replies, and account for conversation summaries."""
 
 import asyncio
 import logging
@@ -355,6 +355,8 @@ class AIService:
                         ),
                         usage=usage_event(response_usage)["usage"],
                     )
+                    # Completion is final, regardless of the transport lifetime.
+                    break
                 elif event.type in {"response.failed", "response.incomplete"}:
                     response = getattr(event, "response", None)
                     error = getattr(response, "error", None)
