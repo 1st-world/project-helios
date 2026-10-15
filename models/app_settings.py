@@ -15,6 +15,8 @@ class AppSettings:
     context_output_reserve: int | None = None
     max_summary_calls: int = 8
     context_preflight_mode: str = "warn"
+    context_input_budget_mode: str = "unlimited"
+    context_input_budget: int | None = None
     # Resource defaults are provisional policies without workload benchmarks.
     # Count every local file independently of provider image capacity.
     attachment_max_files: int = 50
@@ -38,18 +40,32 @@ class AppSettings:
         """Reject invalid individual values and inconsistent context work budgets."""
         if self.context_preflight_mode not in {"warn", "block", "off"}:
             raise ValueError("Context preflight mode must be warn, block, or off.")
+        if self.context_input_budget_mode not in {"unlimited", "custom", "legacy"}:
+            raise ValueError("Input budget mode must be unlimited, custom, or legacy.")
+        if (self.context_input_budget_mode == "custom") != (
+            self.context_input_budget is not None
+        ):
+            raise ValueError("Only a custom input budget requires a positive token limit.")
         for name in AppSettings.__dataclass_fields__:
-            if name == "context_preflight_mode":
+            if name in {"context_preflight_mode", "context_input_budget_mode"}:
                 continue
             value = getattr(self, name)
-            if name in {"context_output_reserve", "summary_trigger_tokens"} and value is None:
+            if value is None and name in {
+                "context_output_reserve", "summary_trigger_tokens",
+                "context_input_budget",
+            }:
                 continue
             minimum = 0 if name == "summary_trigger_tokens" else 1
             if type(value) is not int or value < minimum:
                 if minimum == 0:
                     raise ValueError("Summary trigger tokens must be a nonnegative integer.")
                 raise ValueError(f"{name} must be a positive integer.")
-        if self.context_token_budget - (self.context_output_reserve or 0) < 1024:
+        if self.context_token_budget < 1024:
+            raise ValueError("Summary work budget must be at least 1024 tokens.")
+        if (
+            self.context_input_budget_mode == "legacy"
+            and self.context_token_budget - (self.context_output_reserve or 0) < 1024
+        ):
             raise ValueError("Context token budget must exceed the output reserve by at least 1024.")
         if self.summary_trigger_tokens and self.keep_recent_tokens >= self.summary_trigger_tokens:
             raise ValueError("Keep recent tokens must be smaller than the enabled summary trigger.")

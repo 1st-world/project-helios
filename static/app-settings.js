@@ -30,7 +30,8 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   }
 
   function valueOf(input) {
-    if (['context_output_reserve', 'summary_trigger_tokens'].includes(input.dataset.appSetting) && input.value === '' && !input.validity.badInput) return null;
+    if (input.dataset.appSetting === 'context_input_budget' && fields.get('context_input_budget_mode').value !== 'custom') return null;
+    if (['context_output_reserve', 'summary_trigger_tokens', 'context_input_budget'].includes(input.dataset.appSetting) && input.value === '' && !input.validity.badInput) return null;
     return input.tagName === 'SELECT' ? input.value : input.valueAsNumber;
   }
 
@@ -56,6 +57,9 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     const busy = state.loading || state.saving || isProfileSaving();
     let defaultsDiffer = false;
     for (const input of fields.values()) input.disabled = busy || !state.saved;
+    const inputMode = fields.get('context_input_budget_mode').value;
+    fields.get('context_input_budget').disabled ||= inputMode !== 'custom';
+    fields.get('context_input_budget_mode').querySelector('[value="legacy"]').hidden = state.saved?.context_input_budget_mode !== 'legacy';
     resetButtons.forEach(button => {
       const name = button.dataset.resetSetting;
       const differs = Boolean(state.defaults && valueOf(fields.get(name)) !== state.defaults[name]);
@@ -71,8 +75,9 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     renderStatus();
     $('#context-preflight-help').textContent = modeHelp[fields.get('context_preflight_mode').value] || 'How local input estimates affect requests.';
     const output = valueOf(fields.get('context_output_reserve'));
-    const budget = fields.get('context_token_budget').valueAsNumber - (output ?? 0);
-    $('#app-input-budget').textContent = `Draft input estimate budget, before profile or request overrides: ${Number.isSafeInteger(budget) && budget >= 0 ? `${budget.toLocaleString()} tokens` : '—'}. ${output === null ? 'Output limit: provider default.' : 'An explicit output limit is reserved in the working budget.'}`;
+    const budget = inputMode === 'legacy' ? fields.get('context_token_budget').valueAsNumber - (output ?? 0) : valueOf(fields.get('context_input_budget'));
+    const inputText = inputMode === 'unlimited' ? 'No input limit' : Number.isSafeInteger(budget) && budget >= 0 ? `${budget.toLocaleString()} tokens` : 'Enter a custom budget';
+    $('#app-input-budget').textContent = `Draft app input budget: ${inputText}. ${inputMode === 'legacy' ? 'Review needed: previous policies reserve the output limit and may apply declared model capacity. Choose No input limit or Custom budget to finish review. ' : ''}Output limit: ${output === null ? 'Provider default' : `${output.toLocaleString()} tokens`}.`;
     const trigger = valueOf(fields.get('summary_trigger_tokens'));
     const policy = state.summaryPolicy;
     $('#summary-trigger-tokens-help').textContent = trigger === null
@@ -96,7 +101,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     resetButtons.forEach(button => {
       const value = state.defaults?.[button.dataset.resetSetting];
       const label = resetLabels.get(button);
-      const formatted = value === undefined ? '' : value === null ? button.dataset.resetSetting === 'summary_trigger_tokens' ? 'Automatic' : 'Provider default' : typeof value === 'number' ? value.toLocaleString() : value.charAt(0).toUpperCase() + value.slice(1);
+      const formatted = value === undefined ? '' : value === null ? button.dataset.resetSetting === 'summary_trigger_tokens' ? 'Automatic' : button.dataset.resetSetting === 'context_input_budget' ? 'No input limit' : 'Provider default' : typeof value === 'number' ? value.toLocaleString() : value.charAt(0).toUpperCase() + value.slice(1);
       button.title = value === undefined ? label : `${label} (default: ${formatted})`;
       button.setAttribute('aria-label', button.title);
     });
@@ -107,8 +112,8 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     for (const name of fields.keys()) {
       for (const values of [data?.settings, data?.defaults]) {
         const value = values?.[name];
-        if (['context_output_reserve', 'summary_trigger_tokens'].includes(name) && value === null) continue;
-        if (name === 'context_preflight_mode' ? !Object.hasOwn(modeHelp, value) : !Number.isSafeInteger(value) || value < (name === 'summary_trigger_tokens' ? 0 : 1)) {
+        if (['context_output_reserve', 'summary_trigger_tokens', 'context_input_budget'].includes(name) && value === null) continue;
+        if (name === 'context_preflight_mode' ? !Object.hasOwn(modeHelp, value) : name === 'context_input_budget_mode' ? !['unlimited', 'custom', 'legacy'].includes(value) : !Number.isSafeInteger(value) || value < (name === 'summary_trigger_tokens' ? 0 : 1)) {
           throw new Error('Could not read the saved settings. Reload Settings before editing.');
         }
       }
@@ -160,6 +165,12 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     const input = fields.get(name);
     const restoreFocus = document.activeElement?.dataset.resetSetting === name;
     input.value = state.defaults[name] ?? '';
+    if (['context_input_budget_mode', 'context_input_budget'].includes(name)) {
+      fields.get('context_input_budget_mode').value = 'unlimited';
+      fields.get('context_input_budget').value = '';
+      state.resets.add('context_input_budget_mode');
+      state.resets.add('context_input_budget');
+    }
     if (valueOf(input) !== state.saved[name]) state.resets.add(name);
     else state.resets.delete(name);
     clearValidation();
@@ -171,6 +182,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   function validate() {
     clearValidation();
     for (const input of fields.values()) {
+      if (input.disabled) continue;
       if (['context_output_reserve', 'summary_trigger_tokens'].includes(input.dataset.appSetting) && valueOf(input) === null) continue;
       if (input.tagName !== 'SELECT' && (!Number.isSafeInteger(input.valueAsNumber) || input.valueAsNumber < Number(input.min))) {
         input.setCustomValidity(`Enter a whole number of at least ${input.min} that the browser can represent exactly.`);
@@ -178,7 +190,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     }
     const budget = fields.get('context_token_budget');
     const reserve = fields.get('context_output_reserve');
-    if (budget.valueAsNumber - (valueOf(reserve) ?? 0) < 1024) budget.setCustomValidity('The context budget must leave at least 1,024 input tokens after any explicit output reservation.');
+    if (fields.get('context_input_budget_mode').value === 'legacy' && budget.valueAsNumber - (valueOf(reserve) ?? 0) < 1024) budget.setCustomValidity('The previous policy must leave at least 1,024 input tokens after output reservation. Review the input budget to use independent limits.');
     const trigger = fields.get('summary_trigger_tokens').valueAsNumber;
     const recent = fields.get('keep_recent_tokens');
     if (trigger > 0 && recent.valueAsNumber >= trigger) recent.setCustomValidity('Keep recent tokens must be smaller than the enabled summary trigger.');

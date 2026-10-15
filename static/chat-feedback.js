@@ -56,7 +56,7 @@ export function describeContextWarning(event, policy = null) {
   ].filter(Boolean);
   return {
     title: 'Context estimate warning',
-    message: cleanText(event?.message) || 'The approximate input exceeds the selected budget or declared model limit. Warning mode allows this request to continue.',
+    message: cleanText(event?.message) || 'The approximate input exceeds the selected input budget. Warning mode allows this request to continue.',
     details,
   };
 }

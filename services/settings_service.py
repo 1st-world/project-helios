@@ -7,6 +7,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 from models.app_settings import AppSettings, DEFAULT_APP_SETTINGS
+from models.input_budget import normalize_input_budget_settings
 
 
 class SettingsStorageError(RuntimeError):
@@ -47,6 +48,8 @@ class SettingsService:
                     raise ValueError("Legacy message-count settings are invalid.")
                 # Message counts have no reliable token equivalent; retain any explicit new settings.
                 values = {name: value for name, value in values.items() if name not in legacy}
+            if not {"context_input_budget_mode", "context_input_budget"} & values.keys():
+                values["context_input_budget_mode"] = "legacy"
             self.current = self.prepare_update(values)
         except (UnicodeError, ValueError, TypeError) as exc:
             raise SettingsStorageError("Application settings are invalid; repair settings.json before starting.") from exc
@@ -57,6 +60,7 @@ class SettingsService:
         """Validate a partial update; omitted fields stay and null restores defaults."""
         if set(changes) - set(self.defaults.to_dict()):
             raise ValueError("Unknown application setting.")
+        changes = normalize_input_budget_settings(changes, default_mode="unlimited")
         values = {
             name: getattr(self.defaults, name) if value is None else value
             for name, value in changes.items()

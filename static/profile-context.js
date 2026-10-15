@@ -15,6 +15,7 @@ export function createProfileContext({ isSaving }) {
   };
 
   function savedValue(name) {
+    if (name === 'context_input_budget_mode') return state.profile ? state.profile[name] ?? 'legacy' : 'inherit';
     if (name === 'output_token_limit' && state.profile && !Object.hasOwn(state.profile, name)) {
       return state.profile.model_max_output_tokens ?? null;
     }
@@ -22,9 +23,13 @@ export function createProfileContext({ isSaving }) {
   }
 
   function updateControls() {
+    const budgetMode = fields.get('context_input_budget_mode').value;
+    fields.get('context_input_budget').disabled = isSaving() || budgetMode !== 'custom';
+    fields.get('context_input_budget_mode').querySelector('[value="legacy"]').hidden = savedValue('context_input_budget_mode') !== 'legacy';
     resets.forEach(button => {
       const input = fields.get(button.dataset.clearProfileContext);
-      button.hidden = !input.value && !input.validity.badInput;
+      button.hidden = button.dataset.clearProfileContext === 'context_input_budget_mode' ? input.value === 'inherit' : !input.value && !input.validity.badInput;
+      if (button.dataset.clearProfileContext === 'context_input_budget' && budgetMode !== 'custom') button.hidden = true;
       button.disabled = isSaving() || button.hidden;
     });
     $('#profile-context-preflight-help').textContent = modeHelp[fields.get('context_preflight_mode').value]
@@ -69,7 +74,7 @@ export function createProfileContext({ isSaving }) {
         throw new Error([feedback.message, ...feedback.details].join('\n'));
       }
       const declaredOutput = data.declared_model_max_output_tokens ?? null;
-      if (!['warn', 'block', 'off'].includes(data.mode) || !Number.isSafeInteger(data.input_budget) || data.input_budget < 1
+      if (!['warn', 'block', 'off'].includes(data.mode) || (data.input_budget !== null && (!Number.isSafeInteger(data.input_budget) || data.input_budget < (data.legacy_input_policy ? 0 : 1)))
         || (data.max_output_tokens !== null && (!Number.isSafeInteger(data.max_output_tokens) || data.max_output_tokens < 1))
         || (declaredOutput !== null && (!Number.isSafeInteger(declaredOutput) || declaredOutput < 1))
         || (data.declared_model_input_limit !== null && (!Number.isSafeInteger(data.declared_model_input_limit) || data.declared_model_input_limit < 0))) {
@@ -77,7 +82,9 @@ export function createProfileContext({ isSaving }) {
       }
       $('#profile-context-effective').textContent = [
         `Preflight: ${data.mode.charAt(0).toUpperCase() + data.mode.slice(1)}.`,
-        `Input estimate budget: ${data.input_budget.toLocaleString()} tokens.`,
+        `Input estimate budget: ${data.input_budget === null ? 'No input limit' : `${data.input_budget.toLocaleString()} tokens`}.`,
+        `Input budget source: ${data.input_budget_source || 'Saved policy'}.`,
+        data.legacy_input_policy ? 'Review needed: previous input and model capacity limits are preserved. Choose an input budget policy to finish review.' : 'Model capacity declarations do not impose an input budget.',
         `Declared input ceiling: ${data.declared_model_input_limit === null ? 'Unknown' : `${data.declared_model_input_limit.toLocaleString()} tokens`}.`,
         `Declared maximum output: ${declaredOutput === null ? 'Unknown' : `${declaredOutput.toLocaleString()} tokens`}.`,
         `Output limit: ${data.max_output_tokens === null ? 'Provider default' : `${data.max_output_tokens.toLocaleString()} tokens`}.`,
@@ -97,7 +104,8 @@ export function createProfileContext({ isSaving }) {
   function changes(editing) {
     const result = {};
     for (const [name, input] of fields) {
-      const value = input.value === '' ? null : input.tagName === 'SELECT' ? input.value : input.valueAsNumber;
+      const inactiveBudget = name === 'context_input_budget' && ['inherit', 'unlimited'].includes(fields.get('context_input_budget_mode').value);
+      const value = inactiveBudget || input.value === '' ? null : input.tagName === 'SELECT' ? input.value : input.valueAsNumber;
       if (!editing || value !== savedValue(name)) result[name] = value;
     }
     return result;
@@ -107,6 +115,11 @@ export function createProfileContext({ isSaving }) {
     for (const input of fields.values()) {
       input.setCustomValidity('');
       input.removeAttribute('aria-invalid');
+      if (input.disabled) continue;
+      if (input.dataset.profileContext === 'context_input_budget' && fields.get('context_input_budget_mode').value === 'custom' && input.value === '') {
+        input.setCustomValidity('Enter a positive token limit for the custom budget.');
+        input.setAttribute('aria-invalid', 'true');
+      }
       if (input.tagName !== 'SELECT' && (input.validity.badInput || (input.value !== '' && (!Number.isSafeInteger(input.valueAsNumber) || input.valueAsNumber < 1)))) {
         input.setCustomValidity('Enter a positive whole number the browser can represent exactly, or leave blank.');
         input.setAttribute('aria-invalid', 'true');
@@ -125,7 +138,11 @@ export function createProfileContext({ isSaving }) {
     resets.forEach(button => {
       button.onclick = () => {
         const input = fields.get(button.dataset.clearProfileContext);
-        input.value = '';
+        input.value = button.dataset.clearProfileContext === 'context_input_budget_mode' ? 'inherit' : '';
+        if (['context_input_budget', 'context_input_budget_mode'].includes(button.dataset.clearProfileContext)) {
+          fields.get('context_input_budget_mode').value = 'inherit';
+          fields.get('context_input_budget').value = '';
+        }
         input.dispatchEvent(new Event('input', { bubbles: true }));
         input.focus({ preventScroll: true });
       };

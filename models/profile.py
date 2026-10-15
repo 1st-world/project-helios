@@ -9,7 +9,8 @@ DEFAULT_LONG_CONTEXT_THRESHOLD = 272_000
 
 
 CONTEXT_FIELDS = (
-    "context_preflight_mode", "context_input_budget", "model_context_window",
+    "context_preflight_mode", "context_input_budget_mode", "context_input_budget",
+    "model_context_window",
     "model_max_input_tokens", "output_token_limit",
     "declared_model_max_output_tokens",
 )
@@ -57,12 +58,31 @@ class ConnectionProfile:
     model_max_input_tokens: int | None = None
     output_token_limit: int | None = None
     declared_model_max_output_tokens: int | None = None
+    context_input_budget_mode: str | None = None
 
     def __post_init__(self) -> None:
         """Validate optional declarations and user limits without guessing from deployment names."""
         if self.context_preflight_mode not in {None, "warn", "block", "off"}:
             raise ValueError("Context preflight mode must be warn, block, off, or null.")
-        for name in CONTEXT_FIELDS[1:]:
+        if self.context_input_budget_mode is None:
+            self.context_input_budget_mode = (
+                "custom" if self.context_input_budget is not None else "inherit"
+            )
+        if self.context_input_budget_mode not in {
+            "inherit", "unlimited", "custom", "legacy",
+        }:
+            raise ValueError("Input budget mode must be inherit, unlimited, custom, or legacy.")
+        if (
+            self.context_input_budget_mode == "custom"
+            and self.context_input_budget is None
+        ):
+            raise ValueError("A custom input budget requires a positive token limit.")
+        if (
+            self.context_input_budget_mode in {"inherit", "unlimited"}
+            and self.context_input_budget is not None
+        ):
+            raise ValueError("Only a custom input budget can specify a token limit.")
+        for name in CONTEXT_FIELDS[2:]:
             value = getattr(self, name)
             if value is not None and (type(value) is not int or value < 1):
                 raise ValueError("Context limits must be positive integers or null.")
@@ -120,6 +140,9 @@ class ConnectionProfile:
         long_cache_read = data.get("long_cache_read_price_per_million")
         long_cache_write = data.get("long_cache_write_price_per_million")
         context_settings = {name: data.get(name) for name in CONTEXT_FIELDS}
+        context_settings["context_input_budget_mode"] = data.get(
+            "context_input_budget_mode", "legacy"
+        )
         if "output_token_limit" not in data:
             context_settings["output_token_limit"] = data.get(
                 "model_max_output_tokens"

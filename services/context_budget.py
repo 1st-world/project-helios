@@ -1,4 +1,4 @@
-"""Define local context limits and text/visual estimates independent of model pricing."""
+"""Bound summary work and estimate text/visual input independently of provider admission."""
 
 from dataclasses import dataclass
 
@@ -24,18 +24,19 @@ class ContextWindowExceeded(RuntimeError):
 
 @dataclass(frozen=True)
 class ContextBudget:
-    """Reserve an optional user output cap within local working limits and bound summaries."""
+    """Bound summary work, retaining optional output reservation for legacy callers."""
 
     # These are local working limits, not advertised model context sizes.
     token_budget: int = DEFAULT_APP_SETTINGS.context_token_budget
     output_reserve: int | None = None
     max_summary_calls: int = 8
+    reserve_output: bool = True
 
     def __post_init__(self) -> None:
         """Reject limits without enough input capacity or an allowed summary call."""
         if (
             (self.output_reserve is not None and self.output_reserve < 1)
-            or self.token_budget - (self.output_reserve or 0) < 1_024
+            or self.input_limit < 1_024
         ):
             raise ValueError(
                 "Context token budget must exceed the output reserve by at least 1024."
@@ -46,7 +47,9 @@ class ContextBudget:
     @property
     def input_limit(self) -> int:
         """Return the working input allowance after any explicit output reservation."""
-        return self.token_budget - (self.output_reserve or 0)
+        return self.token_budget - (
+            (self.output_reserve or 0) if self.reserve_output else 0
+        )
 
     @staticmethod
     def message_tokens(role: str, content: str) -> int:

@@ -256,10 +256,17 @@
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><span id="context-token-budget-label" class="settings-preference-label">Working context budget (tokens)</span><small id="context-token-budget-help">Local admission budget and summary fallback when model capacity is unknown. Warn allows larger inputs. An explicit output limit is reserved here.</small></div>
+                <div class="settings-preference-copy"><span id="context-input-budget-mode-label" class="settings-preference-label">Input budget</span><small id="context-input-budget-mode-help">Choose a local token budget to control cost. Without a budget, the provider validates input capacity. Previous settings need review before switching policies.</small></div>
                 <div class="settings-preference-control">
-                  <button class="quiet settings-default-reset" type="button" data-reset-setting="context_token_budget" aria-label="Restore default working context budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                  <input id="context-token-budget" type="number" min="1024" step="1" data-app-setting="context_token_budget" aria-describedby="context-token-budget-help app-input-budget" required disabled aria-labelledby="context-token-budget-label">
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="context_input_budget_mode" aria-label="Remove the input budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <select id="context-input-budget-mode" data-app-setting="context_input_budget_mode" aria-describedby="context-input-budget-mode-help" required disabled aria-labelledby="context-input-budget-mode-label"><option value="unlimited">No input limit</option><option value="custom">Custom budget</option><option value="legacy" hidden>Previous policy · Review needed</option></select>
+                </div>
+              </div>
+              <div class="settings-preference-row">
+                <div class="settings-preference-copy"><span id="context-input-budget-label" class="settings-preference-label">Input estimate budget (tokens)</span><small id="context-input-budget-help">Used only with Custom budget. Warn allows larger inputs; Block rejects estimates above this value. Model declarations do not lower a custom budget.</small></div>
+                <div class="settings-preference-control">
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="context_input_budget" aria-label="Remove the input budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <input id="context-input-budget" type="number" min="1" step="1" data-app-setting="context_input_budget" aria-describedby="context-input-budget-help" disabled aria-labelledby="context-input-budget-label">
                 </div>
               </div>
               <div class="settings-preference-row">
@@ -278,6 +285,13 @@
             <div class="settings-panel-heading"><h3 id="context-summary-title">Memory summaries</h3></div>
             <div class="settings-group-body">
               <p class="field-hint">Summaries use token estimates. Before sending, the estimate includes the question, instructions, history, memory, and attachments. Each summary consumes tokens.</p>
+              <div class="settings-preference-row">
+                <div class="settings-preference-copy"><span id="context-token-budget-label" class="settings-preference-label">Summary work budget (tokens)</span><small id="context-token-budget-help">Fallback input allowance for summary work when model capacity is unknown. Independent of custom input budgets and output limits. Previous policies also use this value for input admission until reviewed.</small></div>
+                <div class="settings-preference-control">
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="context_token_budget" aria-label="Restore default summary work budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <input id="context-token-budget" type="number" min="1024" step="1" data-app-setting="context_token_budget" aria-describedby="context-token-budget-help" required disabled aria-labelledby="context-token-budget-label">
+                </div>
+              </div>
               <div class="settings-preference-row">
                 <div class="settings-preference-copy"><span id="summary-trigger-tokens-label" class="settings-preference-label">Summary trigger (tokens)</span><small id="summary-trigger-tokens-help">Start above this token estimate. Use 0 to disable summaries and send original history. Block mode checks the input separately.</small></div>
                 <div class="settings-preference-control">
@@ -436,6 +450,13 @@
                   <p class="profile-context-note">Context options inherit app settings unless overridden. Blank model capacity declarations remain unknown; output limits are optional and separate from declared model capacity.</p>
                   <div class="settings-field-group" role="group" aria-label="Context overrides">
                     <div class="settings-preference-row">
+                      <div class="settings-preference-copy"><span id="profile-input-budget-mode-label" class="settings-preference-label">Input budget</span><small id="profile-input-budget-mode-help">Inherit the app budget, remove it for this connection, or choose a custom token budget. Previous policies retain their model capacity checks until reviewed.</small></div>
+                      <div class="profile-context-control">
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_input_budget_mode" title="Use the app input budget" aria-label="Use the app input budget" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <select id="profile-input-budget-mode" data-profile-context="context_input_budget_mode" aria-describedby="profile-input-budget-mode-help" aria-labelledby="profile-input-budget-mode-label"><option value="inherit">Use app setting</option><option value="unlimited">No input limit</option><option value="custom">Custom budget</option><option value="legacy" hidden>Previous policy · Review needed</option></select>
+                      </div>
+                    </div>
+                    <div class="settings-preference-row">
                       <div class="settings-preference-copy"><span id="profile-context-preflight-label" class="settings-preference-label">Context preflight</span><small id="profile-context-preflight-help">Uses the app preflight mode. Any explicit output limit still applies.</small></div>
                       <div class="profile-context-control">
                         <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_preflight_mode" title="Use the app preflight setting" aria-label="Use the app preflight setting" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
@@ -443,10 +464,10 @@
                       </div>
                     </div>
                     <div class="settings-preference-row">
-                      <div class="settings-preference-copy"><span id="profile-context-input-budget-label" class="settings-preference-label">Input estimate budget (tokens)</span><small id="profile-context-input-budget-help">Local preflight budget, separate from model capacity.</small></div>
+                      <div class="settings-preference-copy"><span id="profile-context-input-budget-label" class="settings-preference-label">Input estimate budget (tokens)</span><small id="profile-context-input-budget-help">Used with Custom budget. Model capacity declarations do not lower a custom budget.</small></div>
                       <div class="profile-context-control">
                         <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_input_budget" title="Use the app input allowance" aria-label="Use the app input allowance" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                        <input id="profile-context-input-budget" type="number" min="1" step="1" placeholder="Use app allowance" data-profile-context="context_input_budget" aria-describedby="profile-context-input-budget-help" aria-labelledby="profile-context-input-budget-label">
+                        <input id="profile-context-input-budget" type="number" min="1" step="1" data-profile-context="context_input_budget" aria-describedby="profile-context-input-budget-help" aria-labelledby="profile-context-input-budget-label">
                       </div>
                     </div>
                     <div class="settings-preference-row">
@@ -459,14 +480,14 @@
                   </div>
                   <div class="settings-field-group" role="group" aria-label="Model limits">
                     <div class="settings-preference-row">
-                      <div class="settings-preference-copy"><span id="profile-model-context-window-label" class="settings-preference-label">Declared context window (tokens)</span><small id="profile-model-context-window-help">Combined input and output capacity. The estimate ceiling subtracts an explicit output limit when set.</small></div>
+                      <div class="settings-preference-copy"><span id="profile-model-context-window-label" class="settings-preference-label">Declared context window (tokens)</span><small id="profile-model-context-window-help">Combined input and output capacity. The displayed input allowance subtracts an explicit output limit. This declaration does not lower a custom input budget.</small></div>
                       <div class="profile-context-control">
                         <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_context_window" title="Clear the context window declaration" aria-label="Clear the context window declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                         <input id="profile-model-context-window" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_context_window" aria-describedby="profile-model-context-window-help" aria-labelledby="profile-model-context-window-label">
                       </div>
                     </div>
                     <div class="settings-preference-row">
-                      <div class="settings-preference-copy"><span id="profile-model-max-input-label" class="settings-preference-label">Declared maximum input (tokens)</span><small id="profile-model-max-input-help">Independent input ceiling, considered alongside the context window and input estimates in Warn and Block modes.</small></div>
+                      <div class="settings-preference-copy"><span id="profile-model-max-input-label" class="settings-preference-label">Declared maximum input (tokens)</span><small id="profile-model-max-input-help">Deployment input capacity for memory planning and reference. This declaration does not impose an input budget; previous policies retain their capacity checks until reviewed.</small></div>
                       <div class="profile-context-control">
                         <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_max_input_tokens" title="Clear the input limit declaration" aria-label="Clear the input limit declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                         <input id="profile-model-max-input" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_max_input_tokens" aria-describedby="profile-model-max-input-help" aria-labelledby="profile-model-max-input-label">

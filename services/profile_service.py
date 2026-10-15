@@ -6,6 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
+from models.input_budget import normalize_input_budget_settings
 from models.profile import (
     CONTEXT_FIELDS, DEFAULT_LONG_CONTEXT_THRESHOLD, ConnectionProfile,
     normalize_output_limit_settings,
@@ -19,6 +20,10 @@ class _UnsetOutputLimit:
 
 
 _UNSET_OUTPUT_LIMIT = _UnsetOutputLimit()
+
+
+class ProfileNotFoundError(ValueError):
+    """Distinguish absent profiles from invalid policy updates."""
 
 
 class ProfileService:
@@ -130,6 +135,7 @@ class ProfileService:
         *,
         output_token_limit: int | None | _UnsetOutputLimit = _UNSET_OUTPUT_LIMIT,
         declared_model_max_output_tokens: int | None = None,
+        context_input_budget_mode: str | None = None,
     ) -> ConnectionProfile:
         """Create a normalized profile and select it when no active profile exists."""
         cleaned_name = name.strip() or "New Azure Profile"
@@ -160,6 +166,7 @@ class ProfileService:
             long_cache_write_price_per_million=long_cache_write_price_per_million,
             context_preflight_mode=context_preflight_mode,
             context_input_budget=context_input_budget,
+            context_input_budget_mode=context_input_budget_mode,
             model_context_window=model_context_window,
             model_max_input_tokens=model_max_input_tokens,
             output_token_limit=output_settings.get("output_token_limit"),
@@ -200,8 +207,10 @@ class ProfileService:
         """Apply provided profile values and pricing-clear flags, preserving omitted settings."""
         profile = self.get_profile(profile_id)
         if not profile:
-            raise ValueError("Profile not found.")
-        changes = normalize_output_limit_settings(context_settings or {})
+            raise ProfileNotFoundError("Profile not found.")
+        changes = normalize_input_budget_settings(
+            normalize_output_limit_settings(context_settings or {})
+        )
         if set(changes) - set(CONTEXT_FIELDS):
             raise ValueError("Unknown context setting.")
         validated = replace(profile, **changes)

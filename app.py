@@ -7,7 +7,7 @@ import mimetypes
 from contextlib import aclosing, asynccontextmanager
 from datetime import date
 from logging.handlers import RotatingFileHandler
-from typing import Literal
+from typing import ClassVar, Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -27,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from config import settings
 from models.app_settings import AppSettings, DEFAULT_APP_SETTINGS
+from models.input_budget import normalize_input_budget_settings
 from models.profile import (
     CONTEXT_FIELDS, DEFAULT_LONG_CONTEXT_THRESHOLD, ConnectionProfile,
     normalize_output_limit_settings,
@@ -54,7 +55,7 @@ from services.folder_picker_service import (
     PickerReconnectingError,
 )
 from services.memory_service import ConversationMemoryService
-from services.profile_service import ProfileService
+from services.profile_service import ProfileNotFoundError, ProfileService
 from services.settings_service import SettingsService, SettingsStorageError
 from services.summary_usage_store import SummaryUsageStore
 from services.usage_service import UsageService
@@ -121,6 +122,7 @@ context_budget = ContextBudget(
     application_settings.context_token_budget,
     application_settings.context_output_reserve,
     application_settings.max_summary_calls,
+    reserve_output=False,
 )
 memory_service = ConversationMemoryService(
     ai_service,
@@ -260,8 +262,31 @@ class ReadFileRequest(BaseModel):
 class ContextRequestOptions(BaseModel):
     """Allow request-level estimate policy overrides without changing profile settings."""
 
+    allow_partial_input_budget: ClassVar[bool] = False
     context_preflight_mode: Literal["warn", "block", "off"] | None = None
     context_input_budget: int | None = Field(default=None, ge=1, strict=True)
+    context_input_budget_mode: Literal["inherit", "unlimited", "custom"] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_input_budget(cls, values: object) -> object:
+        """Preserve numeric request compatibility without exposing complete request bodies."""
+        if not isinstance(values, dict):
+            return values
+        try:
+            normalized = normalize_input_budget_settings(values)
+            if (
+                not cls.allow_partial_input_budget
+                and normalized.get("context_input_budget_mode") == "custom"
+                and normalized.get("context_input_budget") is None
+            ):
+                raise ValueError("A custom input budget requires a positive token limit.")
+            return normalized
+        except ValueError as exc:
+            raise ValidationError.from_exception_data(cls.__name__, [{
+                "type": "value_error", "loc": ("context_input_budget",),
+                "input": values.get("context_input_budget"), "ctx": {"error": exc},
+            }]) from exc
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -274,6 +299,8 @@ class UpdateSettingsRequest(BaseModel):
     context_output_reserve: int | None = Field(default=None, ge=1, strict=True)
     max_summary_calls: int | None = Field(default=None, ge=1, strict=True)
     context_preflight_mode: Literal["warn", "block", "off"] | None = None
+    context_input_budget_mode: Literal["unlimited", "custom", "legacy"] | None = None
+    context_input_budget: int | None = Field(default=None, ge=1, strict=True)
     attachment_max_files: int | None = Field(default=None, ge=1, strict=True)
     attachment_max_file_bytes: int | None = Field(
         default=None, ge=1, strict=True
@@ -342,10 +369,12 @@ class WorkspaceRootRequest(BaseModel):
 class ProfileContextSettings(ContextRequestOptions):
     """Validate separate user limits and model declarations with legacy cap aliases."""
 
+    allow_partial_input_budget: ClassVar[bool] = True
     output_token_limit: int | None = Field(default=None, ge=1, strict=True)
     model_context_window: int | None = Field(default=None, ge=1, strict=True)
     model_max_input_tokens: int | None = Field(default=None, ge=1, strict=True)
     declared_model_max_output_tokens: int | None = Field(default=None, ge=1, strict=True)
+    context_input_budget_mode: Literal["inherit", "unlimited", "custom", "legacy"] | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -454,6 +483,8 @@ async def create_profile(payload: CreateProfileRequest):
             long_cache_write_price_per_million=payload.long_cache_write_price_per_million,
             **{name: getattr(payload, name) for name in CONTEXT_FIELDS},
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception:
         logger.exception("Could not create profile")
         raise HTTPException(
@@ -494,8 +525,10 @@ async def update_profile(profile_id: str, payload: UpdateProfileRequest):
                 if name in payload.model_fields_set
             },
         )
+    except ProfileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception:
         logger.exception("Could not update profile %s", profile_id)
         raise HTTPException(
@@ -741,6 +774,7 @@ async def update_application_settings(payload: UpdateSettingsRequest):
         new_budget = ContextBudget(
             candidate.context_token_budget, candidate.context_output_reserve,
             candidate.max_summary_calls,
+            reserve_output=False,
         )
         new_attachments = AttachmentService(
             workspace_service, limits=candidate.attachment_limits()
@@ -785,6 +819,8 @@ def resolve_context_policy(
     *,
     budget: ContextBudget | None = None,
     default_mode: str | None = None,
+    input_budget_mode: str | None = None,
+    app_settings: AppSettings | None = None,
 ) -> ContextPolicy:
     """Resolve defaults and optional profile settings without contacting the provider."""
     profile = (
@@ -793,11 +829,17 @@ def resolve_context_policy(
     )
     if profile_id and profile is None:
         raise HTTPException(status_code=404, detail="Profile not found.")
-    return ContextPolicy.resolve(
-        profile or ConnectionProfile(), budget or context_budget,
-        default_mode or settings_service.current.context_preflight_mode,
-        mode, input_budget,
-    )
+    current = app_settings or settings_service.current
+    try:
+        return ContextPolicy.resolve(
+            profile or ConnectionProfile(), budget or context_budget,
+            default_mode or current.context_preflight_mode,
+            mode, input_budget, input_budget_mode=input_budget_mode,
+            default_input_budget_mode=current.context_input_budget_mode,
+            default_input_budget=current.context_input_budget,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/context-policy")
@@ -806,6 +848,8 @@ async def context_policy_settings(profile_id: str | None = None):
     policy = resolve_context_policy(profile_id)
     return {
         "mode": policy.mode, "input_budget": policy.input_budget,
+        "input_budget_source": policy.input_budget_source,
+        "legacy_input_policy": policy.legacy_input_policy,
         "declared_model_input_limit": policy.declared_model_input_limit,
         "max_output_tokens": policy.max_output_tokens,
         "declared_model_max_output_tokens": policy.declared_model_max_output_tokens,
@@ -822,7 +866,7 @@ async def inspect_attachments(payload: AttachmentSelectionRequest):
     """Validate local attachments without provider calls or returning binary contents."""
     request_attachments = attachment_service
     request_budget = context_budget
-    default_mode = settings_service.current.context_preflight_mode
+    request_settings = settings_service.current
     validate_selection_entries(payload.paths, request_attachments)
     try:
         prepared = await anyio.to_thread.run_sync(
@@ -835,7 +879,8 @@ async def inspect_attachments(payload: AttachmentSelectionRequest):
     policy = resolve_context_policy(
         payload.profile_id, payload.context_preflight_mode,
         payload.context_input_budget,
-        budget=request_budget, default_mode=default_mode,
+        budget=request_budget, app_settings=request_settings,
+        input_budget_mode=payload.context_input_budget_mode,
     )
     assessment = policy.assess(
         "", [{"role": "user", "content": prepared.content}],
@@ -858,7 +903,7 @@ async def chat(payload: ChatRequest):
     request_memory = memory_service
     request_attachments = attachment_service
     request_budget = context_budget
-    default_mode = settings_service.current.context_preflight_mode
+    request_settings = settings_service.current
     validate_selection_entries(
         payload.workspace_files + payload.attachment_files
         + ([payload.workspace_file] if payload.workspace_file else []),
@@ -952,7 +997,8 @@ async def chat(payload: ChatRequest):
         )
     policy = resolve_context_policy(
         profile_id, payload.context_preflight_mode, payload.context_input_budget,
-        budget=request_budget, default_mode=default_mode,
+        budget=request_budget, app_settings=request_settings,
+        input_budget_mode=payload.context_input_budget_mode,
     )
     attachment_options = (
         {
@@ -970,13 +1016,8 @@ async def chat(payload: ChatRequest):
             history_end=history_end,
             persist_memory=payload.regenerate_message_index is None,
             summary_policy=request_memory.summary_policy(profile_id),
-            preflight_mode=policy.mode,
-            input_limit=min(
-                policy.input_budget,
-                policy.declared_model_input_limit
-                if policy.declared_model_input_limit is not None
-                else policy.input_budget,
-            ),
+            preflight_mode=policy.mode if policy.input_budget is not None else "off",
+            input_limit=policy.input_budget,
             **attachment_options,
         )
     except ContextBudgetExceeded as exc:
@@ -1027,13 +1068,14 @@ async def chat(payload: ChatRequest):
                 attachments.metadata or context_assessment["warning"]
                 or payload.context_preflight_mode is not None
                 or payload.context_input_budget is not None
+                or payload.context_input_budget_mode is not None
             ):
                 policy_event = {"type": "context_policy", **context_assessment}
                 yield f"data: {json.dumps(policy_event)}\n\n"
             if context_assessment["warning"]:
                 warning = {
                     "type": "context_warning", "code": "context_estimate_exceeded",
-                    "message": "The estimated input exceeds the selected budget or declared model limit. The estimate is approximate; this request is allowed in warning mode.",
+                    "message": "The estimated input exceeds the selected input budget. The estimate is approximate; this request is allowed in warning mode.",
                 }
                 yield f"data: {json.dumps(warning)}\n\n"
             async with aclosing(request_ai.stream(

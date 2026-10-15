@@ -266,10 +266,12 @@ export function createWorkspace({ getActiveProfileId }) {
     }
     const { files, context_policy: policy } = state.inspection.data;
     region.dataset.state = policy.blocked ? 'error' : policy.warning ? 'warning' : 'ready';
-    const text = [policy.blocked ? 'The approximate attachment input exceeds the selected budget or declared model limit in blocking mode. Reduce the selection or change the context policy before applying.'
-      : policy.warning ? 'The approximate attachment input exceeds the selected budget or declared model limit. Warning mode allows you to apply this selection.'
+    const text = [policy.blocked ? 'The approximate attachment input exceeds the selected input budget in blocking mode. Reduce the selection or change the context policy before applying.'
+      : policy.warning ? 'The approximate attachment input exceeds the selected input budget. Warning mode allows you to apply this selection.'
       : 'File checks passed locally. Review the delivery method, then apply this selection.'];
-    if (Number.isSafeInteger(policy.estimated_input_tokens)) text.push(`Approximate attachment input: ${policy.estimated_input_tokens.toLocaleString()} tokens. Selected input budget: ${policy.input_budget.toLocaleString()} tokens.`);
+    if (Number.isSafeInteger(policy.estimated_input_tokens)) text.push(`Approximate attachment input: ${policy.estimated_input_tokens.toLocaleString()} tokens.`);
+    text.push(policy.input_budget === null ? 'No input limit is selected. The provider validates input capacity when you send a message.' : `Selected input budget: ${policy.input_budget.toLocaleString()} tokens.`);
+    if (policy.legacy_input_policy) text.push('Previous input policy: review the budget in Settings.');
     if (Number.isSafeInteger(policy.declared_model_input_limit)) text.push(`Declared model input limit: ${policy.declared_model_input_limit.toLocaleString()} tokens.`);
     if (policy.mode === 'off') text.push('Context token estimation is off.');
     text.push('This check covers attachments only. The question, workspace paths, and conversation history are checked when you send a message.');
