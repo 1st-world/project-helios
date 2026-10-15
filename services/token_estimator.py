@@ -56,7 +56,7 @@ def _encoding(path: str) -> tiktoken.Encoding | None:
 
 
 def text_tokens(text: str) -> int:
-    """Count the selected local encoding or use a labelled UTF-8 upper estimate."""
+    """Count the local encoding or use a UTF-8 byte heuristic without a model guarantee."""
     encoding = _encoding(str(settings.tokenizer_path.resolve()))
     if encoding:
         return len(encoding.encode_ordinary(text))
@@ -68,8 +68,17 @@ def estimation_method() -> str:
     return (
         "o200k_base_with_approximate_framing"
         if _encoding(str(settings.tokenizer_path.resolve()))
-        else "utf8_upper_estimate_with_approximate_framing"
+        else "utf8_byte_heuristic_with_approximate_framing"
     )
+
+
+def estimation_metadata(*, enabled: bool = True) -> dict:
+    """Describe local planning estimates without claiming deployment tokenizer compatibility."""
+    return {
+        "estimation_method": estimation_method() if enabled else "disabled",
+        "estimate_is_exact": False,
+        "estimate_is_model_specific": False if enabled else None,
+    }
 
 
 def main() -> None:

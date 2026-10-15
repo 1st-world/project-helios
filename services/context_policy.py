@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from models.profile import ConnectionProfile
 from services.context_budget import ContextBudget
-from services.token_estimator import estimation_method
+from services.token_estimator import estimation_metadata
 
 
 PREFLIGHT_MODES = {"warn", "block", "off"}
@@ -134,10 +134,7 @@ class ContextPolicy:
             "max_output_tokens": self.max_output_tokens,
             "declared_model_max_output_tokens": self.declared_model_max_output_tokens,
             "estimated_input_tokens": estimate,
-            "estimate_is_exact": False,
-            "estimation_method": (
-                estimation_method() if estimate is not None else "disabled"
-            ),
+            **estimation_metadata(enabled=estimate is not None),
             "visual_estimate_is_exact": False if visual_tokens else None,
             "budget_exceeded": exceeded,
             "declared_model_limit_exceeded": model_exceeded,

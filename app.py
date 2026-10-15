@@ -67,6 +67,7 @@ from services.provider_errors import ConnectionConfigurationError, ProviderFailu
 from services.settings_service import SettingsService, SettingsStorageError
 from services.summary_usage_store import SummaryUsageStore
 from services.usage_service import UsageService
+from services.token_estimator import estimation_metadata
 from services.workspace_service import WorkspaceAccessError, WorkspaceService
 
 settings.logs_root.mkdir(parents=True, exist_ok=True)
@@ -897,6 +898,9 @@ async def context_policy_settings(profile_id: str | None = None):
     """Expose effective estimate and local resource settings for future GUI integration."""
     policy = resolve_context_policy(profile_id)
     return {
+        **estimation_metadata(
+            enabled=policy.mode != "off" and policy.input_budget is not None,
+        ),
         "mode": policy.mode, "input_budget": policy.input_budget,
         "input_budget_source": policy.input_budget_source,
         "legacy_input_policy": policy.legacy_input_policy,
@@ -1207,6 +1211,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                 "mode": policy.mode,
                 "input_budget": policy.input_budget,
                 "declared_model_input_limit": policy.declared_model_input_limit,
+                **estimation_metadata(enabled=policy.mode != "off"),
             },
         ) from exc
     except ContextChangedError as exc:
@@ -1415,6 +1420,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                 "type": "error", "code": "context_preflight_blocked",
                 "category": "preflight",
                 "message": str(exc), "input_budget": policy.input_budget,
+                **estimation_metadata(enabled=policy.mode != "off"),
             }
             yield f"data: {json.dumps(error)}\n\n"
         except ContextWindowExceeded as exc:

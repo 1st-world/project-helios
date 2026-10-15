@@ -22,6 +22,7 @@ from services.context_budget import (
 from services.conversation_service import ConversationManager
 from services.prompt_builder import PromptBuilder
 from services.model_context import MemoryCapacity
+from services.token_estimator import estimation_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +175,7 @@ class ConversationMemoryService:
         elif state == "stopped":
             reason = "policy_changed"
         policy = {
+            **estimation_metadata(enabled=state == "ready"),
             "enabled": enabled, "state": state,
             "review_required": profile is not None and profile.memory_enabled is None,
             "reason": reason,

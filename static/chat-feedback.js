@@ -102,7 +102,7 @@ export function describeContextWarning(event, policy = null) {
     tokenLimit(policy?.estimated_input_tokens, 'Approximate input'),
     tokenLimit(policy?.input_budget, 'Selected input budget'),
     tokenLimit(policy?.declared_model_input_limit, 'Declared model input limit'),
-    'These are local estimates, not billed usage. Actual usage is shown with the response when available.',
+    'These are local estimates, not billed usage. Actual usage may differ.',
   ].filter(Boolean);
   return {
     title: 'Context estimate warning',

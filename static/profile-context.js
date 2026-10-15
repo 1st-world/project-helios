@@ -2,6 +2,7 @@
 
 import { $ } from './ui.js';
 import { describeRequestError } from './chat-feedback.js';
+import { describeEstimation } from './estimation.js';
 
 export function createProfileContext({ isSaving }) {
   const disclosure = $('#profile-context-settings');
@@ -103,8 +104,9 @@ export function createProfileContext({ isSaving }) {
         memory?.state === 'needs_info' ? planningHelp[memory.reason] || 'Check declared deployment capacity before using memory.' : '',
         memory?.input_only ? 'Shared context capacity is unverified; planning uses declared maximum input only.' : '',
         `Summary trigger: ${memory?.state === 'ready' && Number.isSafeInteger(memory.trigger_tokens) ? `${memory.trigger_tokens.toLocaleString()} tokens (${memory.mode === 'auto' ? 'Suggested automatic threshold' : 'Custom threshold'})` : 'Inactive'}.`,
-        memory?.state === 'ready' ? `Summary input per call: ${memory.summary_input_limit.toLocaleString()} tokens. Output planning headroom: ${memory.output_headroom === null ? 'Unverified' : `${memory.output_headroom.toLocaleString()} tokens (${headroomSources[memory.headroom_source] || 'Unverified'})`}.` : ''
-      ].join('\n');
+        memory?.state === 'ready' ? `Summary input per call: ${memory.summary_input_limit.toLocaleString()} tokens. Output planning headroom: ${memory.output_headroom === null ? 'Unverified' : `${memory.output_headroom.toLocaleString()} tokens (${headroomSources[memory.headroom_source] || 'Unverified'})`}.` : '',
+        describeEstimation(data) || (memory?.state === 'ready' ? describeEstimation(memory) : '')
+      ].filter(Boolean).join('\n');
       state.loaded = true;
     } catch (error) {
       if (error.name !== 'AbortError' && state.controller === controller) {
