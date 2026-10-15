@@ -88,6 +88,11 @@ class ContextPolicy:
                 raise ValueError("A custom input budget requires a positive token limit.")
         if legacy and declared is not None:
             selected = min(selected, declared) if selected is not None else declared
+        if (
+            legacy and profile_mode == "legacy"
+            and profile.legacy_input_boundary is not None
+        ):
+            selected = profile.legacy_input_boundary.input_limit
         if legacy:
             source = "legacy"
         return cls(

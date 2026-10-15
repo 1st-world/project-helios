@@ -21,7 +21,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -57,7 +57,9 @@ from services.folder_picker_service import (
 )
 from services.memory_service import ConversationMemoryService
 from services.prompt_builder import PromptBuilder
-from services.profile_service import ProfileNotFoundError, ProfileService
+from services.profile_service import (
+    ProfileNotFoundError, ProfileService, ProfileStorageError,
+)
 from services.settings_service import SettingsService, SettingsStorageError
 from services.summary_usage_store import SummaryUsageStore
 from services.usage_service import UsageService
@@ -89,7 +91,11 @@ settings_service = SettingsService(
     }),
 )
 application_settings = settings_service.current
-profile_service = ProfileService(settings.profiles_path)
+profile_service = ProfileService(
+    settings.profiles_path,
+    app_settings=(settings_service.migration_origin or settings_service.current)
+    if settings_service.source_exists else None,
+)
 conversation_manager = ConversationManager(settings.conversations_root)
 workspace_service = WorkspaceService(settings.workspace_root)
 attachment_service = AttachmentService(
@@ -487,6 +493,8 @@ async def create_profile(payload: CreateProfileRequest):
             long_cache_write_price_per_million=payload.long_cache_write_price_per_million,
             **{name: getattr(payload, name) for name in PROFILE_POLICY_FIELDS},
         )
+    except ProfileStorageError:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception:
@@ -532,6 +540,8 @@ async def update_profile(profile_id: str, payload: UpdateProfileRequest):
         )
     except ProfileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ProfileStorageError:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception:
@@ -541,6 +551,16 @@ async def update_profile(profile_id: str, payload: UpdateProfileRequest):
         )
     memory_service.invalidate_policy()
     return profile_service.get_summary()
+
+
+@app.exception_handler(ProfileStorageError)
+async def profile_storage_failure(_: Request, exc: ProfileStorageError):
+    """Report a failed or conflicting save without echoing connection data."""
+    conflict = exc.reason in {"conflict", "locked"}
+    return JSONResponse(status_code=409 if conflict else 500, content={"detail": {
+        "code": "profiles_storage_conflict" if conflict else "profiles_save_failed",
+        "message": str(exc),
+    }})
 
 
 @app.delete("/api/profiles/{profile_id}")
@@ -799,8 +819,12 @@ async def update_application_settings(payload: UpdateSettingsRequest):
         }) from exc
     except SettingsStorageError as exc:
         logger.exception("Could not save application settings")
-        raise HTTPException(status_code=500, detail={
-            "code": "settings_save_failed", "message": str(exc),
+        conflict = exc.reason in {"conflict", "locked"}
+        raise HTTPException(status_code=409 if conflict else 500, detail={
+            "code": (
+                "settings_storage_conflict" if conflict else "settings_save_failed"
+            ),
+            "message": str(exc),
         }) from exc
     # No await separates disk publication from the event-loop policy swap.
     new_memory.invalidate_policy()

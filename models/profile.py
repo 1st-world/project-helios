@@ -1,6 +1,7 @@
 """Represent Azure OpenAI connection settings and optional usage pricing."""
 
-from dataclasses import dataclass, field
+import math
+from dataclasses import asdict, dataclass, field
 from uuid import uuid4
 
 
@@ -17,6 +18,53 @@ CONTEXT_FIELDS = (
 )
 
 PROFILE_POLICY_FIELDS = (*CONTEXT_FIELDS, "memory_enabled")
+
+
+@dataclass(frozen=True)
+class LegacyInputBoundary:
+    """Retain the original effective input boundary separately from editable model facts."""
+
+    input_limit: int | None
+    declared_model_input_limit: int | None
+    app_output_token_limit: int | None
+    profile_output_token_limit: int | None
+    output_token_limit: int | None
+    app_input_limit: int | None
+    profile_input_budget: int | None
+
+    def __post_init__(self) -> None:
+        """Reject malformed historical boundaries without echoing stored values."""
+        for name, value in self.to_dict().items():
+            minimum = 0 if name in {
+                "input_limit", "declared_model_input_limit", "app_input_limit",
+            } else 1
+            if value is not None and (type(value) is not int or value < minimum):
+                raise ValueError("Invalid legacy input boundary.")
+        output = min(
+            (
+                value for value in (
+                    self.app_output_token_limit, self.profile_output_token_limit,
+                ) if value is not None
+            ),
+            default=None,
+        )
+        budget = (
+            self.profile_input_budget
+            if self.profile_input_budget is not None else self.app_input_limit
+        )
+        effective = min(
+            (
+                value for value in (budget, self.declared_model_input_limit)
+                if value is not None
+            ),
+            default=None,
+        )
+        if self.output_token_limit != output or self.input_limit != effective:
+            raise ValueError("Legacy input evidence is inconsistent.")
+
+    def to_dict(self) -> dict:
+        """Serialize policy evidence without including connection credentials."""
+        return asdict(self)
 
 
 def normalize_output_limit_settings(settings: dict) -> dict:
@@ -64,9 +112,32 @@ class ConnectionProfile:
     context_input_budget_mode: str | None = None
     memory_enabled: bool | None = False
     memory_output_headroom: int | None = None
+    legacy_input_boundary: LegacyInputBoundary | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         """Validate optional declarations and user limits without guessing from deployment names."""
+        for name in ("id", "name", "endpoint", "api_key", "deployment"):
+            if not isinstance(getattr(self, name), str):
+                raise ValueError("Connection fields must be strings.")
+        if not self.id.strip():
+            raise ValueError("Profile identifiers must not be empty.")
+        if self.legacy_input_boundary is not None and not isinstance(
+            self.legacy_input_boundary, LegacyInputBoundary,
+        ):
+            raise ValueError("Invalid legacy input boundary.")
+        for name in self.__dataclass_fields__:
+            if not name.endswith("price_per_million"):
+                continue
+            value = getattr(self, name)
+            if value is not None and (
+                type(value) not in {int, float} or not math.isfinite(value) or value < 0
+            ):
+                raise ValueError("Usage prices must be finite nonnegative numbers or null.")
+        if self.long_context_threshold is not None and (
+            type(self.long_context_threshold) is not int
+            or self.long_context_threshold < 1
+        ):
+            raise ValueError("The long-context threshold must be a positive integer or null.")
         if self.memory_enabled is not None and type(self.memory_enabled) is not bool:
             raise ValueError("Memory enabled must be a boolean or null for unreviewed settings.")
         if self.context_preflight_mode not in {None, "warn", "block", "off"}:

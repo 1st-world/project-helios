@@ -322,9 +322,20 @@ export function createProfiles({ isGenerating }) {
     refreshIcons();
   }
 
+  async function readProfileResponse(response, fallback) {
+    let data;
+    try { data = await response.json(); }
+    catch { throw new Error(`${fallback} (HTTP ${response.status})`); }
+    if (!response.ok) {
+      const feedback = describeRequestError(data, fallback, `HTTP ${response.status}`);
+      throw new Error([feedback.message, ...feedback.details].join('\n'));
+    }
+    return data;
+  }
+
   async function loadProfiles() {
     try {
-      const data = await fetch('/api/profiles').then((res) => res.json());
+      const data = await readProfileResponse(await fetch('/api/profiles'), 'Could not load connection profiles.');
       renderProfiles(data);
       health();
     } catch {
@@ -335,12 +346,13 @@ export function createProfiles({ isGenerating }) {
   async function switchActiveProfile(profileId) {
     if (isGenerating()) return;
     try {
-      const data = await fetch(`/api/profiles/${profileId}/active`, { method: 'POST' }).then((res) => res.json());
+      const data = await readProfileResponse(await fetch(`/api/profiles/${profileId}/active`, { method: 'POST' }), 'Could not switch active profile.');
       renderProfiles(data);
       health();
       toast('Active profile updated.', 'success');
-    } catch {
-      toast('Could not switch active profile.', 'error');
+    } catch (error) {
+      if ($('#profile-select')) $('#profile-select').value = state.activeProfileId || '';
+      toast(error.message || 'Could not switch active profile.', 'error');
     }
   }
 
@@ -526,12 +538,7 @@ export function createProfiles({ isGenerating }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
-        if (!response.ok) {
-          const err = await response.json();
-          const feedback = describeRequestError(err, 'Could not save profile.', `HTTP ${response.status}`);
-          throw new Error([feedback.message, ...feedback.details].join('\n'));
-        }
-        const data = await response.json();
+        const data = await readProfileResponse(response, 'Could not save profile.');
         $('#azure-api-key').value = '';
         renderProfiles(data);
         health();
@@ -560,8 +567,7 @@ export function createProfiles({ isGenerating }) {
         confirmLabel: 'Delete profile', danger: true,
         async onConfirm() {
           const response = await fetch(`/api/profiles/${editingId}`, { method: 'DELETE' });
-          if (!response.ok) throw new Error('Could not delete profile. Please try again.');
-          const data = await response.json();
+          const data = await readProfileResponse(response, 'Could not delete profile. Please try again.');
           renderProfiles(data);
           health();
           resetProfileForm();
