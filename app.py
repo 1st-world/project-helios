@@ -154,7 +154,9 @@ async def lifespan(_: FastAPI):
 # Serve WOFF2 consistently when the host does not register its MIME type.
 mimetypes.add_type("font/woff2", ".woff2")
 
-app = FastAPI(title="Helios BYOK AI Assistant", lifespan=lifespan)
+app = FastAPI(
+    title="Helios BYOK AI Assistant", version="0.1.0", lifespan=lifespan,
+)
 app.mount(
     "/static", StaticFiles(directory=settings.static_root), name="static"
 )

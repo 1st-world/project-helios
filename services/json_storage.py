@@ -14,7 +14,8 @@ else:
     import fcntl
 
 
-SCHEMA_VERSION = 1
+# String labels keep alpha revisions such as 0.1 and 0.10 distinct.
+SCHEMA_VERSION = "0.1"
 
 
 class JsonStorageError(RuntimeError):
@@ -60,7 +61,7 @@ class JsonDocumentStore:
         self.payload_key = payload_key
         self.max_bytes = max_bytes
         self.original: bytes | None = None
-        self.version: int | None = None
+        self.version: str | int | None = None
         self.payload: dict | None = None
         self.migration: dict | None = None
         try:
@@ -80,7 +81,7 @@ class JsonDocumentStore:
                 version, payload, migration = 0, document, None
             else:
                 version = document["schema_version"]
-                if type(version) is not int or version != SCHEMA_VERSION:
+                if not isinstance(version, str) or version != SCHEMA_VERSION:
                     raise JsonStorageError(
                         "The saved file uses an unsupported schema version.",
                         reason="unsupported_version",
