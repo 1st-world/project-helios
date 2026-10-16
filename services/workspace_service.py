@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from services.bounded_io import read_bounded
+from services.local_work import check_local_cancelled
 
 
 class WorkspaceAccessError(Exception):
@@ -34,6 +35,7 @@ class WorkspaceService:
 
     def _resolve(self, relative_path: str, *, root: Path | None = None) -> Path:
         """Resolve a relative path within the current or snapshotted workspace boundary."""
+        check_local_cancelled()
         candidate = Path(relative_path)
         if candidate.is_absolute():
             raise WorkspaceAccessError("Absolute paths are not allowed.")
@@ -49,31 +51,45 @@ class WorkspaceService:
 
     def tree(self) -> list[dict]:
         """Return a directory-first file tree, skipping inaccessible folders and escaping links."""
+        root = self.root
 
-        def walk(folder: Path) -> list[dict]:
+        def sort_key(path: Path) -> tuple[bool, str]:
+            """Check cancellation while collecting filesystem sort keys."""
+            check_local_cancelled()
+            return not path.is_dir(), path.name.lower()
+
+        def walk(folder: Path, ancestors: set[Path]) -> list[dict]:
             """Collect child entries recursively while enforcing the workspace boundary."""
             entries: list[dict] = []
+            check_local_cancelled()
             try:
                 children = sorted(
                     folder.iterdir(),
-                    key=lambda path: (not path.is_dir(), path.name.lower()),
+                    key=sort_key,
                 )
             except PermissionError:
                 return entries
             for child in children:
+                check_local_cancelled()
                 # Skip symlinks that resolve outside the workspace.
                 try:
-                    child.resolve().relative_to(self.root)
+                    resolved = child.resolve()
+                    resolved.relative_to(root)
                 except (ValueError, OSError):
                     continue
-                relative = child.relative_to(self.root).as_posix()
+                relative = child.relative_to(root).as_posix()
                 if child.is_dir():
+                    # Show ancestor links without recursing back into them.
+                    descendants = (
+                        [] if resolved in ancestors
+                        else walk(child, ancestors | {resolved})
+                    )
                     entries.append(
                         {
                             "name": child.name,
                             "path": relative,
                             "type": "directory",
-                            "children": walk(child),
+                            "children": descendants,
                         }
                     )
                 else:
@@ -82,7 +98,7 @@ class WorkspaceService:
                     )
             return entries
 
-        return walk(self.root)
+        return walk(root, {root})
 
     def read_text(self, relative_path: str, *, max_bytes: int | None = None) -> str:
         """Read an existing UTF-8 file after validating its workspace-relative path."""
@@ -100,7 +116,16 @@ class WorkspaceService:
                 return (
                     data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
                 )
-            return path.read_text(encoding="utf-8")
+            parts: list[str] = []
+            with path.open("r", encoding="utf-8") as source:
+                while True:
+                    check_local_cancelled()
+                    text = source.read(64 * 1024)
+                    check_local_cancelled()
+                    if not text:
+                        break
+                    parts.append(text)
+            return "".join(parts)
         except PermissionError:
             raise
         except UnicodeDecodeError as exc:
@@ -111,24 +136,26 @@ class WorkspaceService:
     def project_context(self, max_entries: int = 300) -> str:
         """Return a bounded project manifest for every AI request."""
         paths: list[str] = []
+        root = self.root
         try:
-            for path in self.root.rglob("*"):
+            for path in root.rglob("*"):
+                check_local_cancelled()
                 if len(paths) >= max_entries:
                     paths.append("... (additional paths omitted)")
                     break
                 try:
                     resolved = path.resolve()
-                    resolved.relative_to(self.root)
+                    resolved.relative_to(root)
                 except (OSError, ValueError):
                     continue
                 paths.append(
-                    path.relative_to(self.root).as_posix()
+                    path.relative_to(root).as_posix()
                     + ("/" if path.is_dir() else "")
                 )
         except OSError:
             paths.append("... (some workspace paths could not be read)")
         listing = "\n".join(paths) if paths else "(empty workspace)"
-        return f"Project workspace: {self.root}\nProject tree:\n{listing}"
+        return f"Project workspace: {root}\nProject tree:\n{listing}"
 
     def selected_context(
         self,
@@ -144,6 +171,7 @@ class WorkspaceService:
         sections: list[str] = []
         total = 0
         for relative_path in relative_paths:
+            check_local_cancelled()
             try:
                 resolved = self._resolve(relative_path)
                 if resolved in seen:

@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import mimetypes
+from copy import copy
 from contextlib import aclosing, asynccontextmanager
 from dataclasses import replace
 from datetime import date
@@ -59,6 +60,7 @@ from services.context_recovery import ContextRecoveryRegistry, RecoveryError
 from services.memory_service import (
     ConversationMemoryService, MemoryPolicyChangedError,
 )
+from services.local_work import check_local_cancelled, run_local
 from services.prompt_builder import PromptBuilder
 from services.profile_service import (
     ProfileNotFoundError, ProfileService, ProfileStorageError,
@@ -669,26 +671,83 @@ async def edit_message(
     return conversation.to_dict()
 
 
+async def until_disconnect(request, action, *args, **kwargs):
+    """Cancel preparation on disconnect and join its local workers before returning."""
+    if request is None:
+        return await action(*args, **kwargs)
+    result = None
+    failure = None
+    disconnected = False
+    async with anyio.create_task_group() as tasks:
+        async def watch_disconnect():
+            """Observe the consumed request body until preparation hands off the connection."""
+            nonlocal disconnected
+            while True:
+                event = await request.receive()
+                if event["type"] == "http.disconnect":
+                    disconnected = True
+                    tasks.cancel_scope.cancel()
+                    return
+
+        tasks.start_soon(watch_disconnect)
+        try:
+            await anyio.lowlevel.checkpoint()
+            result = await action(*args, **kwargs)
+            await anyio.lowlevel.checkpoint()
+        except Exception as exc:
+            failure = exc
+        finally:
+            tasks.cancel_scope.cancel()
+    if disconnected:
+        if isinstance(result, StreamingResponse):
+            await result.body_iterator.aclose()
+        raise HTTPException(status_code=499, detail="Request cancelled.")
+    if failure is not None:
+        raise failure
+    return result
+
+
+def require_workspace_root(root) -> None:
+    """Reject local results prepared for a workspace that is no longer selected."""
+    if workspace_service.root != root:
+        raise HTTPException(status_code=409, detail={
+            "code": "attachment_workspace_changed",
+            "message": "Workspace changed while preparing this request. Try again.",
+        })
+
+
 @app.get("/api/workspace")
-async def workspace_tree():
+async def workspace_tree(request: Request = None):
     """Return the configured workspace root and its accessible file tree."""
-    return {
-        "root": str(workspace_service.root),
-        "entries": workspace_service.tree(),
-    }
+    workspace = copy(workspace_service)
+    entries = await until_disconnect(request, run_local, workspace.tree)
+    require_workspace_root(workspace.root)
+    return {"root": str(workspace.root), "entries": entries}
 
 
 @app.put("/api/workspace/root")
-async def update_workspace_root(payload: WorkspaceRootRequest):
+async def update_workspace_root(
+    payload: WorkspaceRootRequest, request: Request = None
+):
     """Select an existing workspace folder and return its file tree."""
+    workspace = copy(workspace_service)
+    previous_root = workspace.root
+
+    def select_workspace():
+        """Validate and list a candidate without mutating the active workspace."""
+        workspace.set_root(payload.path)
+        return workspace.tree()
+
     try:
-        workspace_service.set_root(payload.path)
+        entries = await until_disconnect(request, run_local, select_workspace)
     except WorkspaceAccessError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    require_workspace_root(previous_root)
+    workspace_service.root = workspace.root
     logger.info("Workspace root changed to %s", workspace_service.root)
     return {
         "root": str(workspace_service.root),
-        "entries": workspace_service.tree(),
+        "entries": entries,
     }
 
 
@@ -765,12 +824,17 @@ async def workspace_picker(websocket: WebSocket, token: UUID):
 
 
 @app.post("/api/read-file")
-async def read_file(payload: ReadFileRequest):
+async def read_file(payload: ReadFileRequest, request: Request = None):
     """Read a workspace text file and translate access failures into HTTP errors."""
     try:
+        workspace = copy(workspace_service)
+        content = await until_disconnect(
+            request, run_local, workspace.read_text, payload.path,
+        )
+        require_workspace_root(workspace.root)
         return {
             "path": payload.path,
-            "content": workspace_service.read_text(payload.path),
+            "content": content,
         }
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="File not found.")
@@ -782,6 +846,8 @@ async def read_file(payload: ReadFileRequest):
     except WorkspaceAccessError as exc:
         logger.warning("Workspace access rejected: %s", payload.path)
         raise HTTPException(status_code=400, detail=str(exc))
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("Unexpected workspace read error")
         raise HTTPException(status_code=500, detail="Could not read file.")
@@ -916,20 +982,24 @@ async def context_policy_settings(profile_id: str | None = None):
 
 
 @app.post("/api/attachments/inspect")
-async def inspect_attachments(payload: AttachmentSelectionRequest):
+async def inspect_attachments(
+    payload: AttachmentSelectionRequest, request: Request = None
+):
     """Validate local attachments without provider calls or returning binary contents."""
-    request_attachments = attachment_service
+    request_attachments = copy(attachment_service)
+    request_attachments.workspace = copy(workspace_service)
     request_budget = context_budget
     request_settings = settings_service.current
     validate_selection_entries(payload.paths, request_attachments)
     try:
-        prepared = await anyio.to_thread.run_sync(
-            request_attachments.prepare, payload.paths
+        prepared = await until_disconnect(
+            request, run_local, request_attachments.prepare, payload.paths,
         )
     except AttachmentError as exc:
         raise HTTPException(
             status_code=exc.status_code, detail=exc.detail()
         ) from exc
+    require_workspace_root(request_attachments.workspace.root)
     policy = resolve_context_policy(
         payload.profile_id, payload.context_preflight_mode,
         payload.context_input_budget,
@@ -989,31 +1059,9 @@ async def chat(payload: ChatRequest, request: Request = None):
             conversation.id, ticket=ticket,
             operation_id=operation_id,
         )
-        if ticket is None or request is None:
-            return await prepare_chat(payload, conversation, operation)
-        response = None
-        failure = None
-        async with anyio.create_task_group() as tasks:
-            async def watch_disconnect():
-                """Cancel unsent paid recovery work when its authorizing client disconnects."""
-                while True:
-                    event = await request.receive()
-                    if event["type"] == "http.disconnect":
-                        tasks.cancel_scope.cancel()
-                        return
-
-            tasks.start_soon(watch_disconnect)
-            try:
-                response = await prepare_chat(payload, conversation, operation)
-            except Exception as exc:
-                failure = exc
-            finally:
-                tasks.cancel_scope.cancel()
-        if failure is not None:
-            raise failure
-        if response is None:
-            raise HTTPException(status_code=499, detail="Recovery request cancelled.")
-        return response
+        return await until_disconnect(
+            request, prepare_chat, payload, conversation, operation,
+        )
     except RecoveryError as exc:
         if operation is not None:
             operation.close()
@@ -1051,7 +1099,9 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
     data = ticket.data if ticket is not None else None
     request_ai = data["ai"] if data else ai_service
     request_memory = data["memory"] if data else memory_service
-    request_attachments = attachment_service
+    request_attachments = copy(attachment_service)
+    request_workspace = copy(workspace_service)
+    request_attachments.workspace = request_workspace
     request_budget = context_budget
     request_settings = settings_service.current
     validate_selection_entries(
@@ -1104,33 +1154,23 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
     if data:
         workspace_context, attachments = data["workspace_context"], data["attachments"]
     else:
-        workspace_root = workspace_service.root
-        workspace_context = workspace_service.project_context()
+        workspace_root = request_workspace.root
         selected_files = list(payload.workspace_files)
         if payload.workspace_file:
             selected_files.append(payload.workspace_file)
-        try:
+
+        def prepare_local_inputs():
+            """Build the manifest and selected input from one captured workspace root."""
+            workspace_context = request_workspace.project_context()
             attachments = (
-                await anyio.to_thread.run_sync(
-                    request_attachments.prepare, payload.attachment_files
-                ) if payload.attachment_files else PreparedAttachments()
+                request_attachments.prepare(payload.attachment_files)
+                if payload.attachment_files else PreparedAttachments()
             )
-            if workspace_service.root != workspace_root:
-                raise AttachmentError(
-                    "attachment_workspace_changed",
-                    "Workspace changed while reading attachments. Select the files again.",
-                    "", 409,
-                )
-        except AttachmentError as exc:
-            raise HTTPException(
-                status_code=exc.status_code, detail=exc.detail()
-            ) from exc
-        try:
             attached_paths = {
-                workspace_service._resolve(item["path"])
+                request_workspace._resolve(item["path"])
                 for item in attachments.metadata
             }
-            workspace_context += workspace_service.selected_context(
+            workspace_context += request_workspace.selected_context(
                 selected_files, exclude_paths=attached_paths,
                 max_file_bytes=min(
                     request_attachments.MAX_FILE_BYTES,
@@ -1143,16 +1183,18 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                 ),
                 max_files=request_attachments.MAX_FILES,
             )
+            check_local_cancelled()
+            return workspace_context, attachments
+
+        try:
+            workspace_context, attachments = await run_local(prepare_local_inputs)
+        except AttachmentError as exc:
+            raise HTTPException(
+                status_code=exc.status_code, detail=exc.detail()
+            ) from exc
         except WorkspaceAccessError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        if workspace_service.root != workspace_root:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "attachment_workspace_changed",
-                    "message": "Workspace changed while reading attachments. Select the files again.",
-                },
-            )
+        require_workspace_root(workspace_root)
     if (
         not conversation_manager.is_active(conversation)
         or conversation.messages is not request_messages
@@ -1267,6 +1309,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
 
     if pinned_profile is not None and isinstance(request_ai, AIService):
         request_ai = request_ai.with_profile(pinned_profile, prepare_reply=current_inputs)
+    await anyio.lowlevel.checkpoint()
     if payload.regenerate_message_index is None:
         user_message = conversation_manager.add_message(
             conversation, "user", user_prompt

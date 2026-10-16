@@ -24,6 +24,7 @@ from pypdf import PdfReader
 
 from models.app_settings import DEFAULT_APP_SETTINGS
 from services.bounded_io import read_bounded
+from services.local_work import check_local_cancelled
 from services.workspace_service import WorkspaceAccessError, WorkspaceService
 
 
@@ -135,6 +136,7 @@ class AttachmentService:
         seen: set[Path] = set()
         total = 0
         for supplied_path in paths:
+            check_local_cancelled()
             try:
                 path = self.workspace._resolve(supplied_path, root=root)
                 if path in seen:
@@ -179,6 +181,7 @@ class AttachmentService:
                     )
                 canonical = path.relative_to(root).as_posix()
                 parts, metadata, estimate = self._prepare_file(canonical, data)
+                check_local_cancelled()
             except AttachmentError:
                 raise
             except PermissionError as exc:
@@ -215,6 +218,7 @@ class AttachmentService:
         self, path: str, data: bytes
     ) -> tuple[list[dict], dict, int]:
         """Dispatch validated bytes without trusting the filename as proof of format."""
+        check_local_cancelled()
         extension = Path(path).suffix.lower()
         metadata = {"path": path, "size_bytes": len(data), "warnings": []}
         try:
@@ -340,6 +344,7 @@ class AttachmentService:
         size = 0
         with closing(sections):
             for text in sections:
+                check_local_cancelled()
                 size += len(text.encode("utf-8")) + bool(parts)
                 if size > self.MAX_TEXT_BYTES:
                     raise AttachmentError(
@@ -380,8 +385,10 @@ class AttachmentService:
                         415,
                     )
                 image.verify()
+            check_local_cancelled()
             with Image.open(BytesIO(data)) as image:
                 image.load()
+            check_local_cancelled()
         return (
             {
                 "type": "input_image",
@@ -411,13 +418,13 @@ class AttachmentService:
                 path,
                 413,
             )
-        estimate = sum(
-            self._visual_estimate(
+        estimate = 0
+        for page in reader.pages:
+            check_local_cancelled()
+            estimate += self._visual_estimate(
                 float(page.mediabox.width) * 2,
                 float(page.mediabox.height) * 2,
             )
-            for page in reader.pages
-        )
         return (
             {
                 "type": "input_file",
@@ -488,6 +495,7 @@ class AttachmentService:
                 yield block.text
         seen = set()
         for section in document.sections:
+            check_local_cancelled()
             for region in (section.header, section.footer):
                 if region.part.partname in seen:
                     continue
@@ -511,6 +519,7 @@ class AttachmentService:
         cells = 0
         try:
             for sheet in workbook.worksheets:
+                check_local_cancelled()
                 yield f"Sheet: {sheet.title}"
                 # The public row iterator pads gaps; inspect stored XML cells.
                 with sheet._get_source() as source:
@@ -521,6 +530,7 @@ class AttachmentService:
                         timedelta_formats=workbook._timedelta_formats,
                     )
                     for _, row in parser.parse():
+                        check_local_cancelled()
                         cells += len(row)
                         if cells > self.MAX_SHEET_CELLS:
                             raise AttachmentError(
@@ -545,6 +555,7 @@ class AttachmentService:
         def shape_text(shapes) -> Generator[str, None, None]:
             """Visit nested groups while preserving the slide's shape order."""
             for shape in shapes:
+                check_local_cancelled()
                 if hasattr(shape, "shapes"):
                     yield from shape_text(shape.shapes)
                 if shape.has_text_frame:
@@ -556,6 +567,7 @@ class AttachmentService:
                     )
 
         for number, slide in enumerate(presentation.slides, 1):
+            check_local_cancelled()
             yield f"Slide: {number}"
             yield from shape_text(slide.shapes)
             if slide.has_notes_slide and slide.notes_slide.notes_text_frame:
