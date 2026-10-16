@@ -1,4 +1,21 @@
-/* Describe approximate context warnings and structured request failures for the chat interface. */
+/* Describe shared context settings, memory states, and structured request feedback for the interface. */
+
+export const PREFLIGHT_HELP = {
+  warn: 'Warns when estimated input exceeds the selected limits and allows the request to continue.',
+  block: 'Stops requests when estimated input exceeds the selected limits.',
+  off: 'Skips input budget checks. Output limits, attachment checks, and memory settings still apply.'
+};
+
+export function describeMemoryState(policy) {
+  const states = {
+    ready: 'Ready · Enabled',
+    needs_info: 'Needs deployment information · Original history will be sent',
+    stopped: 'Stopped · Original history will be sent'
+  };
+  const status = states[policy?.state] || (policy?.reason === 'threshold_disabled'
+    ? 'Paused · Summary trigger is 0' : 'Off · Original history will be sent');
+  return `${status}${policy?.review_required ? ' · Review needed' : ''}`;
+}
 
 function cleanText(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -58,7 +75,7 @@ export function describeRequestError(payload, fallback = 'Request failed.', stat
 
   const code = cleanText(detail?.code);
   const blocked = code === 'context_preflight_blocked';
-  let title = (Object.hasOwn(PROVIDER_TITLES, code) ? PROVIDER_TITLES[code] : '') || (blocked ? 'Context preflight blocked'
+  let title = (Object.hasOwn(PROVIDER_TITLES, code) ? PROVIDER_TITLES[code] : '') || (blocked ? 'Input check blocked'
     : code === 'provider_context_length_exceeded' ? 'Provider context limit exceeded'
     : code === 'context_recovery_unavailable' ? 'One-time recovery unavailable'
     : code === 'conversation_request_in_progress' ? 'Conversation request in progress'
@@ -73,25 +90,27 @@ export function describeRequestError(payload, fallback = 'Request failed.', stat
     if (paths.length) details.push(`Selected attachments: ${paths.join(', ')}`);
   }
   if (blocked) {
-    details.push('The local preflight uses approximate estimates. This is not a confirmed rejection by the model.');
+    details.push('The input check uses local estimates. This is not a confirmed rejection by the model.');
     details.push(tokenLimit(detail.input_budget, 'Selected input budget'));
     details.push(tokenLimit(detail.declared_model_input_limit, 'Declared model input limit'));
   }
   if (code === 'provider_context_length_exceeded') {
-    details.push('The API provider confirmed that this request exceeds its context limit.');
     if (detail.recovery?.available === false && cleanText(detail.recovery.reason)) details.push(cleanText(detail.recovery.reason));
   }
   if (code.startsWith('provider_') || detail?.category === 'attachment') {
-    const httpStatus = Number.isInteger(detail.http_status) && detail.http_status >= 100 && detail.http_status <= 599 ? detail.http_status : 'Not provided';
-    const requestId = /^[A-Za-z0-9._-]{1,256}$/.test(cleanText(detail.request_id)) ? cleanText(detail.request_id) : 'Not provided';
+    const httpStatus = Number.isInteger(detail.http_status) && detail.http_status >= 100 && detail.http_status <= 599 ? detail.http_status : null;
+    const requestId = /^[A-Za-z0-9._-]{1,256}$/.test(cleanText(detail.request_id)) ? cleanText(detail.request_id) : '';
     const retry = typeof detail.retry_after_seconds === 'number' && Number.isFinite(detail.retry_after_seconds) && detail.retry_after_seconds >= 0
-      ? `${detail.retry_after_seconds.toLocaleString(undefined, { maximumFractionDigits: 3 })} seconds` : 'Not provided';
-    details.push(`Provider HTTP status: ${httpStatus}`, `Request ID: ${requestId}`, `Retry-after: ${retry}`);
+      ? `${detail.retry_after_seconds.toLocaleString(undefined, { maximumFractionDigits: 3 })} seconds` : '';
+    if (httpStatus !== null) details.push(`Provider HTTP status: ${httpStatus}`);
+    if (requestId) details.push(`Request ID: ${requestId}`);
+    if (retry) details.push(`Retry-after: ${retry}`);
     if (['failed', 'incomplete', 'cancelled', 'completed'].includes(detail.response_status)) details.push(`Provider response: ${detail.response_status}`);
     if (detail.phase === 'summary') details.push('The summary did not complete. No reply retry was started. Any recorded summary usage is retained.');
     details.push('No automatic retry was made.');
   }
-  if (status) details.push(status);
+  const statusAlreadyShown = status === `HTTP ${detail?.http_status}` && details.includes(`Provider HTTP status: ${detail?.http_status}`);
+  if (status && !statusAlreadyShown) details.push(status);
   return { title, message: message || fallback, details: details.filter(Boolean),
     actions: recoveryActions(code),
     ...(code === 'provider_context_length_exceeded' && detail.recovery?.available === true ? { recovery: detail.recovery } : {}) };
@@ -102,10 +121,10 @@ export function describeContextWarning(event, policy = null) {
     tokenLimit(policy?.estimated_input_tokens, 'Approximate input'),
     tokenLimit(policy?.input_budget, 'Selected input budget'),
     tokenLimit(policy?.declared_model_input_limit, 'Declared model input limit'),
-    'These are local estimates, not billed usage. Actual usage may differ.',
+    'Estimates may differ from provider-reported usage.',
   ].filter(Boolean);
   return {
-    title: 'Context estimate warning',
+    title: 'Input estimate warning',
     message: cleanText(event?.message) || 'The approximate input exceeds the selected input budget. Warning mode allows this request to continue.',
     details,
   };

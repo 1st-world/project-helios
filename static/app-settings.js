@@ -1,7 +1,7 @@
 /* Edit app-wide context and attachment policies while keeping saved enforcement limits separate from drafts. */
 
 import { $, toast } from './ui.js';
-import { describeRequestError } from './chat-feedback.js';
+import { PREFLIGHT_HELP, describeMemoryState, describeRequestError } from './chat-feedback.js';
 import { showActionDialog } from './dialogs.js';
 
 export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving }) {
@@ -11,11 +11,6 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   const resetLabels = new Map(resetButtons.map(button => [button, button.getAttribute('aria-label')]));
   const effectiveLabels = [...form.querySelectorAll('[data-effective-setting]')];
   const state = { saved: null, defaults: null, localLimits: null, summaryPolicy: null, resets: new Set(), loading: false, saving: false, controller: null, policyController: null, feedback: null };
-  const modeHelp = {
-    warn: 'Allows requests with estimated input-limit warnings. Warnings alone do not force history summaries.',
-    block: 'Rejects requests when input estimates exceed selected limits. Summaries follow the separate memory threshold.',
-    off: 'Skips admission estimates. Explicit output limits, attachment checks, and token-based memory summaries still apply.'
-  };
 
   function setStatus(message, type = 'info') {
     state.feedback = message ? { message, type } : null;
@@ -50,7 +45,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
         : state.saved && !available ? 'Effective limit unavailable.' : '';
       label.hidden = !label.textContent;
     }
-    $('#attachment-provider-limits').textContent = 'These limits protect local file processing. The provider validates its own attachment and model limits when you send a request.';
+    $('#attachment-provider-limits').textContent = 'Limits for local reading and extraction; the provider checks model capacity. Byte values are exact, and server ceilings may lower them. These limits do not guarantee memory use or processing time.';
   }
 
   function updateControls() {
@@ -59,6 +54,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     for (const input of fields.values()) input.disabled = busy || !state.saved;
     const inputMode = fields.get('context_input_budget_mode').value;
     fields.get('context_input_budget').disabled ||= inputMode !== 'custom';
+    fields.get('context_input_budget').closest('.settings-preference-row').hidden = inputMode !== 'custom';
     fields.get('context_input_budget_mode').querySelector('[value="legacy"]').hidden = state.saved?.context_input_budget_mode !== 'legacy';
     resetButtons.forEach(button => {
       const name = button.dataset.resetSetting;
@@ -71,22 +67,22 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     $('#discard-app-settings').disabled = busy || !hasUnsavedChanges();
     $('#save-app-settings').disabled = busy || !hasUnsavedChanges();
     $('#save-app-settings-label').textContent = state.saving ? 'Saving...' : 'Save changes';
-    $('#retry-app-settings').hidden = Boolean(state.saved) || state.loading;
     renderStatus();
-    $('#context-preflight-help').textContent = modeHelp[fields.get('context_preflight_mode').value] || 'How local input estimates affect requests.';
+    $('#context-preflight-help').textContent = PREFLIGHT_HELP[fields.get('context_preflight_mode').value] || 'How to handle estimates above the selected input limits.';
     const output = valueOf(fields.get('context_output_reserve'));
     const budget = inputMode === 'legacy' ? fields.get('context_token_budget').valueAsNumber - (output ?? 0) : valueOf(fields.get('context_input_budget'));
     const inputText = inputMode === 'unlimited' ? 'No input limit' : Number.isSafeInteger(budget) && budget >= 0 ? `${budget.toLocaleString()} tokens` : 'Enter a custom budget';
-    $('#app-input-budget').textContent = `Draft app input budget: ${inputText}. ${inputMode === 'legacy' ? 'Review needed: previous policies reserve the output limit and may apply declared model capacity. Choose No input limit or Custom budget to finish review. ' : ''}Output limit: ${output === null ? 'Provider default' : `${output.toLocaleString()} tokens`}.`;
+    $('#app-input-budget').textContent = `Draft input budget: ${inputText}.\nOutput limit: ${output === null ? 'Provider default' : `${output.toLocaleString()} tokens`}.`;
+    $('#app-input-policy-review').hidden = inputMode !== 'legacy';
     const trigger = valueOf(fields.get('summary_trigger_tokens'));
     const policy = state.summaryPolicy;
     $('#app-memory-status').textContent = policy?.state
-      ? `Saved active connection memory: ${policy.state === 'ready' ? 'Ready · Enabled' : policy.state === 'needs_info' ? 'Needs deployment information · Original history will be sent' : policy.reason === 'threshold_disabled' ? 'Paused · Summary trigger is 0' : 'Off · Original history will be sent'}${policy.review_required ? ' · Review needed' : ''}. Enable or disable memory in Connections.`
-      : 'Saved memory status is unavailable. Reopen Settings to retry.';
+      ? `Active profile (saved): ${describeMemoryState(policy)}.`
+      : 'Active profile memory is unavailable. Reopen Settings to retry.';
     $('#summary-trigger-tokens-help').textContent = trigger === null
-      ? `Suggested automatic threshold: 90% of declared input allowance. ${policy?.state === 'ready' && Number.isSafeInteger(policy.trigger_tokens) ? `Saved active threshold: ${policy.trigger_tokens.toLocaleString()} tokens.` : 'Requires enabled memory and deployment information in Connections.'}`
+      ? 'Blank uses 90% of the declared input allowance. Enter 0 to pause summaries.'
       : trigger === 0 ? 'Summaries are disabled. Requests use original conversation history.'
-      : 'Enabled, ready connections summarize above this estimate, including current input. Complete turns stay intact. Block checks the resulting input separately.';
+      : 'Summarizes above this input estimate when memory is ready. Enter 0 to pause summaries.';
     showAttachmentLimits();
   }
 
@@ -118,7 +114,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
       for (const values of [data?.settings, data?.defaults]) {
         const value = values?.[name];
         if (['context_output_reserve', 'summary_trigger_tokens', 'context_input_budget'].includes(name) && value === null) continue;
-        if (name === 'context_preflight_mode' ? !Object.hasOwn(modeHelp, value) : name === 'context_input_budget_mode' ? !['unlimited', 'custom', 'legacy'].includes(value) : !Number.isSafeInteger(value) || value < (name === 'summary_trigger_tokens' ? 0 : 1)) {
+        if (name === 'context_preflight_mode' ? !Object.hasOwn(PREFLIGHT_HELP, value) : name === 'context_input_budget_mode' ? !['unlimited', 'custom', 'legacy'].includes(value) : !Number.isSafeInteger(value) || value < (name === 'summary_trigger_tokens' ? 0 : 1)) {
           throw new Error('Could not read the saved settings. Reload Settings before editing.');
         }
       }
@@ -201,7 +197,10 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     clearValidation();
     setStatus('');
     updateControls();
-    if (restoreFocus) input.focus({ preventScroll: true });
+    if (restoreFocus) {
+      const target = name === 'context_input_budget' ? fields.get('context_input_budget_mode') : input;
+      target.focus({ preventScroll: true });
+    }
   }
 
   function validate() {
@@ -292,7 +291,6 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
       setStatus('');
       $('#settings-context-tab').focus({ preventScroll: true });
     };
-    $('#retry-app-settings').onclick = load;
     $('#settings-dialog').addEventListener('profile-save-state-change', updateControls);
     $('#settings-dialog').addEventListener('settings-panel-change', event => {
       if (event.detail.name === 'context') {

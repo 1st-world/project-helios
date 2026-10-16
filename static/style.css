@@ -1963,7 +1963,8 @@ textarea::placeholder {
 }
 .preferences-dialog .settings-group-body > .settings-preference-row:first-child,
 .preferences-dialog .settings-group-body > .font-settings:first-child .settings-preference-row:first-child,
-.preferences-dialog .settings-field-group > .settings-preference-row:first-child {
+.preferences-dialog .settings-field-group > .settings-preference-row:first-child,
+.preferences-dialog .settings-field-group > .settings-field-title + .settings-preference-row {
   /* Body padding supplies the outer spacing once; rows supply spacing toward adjacent content. */
   padding-top: 0;
 }
@@ -1995,7 +1996,38 @@ textarea::placeholder {
   margin-top: 0;
 }
 .preferences-dialog .settings-policy-summary .settings-policy-values {
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
   white-space: pre-line;
+}
+.preferences-dialog .settings-policy-summary > p + .settings-policy-values {
+  margin-top: 8px;
+}
+.preferences-dialog .settings-policy-summary .settings-policy-list {
+  margin: 0;
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+}
+.preferences-dialog .settings-policy-list > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+  gap: 12px;
+}
+.preferences-dialog .settings-policy-list > div + div {
+  margin-top: 8px;
+}
+.preferences-dialog .settings-policy-list dt,
+.preferences-dialog .settings-policy-list dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-sub);
+  overflow-wrap: anywhere;
+}
+.preferences-dialog .settings-policy-list dt {
+  font-weight: var(--font-weight-label);
+}
+.preferences-dialog .settings-policy-values > p {
+  margin: 8px 0 0;
 }
 .preferences-dialog .settings-policy-summary > button {
   margin-top: 8px;
@@ -2008,9 +2040,23 @@ textarea::placeholder {
   border: 0;
 }
 .preferences-dialog .settings-field-group + .settings-field-group {
-  margin-top: var(--settings-content-spacing);
-  padding-top: var(--settings-content-spacing);
-  border-top: 1px solid var(--border);
+  margin-top: calc(var(--settings-content-spacing) + 8px);
+}
+.preferences-dialog .settings-field-group > .settings-field-title {
+  display: flex;
+  align-items: center;
+  margin: 0 0 var(--settings-content-spacing);
+  gap: 12px;
+  color: var(--text-main);
+  font-weight: var(--font-weight-heading);
+  font-size: var(--font-size-title-group);
+  line-height: var(--line-height-heading);
+}
+.preferences-dialog .settings-field-group > .settings-field-title::after {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+  content: "";
 }
 
 /* Include padding and borders explicitly because native select line boxes differ from text inputs. */
@@ -2157,9 +2203,6 @@ textarea::placeholder {
 }
 .preferences-dialog .settings-editor-footer .settings-editor-status:empty {
   display: none;
-}
-.preferences-dialog .settings-editor-footer #retry-app-settings {
-  margin-bottom: 10px;
 }
 
 .conversation-usage .usage-details {
@@ -2329,6 +2372,9 @@ textarea::placeholder {
   padding: var(--settings-content-spacing) 0;
   gap: 20px;
   border-bottom: 1px solid var(--border);
+}
+.preferences-dialog .settings-editor-form .settings-preference-row[hidden] {
+  display: none;
 }
 .preferences-dialog .settings-preference-copy {
   flex: 1;

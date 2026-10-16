@@ -1,4 +1,4 @@
-<!doctype html>
+<!DOCTYPE html>
 <!-- Define the Helios assistant layout, dialogs, and frontend resource loading. -->
 <html lang="en">
 <head>
@@ -56,7 +56,7 @@
       <div class="empty-state">
         <span><i data-lucide="sparkles"></i></span>
         <h1>How can I help?</h1>
-        <p>Use your Azure OpenAI deployment to explore and work with local project files.</p>
+        <p>Use your Microsoft Foundry deployment to explore and work with local project files.</p>
       </div>
     </section>
 
@@ -156,7 +156,7 @@
       <button id="refresh-workspace" class="quiet sm-btn" type="button" aria-label="Refresh files" title="Refresh files"><i data-lucide="refresh-cw"></i><span>Refresh</span></button>
     </div>
     <div id="workspace-tree" class="workspace-tree modal-tree" aria-label="Workspace files"></div>
-    <p class="field-hint attachment-help">Select workspace files: UTF-8 text, PNG/JPEG/WEBP/static GIF, PDF, DOCX, XLSX, or PPTX. Images and PDFs are sent as originals; Office documents use text extraction. Check the selection before applying. Each attachment is included with every message until removed.</p>
+    <p class="field-hint attachment-help">Supports UTF-8 text, PNG, JPEG, WebP, static GIF, PDF, DOCX, XLSX, and PPTX. Images and PDFs are sent as originals; Office files contribute extracted text. Attachments stay included in each message until removed.</p>
     <section id="attachment-inspection" class="attachment-inspection" aria-labelledby="attachment-inspection-title" hidden>
       <h3 id="attachment-inspection-title">Selection check</h3>
       <p id="attachment-inspection-status" role="status"></p>
@@ -244,71 +244,72 @@
     <section id="settings-context" class="settings-panel settings-editor-panel" role="tabpanel" aria-labelledby="settings-context-tab" tabindex="0" hidden>
       <form id="app-settings-form" class="app-settings-form settings-editor-form" novalidate>
         <div class="settings-editor-body">
-          <div class="info-callout"><i data-lucide="info"></i><p>Context defaults can be overridden by a profile or request. Attachment limits apply app-wide. Saved changes affect new requests; running requests keep their settings.</p></div>
+          <div class="info-callout"><i data-lucide="info"></i><p>Defaults for all profiles. Saved changes apply to new requests; running requests keep their settings.</p></div>
           <section class="settings-group" aria-labelledby="context-input-title">
             <div class="settings-panel-heading"><h3 id="context-input-title">Input & output</h3></div>
             <div class="settings-group-body">
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><span id="context-preflight-mode-label" class="settings-preference-label">Context preflight</span><small id="context-preflight-help">How local input estimates affect requests.</small></div>
-                <div class="settings-preference-control">
-                  <button class="quiet settings-default-reset" type="button" data-reset-setting="context_preflight_mode" aria-label="Restore default context preflight" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                  <select id="context-preflight-mode" data-app-setting="context_preflight_mode" aria-describedby="context-preflight-help" required disabled aria-labelledby="context-preflight-mode-label"><option value="" disabled selected>Select a mode</option><option value="warn">Warn</option><option value="block">Block</option><option value="off">Off</option></select>
-                </div>
-              </div>
-              <div class="settings-preference-row">
-                <div class="settings-preference-copy"><span id="context-input-budget-mode-label" class="settings-preference-label">Input budget</span><small id="context-input-budget-mode-help">Choose a local token budget to control cost. Without a budget, the provider validates input capacity. Previous settings need review before switching policies.</small></div>
+                <div class="settings-preference-copy"><span id="context-input-budget-mode-label" class="settings-preference-label">Input budget</span><small id="context-input-budget-mode-help">Optional token budget for controlling input cost. With no budget, the provider checks input capacity.</small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="context_input_budget_mode" aria-label="Remove the input budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <select id="context-input-budget-mode" data-app-setting="context_input_budget_mode" aria-describedby="context-input-budget-mode-help" required disabled aria-labelledby="context-input-budget-mode-label"><option value="unlimited">No input limit</option><option value="custom">Custom budget</option><option value="legacy" hidden>Previous policy · Review needed</option></select>
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><span id="context-input-budget-label" class="settings-preference-label">Input estimate budget (tokens)</span><small id="context-input-budget-help">Used only with Custom budget. Warn allows larger inputs; Block rejects estimates above this value. Model declarations do not lower a custom budget.</small></div>
+                <div class="settings-preference-copy"><span id="context-input-budget-label" class="settings-preference-label">Input budget (tokens)</span><small id="context-input-budget-help">Estimated input tokens allowed by Custom budget. The input check below determines whether to warn or stop.</small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="context_input_budget" aria-label="Remove the input budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="context-input-budget" type="number" min="1" step="1" data-app-setting="context_input_budget" aria-describedby="context-input-budget-help" disabled aria-labelledby="context-input-budget-label">
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><span id="context-output-reserve-label" class="settings-preference-label">Output limit (tokens)</span><small id="context-output-reserve-help">Leave blank to use the provider default. A value limits output and reasoning for replies and summaries and may cut a response short.</small></div>
+                <div class="settings-preference-copy"><span id="context-preflight-mode-label" class="settings-preference-label">Input check</span><small id="context-preflight-help">How to handle estimates above the selected input limits.</small></div>
+                <div class="settings-preference-control">
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="context_preflight_mode" aria-label="Restore default input check" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <select id="context-preflight-mode" data-app-setting="context_preflight_mode" aria-describedby="context-preflight-help" required disabled aria-labelledby="context-preflight-mode-label"><option value="" disabled selected>Select a mode</option><option value="warn">Warn</option><option value="block">Block</option><option value="off">Off</option></select>
+                </div>
+              </div>
+              <div class="settings-preference-row">
+                <div class="settings-preference-copy"><span id="context-output-reserve-label" class="settings-preference-label">Output limit (tokens)</span><small id="context-output-reserve-help">Leave blank for the provider default. A value caps output, including reasoning, for replies and summaries.</small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="context_output_reserve" aria-label="Use the provider default output limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="context-output-reserve" type="number" min="1" step="1" placeholder="Provider default" data-app-setting="context_output_reserve" aria-describedby="context-output-reserve-help app-input-budget" disabled aria-labelledby="context-output-reserve-label">
                 </div>
               </div>
               <div class="settings-policy-summary">
-                <p id="app-input-budget" class="settings-policy-values">Draft input estimate budget, before profile or request overrides: —.</p>
+                <p id="app-input-budget" class="settings-policy-values">Draft input budget: —. Output limit: —.</p>
+                <p id="app-input-policy-review" hidden>Review needed: previous input rules also use the summary work budget and declared model capacity. Choose No input limit or Custom budget to finish review.</p>
               </div>
             </div>
           </section>
           <section class="settings-group" aria-labelledby="context-summary-title">
             <div class="settings-panel-heading"><h3 id="context-summary-title">Memory summaries</h3></div>
             <div class="settings-group-body">
-              <p class="field-hint">Memory is Off for new connections. Enable it per connection after checking deployment capacity. Each summary makes an additional paid API call and replaces older text in the request; original messages remain stored.</p>
-              <p id="app-memory-status" class="settings-policy-values" role="status">Saved connection memory: —.</p>
+              <p class="field-hint">Defaults for conversation memory, enabled per profile in Connections. Summaries make additional paid API calls and replace older request text; saved messages stay intact.</p>
+              <div class="settings-policy-summary"><p id="app-memory-status" class="settings-policy-values" role="status">Active profile memory: —.</p></div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><span id="context-token-budget-label" class="settings-preference-label">Summary work budget (tokens)</span><small id="context-token-budget-help">Maximum estimated input per summary call, within declared deployment capacity. Independent of chat input budgets and output limits. Previous input policies also use this value until reviewed.</small></div>
+                <div class="settings-preference-copy"><span id="context-token-budget-label" class="settings-preference-label">Summary work budget (tokens)</span><small id="context-token-budget-help">Maximum estimated input per summary call, within the declared deployment capacity. Separate from the chat input budget.</small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="context_token_budget" aria-label="Restore default summary work budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="context-token-budget" type="number" min="1024" step="1" data-app-setting="context_token_budget" aria-describedby="context-token-budget-help" required disabled aria-labelledby="context-token-budget-label">
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><span id="summary-trigger-tokens-label" class="settings-preference-label">Summary trigger (tokens)</span><small id="summary-trigger-tokens-help">Applies only to enabled, ready connections. Blank uses a suggested 90% threshold; 0 pauses memory and sends original history.</small></div>
+                <div class="settings-preference-copy"><span id="summary-trigger-tokens-label" class="settings-preference-label">Summary trigger (tokens)</span><small id="summary-trigger-tokens-help">Blank uses 90% of the declared input allowance. Enter 0 to pause summaries.</small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="summary_trigger_tokens" aria-label="Restore default summary token trigger" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="summary-trigger-tokens" type="number" min="0" step="1" placeholder="Automatic" data-app-setting="summary_trigger_tokens" aria-describedby="summary-trigger-tokens-help" disabled aria-labelledby="summary-trigger-tokens-label">
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><span id="keep-recent-tokens-label" class="settings-preference-label">Keep recent tokens</span><small id="keep-recent-tokens-help">Recent original text target. Complete turns stay intact; the newest completed turn may exceed this target.</small></div>
+                <div class="settings-preference-copy"><span id="keep-recent-tokens-label" class="settings-preference-label">Recent history target (tokens)</span><small id="keep-recent-tokens-help">Original history to retain when summarizing. Complete turns stay intact, so the newest turn may exceed this target.</small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="keep_recent_tokens" aria-label="Restore default recent token target" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="keep-recent-tokens" type="number" min="1" step="1" data-app-setting="keep_recent_tokens" aria-describedby="keep-recent-tokens-help" required disabled aria-labelledby="keep-recent-tokens-label">
                 </div>
               </div>
               <div class="settings-preference-row">
-                <div class="settings-preference-copy"><span id="max-summary-calls-label" class="settings-preference-label">Calls per summary job</span><small id="max-summary-calls-help">Maximum API calls allowed in one summary job.</small></div>
+                <div class="settings-preference-copy"><span id="max-summary-calls-label" class="settings-preference-label">Summary call limit</span><small id="max-summary-calls-help">Maximum paid API calls for one summary operation.</small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="max_summary_calls" aria-label="Restore default summary call budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="max-summary-calls" type="number" min="1" step="1" data-app-setting="max_summary_calls" aria-describedby="max-summary-calls-help" required disabled aria-labelledby="max-summary-calls-label">
@@ -319,7 +320,7 @@
           <details id="attachment-resource-settings" class="settings-group settings-attachment-resources settings-disclosure">
             <summary class="settings-disclosure-header"><h3 class="settings-disclosure-title">Attachment resource limits</h3><i data-lucide="chevron-down" class="settings-disclosure-chevron" aria-hidden="true"></i></summary>
             <div class="settings-disclosure-body settings-group-body">
-              <p class="settings-resource-note">Limits for local file reading and extraction, separate from model capacity. Byte values are exact. Server ceilings may lower these limits.</p>
+              <p id="attachment-provider-limits" class="settings-resource-note">Limits for local reading and extraction; the provider checks model capacity. Byte values are exact, and server ceilings may lower them. These limits do not guarantee memory use or processing time.</p>
               <div class="settings-preference-row">
                 <div class="settings-preference-copy"><span id="attachment-max-files-label" class="settings-preference-label">Attachments per selection</span><small id="attachment-max-files-help">Distinct files across all supported types.<span data-effective-setting="attachment_max_files" data-limit-key="MAX_FILES" data-unit="files" hidden></span></small></div>
                 <div class="settings-preference-control">
@@ -383,13 +384,11 @@
                   <input id="attachment-max-sheet-cells" type="number" min="1" step="1" data-app-setting="attachment_max_sheet_cells" aria-describedby="attachment-max-sheet-cells-help" required disabled aria-labelledby="attachment-max-sheet-cells-label">
                 </div>
               </div>
-              <p id="attachment-provider-limits" class="settings-resource-note">Saved provider limits are not loaded yet.</p>
             </div>
           </details>
         </div>
         <div class="settings-editor-footer">
           <p id="app-settings-status" class="settings-editor-status" role="status"></p>
-          <button id="retry-app-settings" class="quiet sm-btn" type="button" hidden>Retry loading</button>
           <div class="dialog-actions">
             <button id="restore-app-defaults" class="quiet settings-leading-action" type="button" title="Stage default context and attachment values; save to apply" aria-label="Restore defaults" disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i><span class="settings-action-label">Restore defaults</span></button>
             <div class="dialog-actions-right">
@@ -428,10 +427,10 @@
             <div class="settings-group-body profile-editor-fields">
               <input type="hidden" id="editing-profile-id" value="">
               <div class="form-grid-2">
-                <label>Profile name<input id="profile-name" required placeholder="e.g. EastUS GPT-6.1 Sol"></label>
-                <label>Deployment name<input id="azure-deployment" required placeholder="e.g. gpt-6.1-sol"></label>
+                <label>Profile name<input id="profile-name" required placeholder="e.g. Work deployment"></label>
+                <label>Deployment name<input id="azure-deployment" required placeholder="e.g. my-deployment"></label>
               </div>
-              <label>Azure endpoint<input id="azure-endpoint" type="url" required placeholder="https://your-resource.cognitiveservices.azure.com/"></label>
+              <label>Foundry endpoint<input id="azure-endpoint" type="url" required placeholder="https://your-resource.cognitiveservices.azure.com/"></label>
               <div class="profile-key-field">
                 <label for="azure-api-key">API key</label>
                 <div class="input-with-action">
@@ -444,84 +443,87 @@
               </div>
               <details id="profile-context-settings" class="profile-context-settings settings-disclosure settings-subgroup-disclosure">
                 <summary class="settings-disclosure-header">
-                  <h4 class="settings-disclosure-title"><i data-lucide="sliders-horizontal" aria-hidden="true"></i>Context policy & model limits</h4>
+                  <h4 class="settings-disclosure-title"><i data-lucide="sliders-horizontal" aria-hidden="true"></i>Context & memory</h4>
                   <i data-lucide="chevron-down" class="settings-disclosure-chevron" aria-hidden="true"></i>
                 </summary>
                 <div class="settings-disclosure-body">
-                  <p class="profile-context-note">Context options inherit app settings unless overridden. Blank model capacity declarations remain unknown; output limits are optional and separate from declared model capacity.</p>
-                  <div class="settings-field-group" role="group" aria-label="Memory activation">
+                  <p class="profile-context-note">Input and output settings inherit app defaults unless overridden. Use deployment information for memory planning; input and output budgets are set separately.</p>
+                  <div class="settings-field-group" role="group" aria-labelledby="profile-input-output-title">
+                    <h5 id="profile-input-output-title" class="settings-field-title">Input & output</h5>
                     <div class="settings-preference-row">
-                      <div class="settings-preference-copy"><span id="profile-memory-enabled-label" class="settings-preference-label">Conversation memory</span><small id="profile-memory-enabled-help">Off sends original history. On allows additional paid summary calls and uses their results in place of older request text when deployment information is ready. Saved originals remain available.</small></div>
-                      <div class="profile-context-control">
-                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="memory_enabled" title="Turn memory off" aria-label="Turn memory off" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                        <select id="profile-memory-enabled" data-profile-context="memory_enabled" aria-describedby="profile-memory-enabled-help" aria-labelledby="profile-memory-enabled-label"><option value="false">Off</option><option value="true">On · Additional API calls</option><option value="" hidden>Off · Review needed</option></select>
-                      </div>
-                    </div>
-                    <div class="settings-preference-row">
-                      <div class="settings-preference-copy"><span id="profile-memory-output-headroom-label" class="settings-preference-label">Summary output headroom (tokens)</span><small id="profile-memory-output-headroom-help">Planning allowance for output and reasoning; this does not set an API output cap. If blank, use an explicit output limit or declared maximum output. A context window requires headroom; maximum input alone can be used with shared capacity unverified.</small></div>
-                      <div class="profile-context-control">
-                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="memory_output_headroom" title="Clear summary planning headroom" aria-label="Clear summary planning headroom" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                        <input id="profile-memory-output-headroom" type="number" min="1" step="1" placeholder="From output settings" data-profile-context="memory_output_headroom" aria-describedby="profile-memory-output-headroom-help" aria-labelledby="profile-memory-output-headroom-label">
-                      </div>
-                    </div>
-                  </div>
-                  <div class="settings-field-group" role="group" aria-label="Context overrides">
-                    <div class="settings-preference-row">
-                      <div class="settings-preference-copy"><span id="profile-input-budget-mode-label" class="settings-preference-label">Input budget</span><small id="profile-input-budget-mode-help">Inherit the app budget, remove it for this connection, or choose a custom token budget. Previous policies retain their model capacity checks until reviewed.</small></div>
+                      <div class="settings-preference-copy"><span id="profile-input-budget-mode-label" class="settings-preference-label">Input budget</span><small id="profile-input-budget-mode-help">Use the app budget, remove it for this profile, or choose a custom token budget.</small></div>
                       <div class="profile-context-control">
                         <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_input_budget_mode" title="Use the app input budget" aria-label="Use the app input budget" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                         <select id="profile-input-budget-mode" data-profile-context="context_input_budget_mode" aria-describedby="profile-input-budget-mode-help" aria-labelledby="profile-input-budget-mode-label"><option value="inherit">Use app setting</option><option value="unlimited">No input limit</option><option value="custom">Custom budget</option><option value="legacy" hidden>Previous policy · Review needed</option></select>
                       </div>
                     </div>
                     <div class="settings-preference-row">
-                      <div class="settings-preference-copy"><span id="profile-context-preflight-label" class="settings-preference-label">Context preflight</span><small id="profile-context-preflight-help">Uses the app preflight mode. Any explicit output limit still applies.</small></div>
+                      <div class="settings-preference-copy"><span id="profile-context-input-budget-label" class="settings-preference-label">Input budget (tokens)</span><small id="profile-context-input-budget-help">Estimated input tokens allowed by Custom budget. The input check below determines whether to warn or stop.</small></div>
                       <div class="profile-context-control">
-                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_preflight_mode" title="Use the app preflight setting" aria-label="Use the app preflight setting" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                        <select id="profile-context-preflight" data-profile-context="context_preflight_mode" aria-describedby="profile-context-preflight-help" aria-labelledby="profile-context-preflight-label"><option value="">Use app setting</option><option value="warn">Warn</option><option value="block">Block</option><option value="off">Off</option></select>
-                      </div>
-                    </div>
-                    <div class="settings-preference-row">
-                      <div class="settings-preference-copy"><span id="profile-context-input-budget-label" class="settings-preference-label">Input estimate budget (tokens)</span><small id="profile-context-input-budget-help">Used with Custom budget. Model capacity declarations do not lower a custom budget.</small></div>
-                      <div class="profile-context-control">
-                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_input_budget" title="Use the app input allowance" aria-label="Use the app input allowance" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_input_budget" title="Use the app input budget" aria-label="Use the app input budget" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                         <input id="profile-context-input-budget" type="number" min="1" step="1" data-profile-context="context_input_budget" aria-describedby="profile-context-input-budget-help" aria-labelledby="profile-context-input-budget-label">
                       </div>
                     </div>
                     <div class="settings-preference-row">
-                      <div class="settings-preference-copy"><span id="profile-model-max-output-label" class="settings-preference-label">Profile output limit (tokens)</span><small id="profile-model-max-output-help">Optional output and reasoning limit. The smaller explicit app or profile value applies; leave both blank for the provider default.</small></div>
+                      <div class="settings-preference-copy"><span id="profile-context-preflight-label" class="settings-preference-label">Input check</span><small id="profile-context-preflight-help">Uses the input check selected in Context & attachments.</small></div>
+                      <div class="profile-context-control">
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_preflight_mode" title="Use the app input check" aria-label="Use the app input check" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <select id="profile-context-preflight" data-profile-context="context_preflight_mode" aria-describedby="profile-context-preflight-help" aria-labelledby="profile-context-preflight-label"><option value="">Use app setting</option><option value="warn">Warn</option><option value="block">Block</option><option value="off">Off</option></select>
+                      </div>
+                    </div>
+                    <div class="settings-preference-row">
+                      <div class="settings-preference-copy"><span id="profile-model-max-output-label" class="settings-preference-label">Output limit (tokens)</span><small id="profile-model-max-output-help">Caps output, including reasoning. The lower app or profile limit applies. Leave both blank for the provider default.</small></div>
                       <div class="profile-context-control">
                         <button class="quiet profile-context-reset" type="button" data-clear-profile-context="output_token_limit" title="Use the app or provider output setting" aria-label="Use the app or provider output setting" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                         <input id="profile-model-max-output" type="number" min="1" step="1" placeholder="Use app setting" data-profile-context="output_token_limit" aria-describedby="profile-model-max-output-help" aria-labelledby="profile-model-max-output-label">
                       </div>
                     </div>
                   </div>
-                  <div class="settings-field-group" role="group" aria-label="Model limits">
+                  <div class="settings-field-group" role="group" aria-labelledby="profile-deployment-info-title">
+                    <h5 id="profile-deployment-info-title" class="settings-field-title">Deployment information</h5>
                     <div class="settings-preference-row">
-                      <div class="settings-preference-copy"><span id="profile-model-context-window-label" class="settings-preference-label">Declared context window (tokens)</span><small id="profile-model-context-window-help">Combined input and output capacity. The displayed input allowance subtracts an explicit output limit. This declaration does not lower a custom input budget.</small></div>
+                      <div class="settings-preference-copy"><span id="profile-model-context-window-label" class="settings-preference-label">Declared context window (tokens)</span><small id="profile-model-context-window-help">Combined input and output capacity of this deployment. Memory planning subtracts output headroom.</small></div>
                       <div class="profile-context-control">
                         <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_context_window" title="Clear the context window declaration" aria-label="Clear the context window declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                         <input id="profile-model-context-window" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_context_window" aria-describedby="profile-model-context-window-help" aria-labelledby="profile-model-context-window-label">
                       </div>
                     </div>
                     <div class="settings-preference-row">
-                      <div class="settings-preference-copy"><span id="profile-model-max-input-label" class="settings-preference-label">Declared maximum input (tokens)</span><small id="profile-model-max-input-help">Deployment input capacity for memory planning and reference. This declaration does not impose an input budget; previous policies retain their capacity checks until reviewed.</small></div>
+                      <div class="settings-preference-copy"><span id="profile-model-max-input-label" class="settings-preference-label">Declared maximum input (tokens)</span><small id="profile-model-max-input-help">Independent input capacity for memory planning. If both capacities are provided, memory uses the smaller input allowance.</small></div>
                       <div class="profile-context-control">
                         <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_max_input_tokens" title="Clear the input limit declaration" aria-label="Clear the input limit declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                         <input id="profile-model-max-input" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_max_input_tokens" aria-describedby="profile-model-max-input-help" aria-labelledby="profile-model-max-input-label">
                       </div>
                     </div>
                     <div class="settings-preference-row">
-                      <div class="settings-preference-copy"><span id="profile-declared-model-max-output-label" class="settings-preference-label">Declared maximum output (tokens)</span><small id="profile-declared-model-max-output-help">Stores model capacity information only. This does not set an output limit; the provider determines what the deployment can generate.</small></div>
+                      <div class="settings-preference-copy"><span id="profile-declared-model-max-output-label" class="settings-preference-label">Declared maximum output (tokens)</span><small id="profile-declared-model-max-output-help">Output capacity of this deployment. Used as memory planning headroom when no headroom or output limit is set.</small></div>
                       <div class="profile-context-control">
                         <button class="quiet profile-context-reset" type="button" data-clear-profile-context="declared_model_max_output_tokens" title="Clear the output capacity declaration" aria-label="Clear the output capacity declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                         <input id="profile-declared-model-max-output" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="declared_model_max_output_tokens" aria-describedby="profile-declared-model-max-output-help" aria-labelledby="profile-declared-model-max-output-label">
                       </div>
                     </div>
                   </div>
+                  <div class="settings-field-group" role="group" aria-labelledby="profile-memory-title">
+                    <h5 id="profile-memory-title" class="settings-field-title">Memory summaries</h5>
+                    <div class="settings-preference-row">
+                      <div class="settings-preference-copy"><span id="profile-memory-enabled-label" class="settings-preference-label">Conversation memory</span><small id="profile-memory-enabled-help">Off sends original history. On permits paid summaries when deployment information is ready; saved messages stay intact.</small></div>
+                      <div class="profile-context-control">
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="memory_enabled" title="Turn memory off" aria-label="Turn memory off" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <select id="profile-memory-enabled" data-profile-context="memory_enabled" aria-describedby="profile-memory-enabled-help" aria-labelledby="profile-memory-enabled-label"><option value="false">Off</option><option value="true">On</option><option value="" hidden>Off · Review needed</option></select>
+                      </div>
+                    </div>
+                    <div class="settings-preference-row">
+                      <div class="settings-preference-copy"><span id="profile-memory-output-headroom-label" class="settings-preference-label">Summary output headroom (tokens)</span><small id="profile-memory-output-headroom-help">Output and reasoning allowance for planning, without capping API output. Blank uses an output limit or declared maximum output. Required when planning from a context window.</small></div>
+                      <div class="profile-context-control">
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="memory_output_headroom" title="Clear summary planning headroom" aria-label="Clear summary planning headroom" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <input id="profile-memory-output-headroom" type="number" min="1" step="1" placeholder="From output settings" data-profile-context="memory_output_headroom" aria-describedby="profile-memory-output-headroom-help" aria-labelledby="profile-memory-output-headroom-label">
+                      </div>
+                    </div>
+                  </div>
                   <div class="settings-policy-summary">
                     <h5>Saved effective policy</h5>
-                    <p>Profile overrides replace app defaults. Request overrides take priority. Values below exclude request overrides and unsaved edits.</p>
-                    <p id="profile-context-effective" class="settings-policy-values" role="status">Saved policy is not loaded.</p>
+                    <p>Saved settings for this profile, before request overrides. Unsaved edits are not included.</p>
+                    <div id="profile-context-effective" class="settings-policy-values" role="status">Saved policy is not loaded.</div>
                     <button id="profile-context-retry" class="quiet sm-btn" type="button" hidden>Retry loading policy</button>
                   </div>
                 </div>

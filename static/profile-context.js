@@ -1,7 +1,7 @@
 /* Edit independent profile context limits and model capacity declarations, and fetch their saved policy without provider calls. */
 
 import { $ } from './ui.js';
-import { describeRequestError } from './chat-feedback.js';
+import { PREFLIGHT_HELP, describeMemoryState, describeRequestError } from './chat-feedback.js';
 import { describeEstimation } from './estimation.js';
 
 export function createProfileContext({ isSaving }) {
@@ -9,11 +9,6 @@ export function createProfileContext({ isSaving }) {
   const fields = new Map([...disclosure.querySelectorAll('[data-profile-context]')].map(input => [input.dataset.profileContext, input]));
   const resets = [...disclosure.querySelectorAll('[data-clear-profile-context]')];
   const state = { profile: null, controller: null, loaded: false };
-  const modeHelp = {
-    warn: 'Allows requests with estimated input-limit warnings. Warnings alone do not force history summaries.',
-    block: 'Rejects requests when input estimates exceed selected limits. Summaries follow the separate memory threshold.',
-    off: 'Skips admission estimates. Explicit output limits, attachment checks, and token-based memory summaries still apply.'
-  };
 
   function savedValue(name) {
     if (name === 'memory_enabled') return state.profile ? state.profile[name] ?? null : false;
@@ -27,6 +22,7 @@ export function createProfileContext({ isSaving }) {
   function updateControls() {
     const budgetMode = fields.get('context_input_budget_mode').value;
     fields.get('context_input_budget').disabled = isSaving() || budgetMode !== 'custom';
+    fields.get('context_input_budget').closest('.settings-preference-row').hidden = budgetMode !== 'custom';
     fields.get('context_input_budget_mode').querySelector('[value="legacy"]').hidden = savedValue('context_input_budget_mode') !== 'legacy';
     fields.get('memory_enabled').querySelector('[value=""]').hidden = savedValue('memory_enabled') !== null;
     resets.forEach(button => {
@@ -36,8 +32,8 @@ export function createProfileContext({ isSaving }) {
       if (button.dataset.clearProfileContext === 'memory_enabled') button.hidden = input.value === 'false';
       button.disabled = isSaving() || button.hidden;
     });
-    $('#profile-context-preflight-help').textContent = modeHelp[fields.get('context_preflight_mode').value]
-      || 'Uses the app preflight mode. Any explicit output limit still applies.';
+    $('#profile-context-preflight-help').textContent = PREFLIGHT_HELP[fields.get('context_preflight_mode').value]
+      || 'Uses the input check selected in Context & attachments.';
   }
 
   function invalidate() {
@@ -92,21 +88,44 @@ export function createProfileContext({ isSaving }) {
         || (data.declared_model_input_limit !== null && (!Number.isSafeInteger(data.declared_model_input_limit) || data.declared_model_input_limit < 0))) {
         throw new Error('Could not read the saved effective policy.');
       }
-      $('#profile-context-effective').textContent = [
-        `Preflight: ${data.mode.charAt(0).toUpperCase() + data.mode.slice(1)}.`,
-        `Input estimate budget: ${data.input_budget === null ? 'No input limit' : `${data.input_budget.toLocaleString()} tokens`}.`,
-        `Input budget source: ${data.input_budget_source || 'Saved policy'}.`,
-        data.legacy_input_policy ? 'Review needed: previous input and model capacity limits are preserved. Choose an input budget policy to finish review.' : 'Model capacity declarations do not impose an input budget.',
-        `Declared input ceiling: ${data.declared_model_input_limit === null ? 'Unknown' : `${data.declared_model_input_limit.toLocaleString()} tokens`}.`,
-        `Declared maximum output: ${declaredOutput === null ? 'Unknown' : `${declaredOutput.toLocaleString()} tokens`}.`,
-        `Output limit: ${data.max_output_tokens === null ? 'Provider default' : `${data.max_output_tokens.toLocaleString()} tokens`}.`,
-        `Memory: ${memory?.state === 'ready' ? 'Ready · Enabled' : memory?.state === 'needs_info' ? 'Needs deployment information · Original history will be sent' : memory?.state === 'stopped' ? 'Stopped · Original history will be sent' : memory?.reason === 'threshold_disabled' ? 'Paused · Summary trigger is 0' : 'Off · Original history will be sent'}${memory?.review_required ? ' · Review needed' : ''}.`,
+      const values = [
+        ['Input budget', data.input_budget === null ? 'No input limit' : `${data.input_budget.toLocaleString()} tokens`],
+        ['Input budget source', { none: 'No budget', app: 'App setting', profile: 'Profile setting', request: 'Request setting', legacy: 'Previous policy' }[data.input_budget_source] || 'Saved policy'],
+        ['Input check', data.mode.charAt(0).toUpperCase() + data.mode.slice(1)],
+        ['Output limit', data.max_output_tokens === null ? 'Provider default' : `${data.max_output_tokens.toLocaleString()} tokens`],
+        ['Declared input ceiling', data.declared_model_input_limit === null ? 'Unknown' : `${data.declared_model_input_limit.toLocaleString()} tokens`],
+        ['Declared maximum output', declaredOutput === null ? 'Unknown' : `${declaredOutput.toLocaleString()} tokens`],
+        ['Memory', describeMemoryState(memory)],
+        ['Summary trigger', memory?.state === 'ready' && Number.isSafeInteger(memory.trigger_tokens) ? `${memory.trigger_tokens.toLocaleString()} tokens (${memory.mode === 'auto' ? 'Automatic' : 'Custom'})` : 'Inactive'],
+      ];
+      if (memory?.state === 'ready') values.push(
+        ['Summary input per call', `${memory.summary_input_limit.toLocaleString()} tokens`],
+        ['Output planning headroom', memory.output_headroom === null ? 'Unverified' : `${memory.output_headroom.toLocaleString()} tokens (${headroomSources[memory.headroom_source] || 'Unverified'})`]
+      );
+      const container = $('#profile-context-effective');
+      const list = document.createElement('dl');
+      list.className = 'settings-policy-list';
+      for (const [label, value] of values) {
+        const row = document.createElement('div');
+        const term = document.createElement('dt');
+        const description = document.createElement('dd');
+        term.textContent = `${label}: `;
+        description.textContent = value;
+        row.append(term, description);
+        list.append(row);
+      }
+      container.replaceChildren(list);
+      const notes = [
+        data.legacy_input_policy ? 'Review needed: previous input and model capacity limits are preserved. Choose an input budget policy to finish review.' : '',
         memory?.state === 'needs_info' ? planningHelp[memory.reason] || 'Check declared deployment capacity before using memory.' : '',
         memory?.input_only ? 'Shared context capacity is unverified; planning uses declared maximum input only.' : '',
-        `Summary trigger: ${memory?.state === 'ready' && Number.isSafeInteger(memory.trigger_tokens) ? `${memory.trigger_tokens.toLocaleString()} tokens (${memory.mode === 'auto' ? 'Suggested automatic threshold' : 'Custom threshold'})` : 'Inactive'}.`,
-        memory?.state === 'ready' ? `Summary input per call: ${memory.summary_input_limit.toLocaleString()} tokens. Output planning headroom: ${memory.output_headroom === null ? 'Unverified' : `${memory.output_headroom.toLocaleString()} tokens (${headroomSources[memory.headroom_source] || 'Unverified'})`}.` : '',
         describeEstimation(data) || (memory?.state === 'ready' ? describeEstimation(memory) : '')
-      ].filter(Boolean).join('\n');
+      ];
+      for (const note of notes.filter(Boolean)) {
+        const paragraph = document.createElement('p');
+        paragraph.textContent = note;
+        container.append(paragraph);
+      }
       state.loaded = true;
     } catch (error) {
       if (error.name !== 'AbortError' && state.controller === controller) {
@@ -162,7 +181,8 @@ export function createProfileContext({ isSaving }) {
           fields.get('context_input_budget').value = '';
         }
         input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.focus({ preventScroll: true });
+        const target = button.dataset.clearProfileContext === 'context_input_budget' ? fields.get('context_input_budget_mode') : input;
+        target.focus({ preventScroll: true });
       };
     });
     disclosure.addEventListener('toggle', load);

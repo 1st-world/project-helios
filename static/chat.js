@@ -63,7 +63,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     <div class="empty-state">
       <span><i data-lucide="sparkles"></i></span>
       <h1>How can I help?</h1>
-      <p>Use your Azure OpenAI deployment to explore and work with local project files.</p>
+      <p>Use your Microsoft Foundry deployment to explore and work with local project files.</p>
     </div>
   `;
 
