@@ -5,6 +5,8 @@ Keep binary payloads out of stored transcripts and expose metadata for future cl
 
 import base64
 import warnings
+from collections.abc import Generator
+from contextlib import closing
 from dataclasses import dataclass, field
 from io import BytesIO
 from math import ceil
@@ -21,6 +23,7 @@ from pptx import Presentation
 from pypdf import PdfReader
 
 from models.app_settings import DEFAULT_APP_SETTINGS
+from services.bounded_io import read_bounded
 from services.workspace_service import WorkspaceAccessError, WorkspaceService
 
 
@@ -54,7 +57,7 @@ class AttachmentService:
     """Read supported local files once, enforcing root, size, and parser limits."""
 
     # Defaults below are provisional desktop resource policies.
-    # Their safety has not been benchmarked across workloads or hardware.
+    # Workload samples do not establish safe bounds across hardware.
     # Model token capacity does not determine these parser-work limits.
     # Count every local file independently of provider image capacity.
     MAX_FILES = DEFAULT_APP_SETTINGS.attachment_max_files
@@ -64,7 +67,7 @@ class AttachmentService:
     MAX_FILE_BYTES = DEFAULT_APP_SETTINGS.attachment_max_file_bytes
     MAX_TOTAL_BYTES = DEFAULT_APP_SETTINGS.attachment_max_total_bytes
     # Bound text retained for tokenization and prompts, not model input tokens.
-    # The initial 4 MiB allocation policy has not been benchmarked.
+    # Parser allocations and raw input buffers have separate costs.
     MAX_TEXT_BYTES = DEFAULT_APP_SETTINGS.attachment_max_text_bytes
     # Bound Office ZIP expansion independently of compressed source size.
     # Byte and entry budgets are provisional parser-work limits.
@@ -159,8 +162,9 @@ class AttachmentService:
                     )
                 # Bound reads even if a file grows after stat().
                 with path.open("rb") as source:
-                    data = source.read(
-                        min(self.MAX_FILE_BYTES, self.MAX_TOTAL_BYTES - total) + 1
+                    data = read_bounded(
+                        source,
+                        min(self.MAX_FILE_BYTES, self.MAX_TOTAL_BYTES - total),
                     )
                 total += len(data)
                 if (
@@ -245,11 +249,12 @@ class AttachmentService:
             if extension in self.OFFICE_EXTENSIONS:
                 self._validate_zip(path, data)
                 if extension == ".docx":
-                    text = self._word(data)
+                    sections = self._word(data)
                 elif extension == ".xlsx":
-                    text = self._spreadsheet(path, data)
+                    sections = self._spreadsheet(path, data)
                 else:
-                    text = self._presentation(data)
+                    sections = self._presentation(data)
+                text = self._bounded_text(path, sections)
                 metadata.update(kind=extension[1:], delivery="extracted_text")
                 metadata["warnings"] = [
                     "Only document text, tables, and cell formulas are "
@@ -276,7 +281,7 @@ class AttachmentService:
                         415,
                     )
                 metadata.update(kind="text", delivery="text")
-            self._check_text(path, text)
+                self._check_text(path, text)
             return (
                 [
                     {
@@ -326,6 +331,25 @@ class AttachmentService:
                 path,
                 413,
             )
+
+    def _bounded_text(
+        self, path: str, sections: Generator[str, None, None]
+    ) -> str:
+        """Stop extraction before retaining over-budget text and close parser resources."""
+        parts: list[str] = []
+        size = 0
+        with closing(sections):
+            for text in sections:
+                size += len(text.encode("utf-8")) + bool(parts)
+                if size > self.MAX_TEXT_BYTES:
+                    raise AttachmentError(
+                        "attachment_text_too_large",
+                        f"Extracted text exceeds the local limit of {self.MAX_TEXT_BYTES} bytes.",
+                        path,
+                        413,
+                    )
+                parts.append(text)
+        return "\n".join(parts)
 
     def _image(self, path: str, data: bytes) -> tuple[dict, dict]:
         """Verify supported image data and reject animation or excessive dimensions."""
@@ -451,44 +475,43 @@ class AttachmentService:
             ) from exc
 
     @staticmethod
-    def _word(data: bytes) -> str:
+    def _word(data: bytes) -> Generator[str, None, None]:
         """Extract ordered Word body paragraphs, tables, headers, and footers."""
         document = Document(BytesIO(data))
-        sections = []
         for block in document.iter_inner_content():
             if isinstance(block, Table):
-                sections.extend(
+                yield from (
                     "\t".join(cell.text for cell in row.cells)
                     for row in block.rows
                 )
             else:
-                sections.append(block.text)
+                yield block.text
         seen = set()
         for section in document.sections:
             for region in (section.header, section.footer):
                 if region.part.partname in seen:
                     continue
                 seen.add(region.part.partname)
-                sections.extend(
+                yield from (
                     paragraph.text for paragraph in region.paragraphs
                 )
                 for table in region.tables:
-                    sections.extend(
+                    yield from (
                         "\t".join(cell.text for cell in row.cells)
                         for row in table.rows
                     )
-        return "\n".join(sections)
 
-    def _spreadsheet(self, path: str, data: bytes) -> str:
+    def _spreadsheet(
+        self, path: str, data: bytes
+    ) -> Generator[str, None, None]:
         """Extract labelled spreadsheet cells and formulas without running workbook code."""
         workbook = load_workbook(
             BytesIO(data), read_only=True, data_only=False, keep_links=False
         )
-        sections = []
         cells = 0
         try:
             for sheet in workbook.worksheets:
-                sections.append(f"Sheet: {sheet.title}")
+                yield f"Sheet: {sheet.title}"
                 # The public row iterator pads gaps; inspect stored XML cells.
                 with sheet._get_source() as source:
                     parser = WorkSheetParser(
@@ -510,36 +533,30 @@ class AttachmentService:
                             for cell in row if cell["value"] is not None
                         ]
                         if values:
-                            sections.append("\t".join(values))
+                            yield "\t".join(values)
         finally:
             workbook.close()
-        return "\n".join(sections)
 
     @staticmethod
-    def _presentation(data: bytes) -> str:
+    def _presentation(data: bytes) -> Generator[str, None, None]:
         """Extract slide text, tables, grouped shapes, and existing speaker notes."""
         presentation = Presentation(BytesIO(data))
 
-        def shape_text(shapes) -> list[str]:
+        def shape_text(shapes) -> Generator[str, None, None]:
             """Visit nested groups while preserving the slide's shape order."""
-            text = []
             for shape in shapes:
                 if hasattr(shape, "shapes"):
-                    text.extend(shape_text(shape.shapes))
+                    yield from shape_text(shape.shapes)
                 if shape.has_text_frame:
-                    text.append(shape.text_frame.text)
+                    yield shape.text_frame.text
                 if shape.has_table:
-                    text.extend(
+                    yield from (
                         "\t".join(cell.text for cell in row.cells)
                         for row in shape.table.rows
                     )
-            return text
 
-        sections = []
         for number, slide in enumerate(presentation.slides, 1):
-            sections.extend([f"Slide: {number}", *shape_text(slide.shapes)])
+            yield f"Slide: {number}"
+            yield from shape_text(slide.shapes)
             if slide.has_notes_slide and slide.notes_slide.notes_text_frame:
-                sections.append(
-                    "Notes: " + slide.notes_slide.notes_text_frame.text
-                )
-        return "\n".join(sections)
+                yield "Notes: " + slide.notes_slide.notes_text_frame.text

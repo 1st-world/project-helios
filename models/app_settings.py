@@ -17,7 +17,7 @@ class AppSettings:
     context_preflight_mode: str = "warn"
     context_input_budget_mode: str = "unlimited"
     context_input_budget: int | None = None
-    # Resource defaults are provisional policies without workload benchmarks.
+    # Resource defaults do not guarantee peak memory or latency across workloads.
     # Count every local file independently of provider image capacity.
     attachment_max_files: int = 50
     # Keep a provisional mixed-format raw-read budget of about 50 MB.

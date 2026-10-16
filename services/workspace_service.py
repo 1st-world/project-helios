@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from services.bounded_io import read_bounded
+
 
 class WorkspaceAccessError(Exception):
     """An attempted workspace operation was not safe or possible."""
@@ -90,7 +92,7 @@ class WorkspaceService:
         try:
             if max_bytes is not None:
                 with path.open("rb") as source:
-                    data = source.read(max_bytes + 1)
+                    data = read_bounded(source, max_bytes)
                 if len(data) > max_bytes:
                     raise WorkspaceAccessError(
                         f"Workspace text exceeds the local read limit of {max_bytes} bytes."
