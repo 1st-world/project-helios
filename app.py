@@ -163,7 +163,7 @@ async def lifespan(_: FastAPI):
 mimetypes.add_type("font/woff2", ".woff2")
 
 app = FastAPI(
-    title="Helios BYOK AI Assistant", version="0.1.0", lifespan=lifespan,
+    title="Helios BYOK AI Assistant", version="0.2.0", lifespan=lifespan,
 )
 app.mount(
     "/static", StaticFiles(directory=settings.static_root), name="static"
