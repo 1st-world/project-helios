@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 class Settings(AppSettings):
     """Keep project paths separate from preferences persisted in settings.json."""
 
-    tokenizer_path: Path = PROJECT_ROOT / "logs/tokenizers/o200k_base.tiktoken"
+    tokenizer_path: Path = PROJECT_ROOT / ".cache/tokenizers/o200k_base.tiktoken"
     workspace_root: Path = PROJECT_ROOT / "workspace"
     conversations_root: Path = PROJECT_ROOT / "conversation"
     logs_root: Path = PROJECT_ROOT / "logs"

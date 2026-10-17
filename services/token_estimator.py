@@ -1,6 +1,6 @@
 """Estimate text with optional local tokenizer assets without runtime downloads.
 
-An explicit setup command may download the public vocabulary; Azure is never called.
+An explicit setup command may download the public vocabulary.
 """
 
 import argparse
@@ -93,7 +93,7 @@ def main() -> None:
             raise ValueError("Tokenizer vocabulary integrity check failed.")
         settings.tokenizer_path.parent.mkdir(parents=True, exist_ok=True)
         settings.tokenizer_path.write_bytes(data)
-        print("Verified local tokenizer vocabulary installed; no Azure API calls.")
+        print("Local tokenizer vocabulary installed.")
 
 
 if __name__ == "__main__":

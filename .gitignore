@@ -43,6 +43,7 @@ logs/*
 !logs/.gitkeep
 .agents/*
 !.agents/.gitkeep
+.cache/
 settings.json
 profiles.json
 .helios-settings-*.tmp
