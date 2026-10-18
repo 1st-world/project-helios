@@ -6,12 +6,17 @@ import { attachmentIcon, attachmentSummary, attachmentWarnings } from './attachm
 import { describeRequestError } from './chat-feedback.js';
 
 export function createWorkspace({ getActiveProfileId }) {
+  // This bounds rendered rows per branch, without limiting file selection or model input.
+  const treePageSize = 200;
   const state = {
     workspaceFiles: [],
     workspaceRoot: null,
     workspaceRevision: null,
     workspaceSessionId: null,
     workspaceEntries: [],
+    workspaceFileCount: null,
+    workspaceController: null,
+    workspaceLoadingEntries: false,
     changingWorkspace: false,
     structureController: null,
     pendingFiles: [],
@@ -27,43 +32,79 @@ export function createWorkspace({ getActiveProfileId }) {
 
   const picker = createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot: () => state.workspaceRoot });
 
-  function renderTree(entries, parent, query = '') {
+  function* matchingFiles(entries, query) {
     for (const entry of entries) {
-      if (entry.type === 'directory') {
-        const group = document.createElement('details');
-        group.open = true;
-        const label = document.createElement('summary');
-        label.className = 'tree-entry tree-folder';
-        label.innerHTML = '<i data-lucide="folder"></i>';
-        const name = document.createElement('span');
-        name.textContent = entry.name;
-        label.append(name);
-        const children = document.createElement('div');
-        children.className = 'tree-children';
-        renderTree(entry.children || [], children, query);
-        if (!children.childElementCount) continue;
-        group.append(label, children);
-        parent.append(group);
-      } else if (!query || entry.path.toLowerCase().includes(query)) {
-        const row = document.createElement('button');
-        row.type = 'button';
-        row.className = 'tree-entry file';
-        row.dataset.path = entry.path;
-        row.title = entry.path;
-        row.setAttribute('aria-pressed', String(state.pendingFiles.includes(entry.path)));
-        row.classList.toggle('selected', state.pendingFiles.includes(entry.path));
-        row.disabled = state.attachingFile || state.generating;
-        row.innerHTML = `<i data-lucide="${attachmentIcon(entry.path)}"></i>`;
-        const name = document.createElement('span');
-        name.textContent = query ? entry.path : entry.name;
-        row.append(name);
-        row.onclick = () => toggleFile(entry.path);
-        parent.append(row);
-      }
+      if (entry.type === 'directory') yield* matchingFiles(entry.children || [], query);
+      else if (entry.path.toLowerCase().includes(query)) yield entry;
     }
   }
 
+  function renderTree(entries, parent, query = '') {
+    const iterator = query ? matchingFiles(entries, query) : entries[Symbol.iterator]();
+    let next = iterator.next();
+    let more = null;
+
+    function appendPage() {
+      if (!$('#file-dialog').open || state.attachingFile || state.generating) return;
+      const continueFocus = more === document.activeElement;
+      more?.remove();
+      const fragment = document.createDocumentFragment();
+      for (let count = 0; count < treePageSize && !next.done; count++) {
+        const entry = next.value;
+        next = iterator.next();
+        if (entry.type === 'directory') {
+          const group = document.createElement('details');
+          const label = document.createElement('summary');
+          label.className = 'tree-entry tree-folder';
+          label.innerHTML = '<i data-lucide="folder"></i>';
+          const name = document.createElement('span');
+          name.textContent = entry.name;
+          label.append(name);
+          const children = document.createElement('div');
+          children.className = 'tree-children';
+          group.addEventListener('toggle', () => {
+            if (!group.isConnected || !$('#file-dialog').open) return;
+            children.replaceChildren();
+            if (group.open) renderTree(entry.children || [], children);
+          });
+          group.append(label, children);
+          fragment.append(group);
+        } else {
+          const row = document.createElement('button');
+          row.type = 'button';
+          row.className = 'tree-entry file';
+          row.dataset.path = entry.path;
+          row.title = entry.path;
+          row.setAttribute('aria-pressed', String(state.pendingFiles.includes(entry.path)));
+          row.classList.toggle('selected', state.pendingFiles.includes(entry.path));
+          row.disabled = state.attachingFile || state.generating;
+          row.innerHTML = `<i data-lucide="${attachmentIcon(entry.path)}"></i>`;
+          const name = document.createElement('span');
+          name.textContent = query ? entry.path : entry.name;
+          row.append(name);
+          row.onclick = () => toggleFile(entry.path);
+          fragment.append(row);
+        }
+      }
+      if (!next.done) {
+        more = document.createElement('button');
+        more.type = 'button';
+        more.className = 'tree-entry tree-more';
+        more.textContent = 'Show more entries';
+        more.onclick = appendPage;
+        fragment.append(more);
+      }
+      const firstNewRow = fragment.querySelector('.tree-entry');
+      parent.append(fragment);
+      refreshIcons(parent);
+      if (continueFocus) firstNewRow?.focus();
+    }
+
+    appendPage();
+  }
+
   function renderFileList() {
+    if (!$('#file-dialog').open) return;
     const tree = $('#workspace-tree');
     tree.replaceChildren();
     const query = $('#file-search').value.trim().toLowerCase();
@@ -75,7 +116,6 @@ export function createWorkspace({ getActiveProfileId }) {
         : query ? 'No matching files. Try another name or path.' : 'No files in this folder. Choose another folder in Workspace settings.';
       tree.append(empty);
     }
-    refreshIcons();
   }
 
   function countFiles(entries) {
@@ -89,8 +129,9 @@ export function createWorkspace({ getActiveProfileId }) {
     state.workspaceRoot = data.root;
     state.workspaceRevision = revision;
     state.workspaceSessionId = sessionId;
-    state.workspaceEntries = Array.isArray(data.entries) ? data.entries : [];
     if (changed) {
+      state.workspaceEntries = [];
+      state.workspaceFileCount = null;
       clearFocusFiles();
       $('#workspace-structure-enabled').checked = false;
       $('#workspace-structure-path').value = '';
@@ -99,10 +140,13 @@ export function createWorkspace({ getActiveProfileId }) {
       $('#workspace-structure-absolute').checked = false;
       resetStructurePreview();
     }
+    if (data.entries_loaded !== false) {
+      state.workspaceEntries = Array.isArray(data.entries) ? data.entries : [];
+      state.workspaceFileCount = countFiles(state.workspaceEntries);
+    }
     const folderName = data.root?.split(/[/\\]/).filter(Boolean).pop() || 'No workspace';
-    const fileCount = countFiles(state.workspaceEntries);
     $('#workspace-folder-name').textContent = folderName;
-    $('#workspace-file-count').textContent = data.root ? `${fileCount} file${fileCount === 1 ? '' : 's'} · Structure off` : 'Optional · Chat without a folder';
+    $('#workspace-file-count').textContent = data.root ? 'Folder connected · Structure off' : 'Optional · Chat without a folder';
     $('#workspace-card').title = data.root ? `Manage workspace: ${data.root}` : 'Choose an optional workspace';
     $('#composer-workspace-name').textContent = folderName;
     $('#file-source-name').textContent = folderName;
@@ -112,9 +156,11 @@ export function createWorkspace({ getActiveProfileId }) {
       if (entry.type === 'file') paths.add(entry.path);
       if (entry.children) collect(entry.children);
     });
-    collect(state.workspaceEntries);
-    state.workspaceFiles = state.workspaceFiles.filter((path) => paths.has(path));
-    state.pendingFiles = state.pendingFiles.filter((path) => paths.has(path));
+    if (data.entries_loaded !== false) {
+      collect(state.workspaceEntries);
+      state.workspaceFiles = state.workspaceFiles.filter((path) => paths.has(path));
+      state.pendingFiles = state.pendingFiles.filter((path) => paths.has(path));
+    }
     for (const path of state.attachmentMetadata.keys()) {
       if (!state.workspaceFiles.includes(path)) state.attachmentMetadata.delete(path);
     }
@@ -125,24 +171,34 @@ export function createWorkspace({ getActiveProfileId }) {
     updateStructureControls();
   }
 
-  async function loadWorkspace() {
+  async function loadWorkspace({ includeEntries = false } = {}) {
     const request = ++state.workspaceRequest;
+    state.workspaceController?.abort();
+    const controller = new AbortController();
+    state.workspaceController = controller;
+    state.workspaceLoadingEntries = includeEntries;
     try {
-      const response = await fetch('/api/workspace');
+      const response = await fetch(includeEntries ? '/api/workspace' : '/api/workspace?include_entries=false', { signal: controller.signal });
       if (!response.ok) throw new Error('Could not load workspace.');
       const data = await response.json();
       if (request !== state.workspaceRequest) return;
       applyWorkspace(data);
-    } catch {
-      if (request !== state.workspaceRequest) return;
+    } catch (error) {
+      if (error.name === 'AbortError' || request !== state.workspaceRequest) return;
       $('#workspace-file-count').textContent = 'Folder unavailable';
       $('#composer-workspace-sub').textContent = 'Unavailable';
       $('#workspace-tree').textContent = 'Could not load files. Use Refresh to try again.';
       state.workspaceEntries = [];
+      state.workspaceFileCount = null;
       state.pendingFiles = [];
       invalidateInspection();
       updateSelection();
       toast('Could not load workspace.', 'error');
+    } finally {
+      if (state.workspaceController === controller) {
+        state.workspaceController = null;
+        state.workspaceLoadingEntries = false;
+      }
     }
   }
 
@@ -153,6 +209,7 @@ export function createWorkspace({ getActiveProfileId }) {
       row.setAttribute('aria-pressed', String(selected));
       row.disabled = state.attachingFile || state.generating;
     });
+    $('#workspace-tree').querySelectorAll('.tree-more').forEach((button) => { button.disabled = state.attachingFile || state.generating; });
     const count = state.pendingFiles.length;
     $('#selected-file-label').textContent = count ? `${count} file${count === 1 ? '' : 's'} selected` : 'No files selected';
     $('#selected-file-label').dataset.hasFile = String(count > 0);
@@ -203,7 +260,7 @@ export function createWorkspace({ getActiveProfileId }) {
       };
       bar.append(chip);
     }
-    refreshIcons();
+    refreshIcons(bar);
   }
 
   function clearFocusFiles() {
@@ -229,10 +286,10 @@ export function createWorkspace({ getActiveProfileId }) {
     state.pendingFiles = [...state.workspaceFiles];
     $('#file-search').value = '';
     updateSelection();
-    renderFileList();
+    $('#workspace-tree').textContent = state.workspaceRoot ? 'Loading files...' : 'No workspace selected.';
     $('#file-dialog').showModal();
     $('#file-search').focus();
-    await loadWorkspace();
+    await loadWorkspace({ includeEntries: true });
   }
 
   function setGenerating(value) {
@@ -296,8 +353,9 @@ export function createWorkspace({ getActiveProfileId }) {
     $('#workspace-context-chip').title = enabled ? 'Selected project structure is included with messages. Open Workspace to review the scope.'
       : 'Project structure is off. Open Workspace to choose a folder or structure scope.';
     if (connected) {
-      const count = countFiles(state.workspaceEntries);
-      $('#workspace-file-count').textContent = `${count} file${count === 1 ? '' : 's'} · Structure ${enabled ? 'on' : 'off'}`;
+      const count = state.workspaceFileCount;
+      const files = count === null ? 'Folder connected' : `${count} file${count === 1 ? '' : 's'}`;
+      $('#workspace-file-count').textContent = `${files} · Structure ${enabled ? 'on' : 'off'}`;
     }
   }
 
@@ -346,7 +404,7 @@ export function createWorkspace({ getActiveProfileId }) {
     try {
       const response = await fetch('/api/workspace/root', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path, workspace_revision: state.workspaceRevision ?? undefined, workspace_session_id: state.workspaceSessionId ?? undefined })
+        body: JSON.stringify({ path, workspace_revision: state.workspaceRevision ?? undefined, workspace_session_id: state.workspaceSessionId ?? undefined, include_entries: false })
       });
       const data = await response.json();
       if (!response.ok) {
@@ -531,6 +589,13 @@ export function createWorkspace({ getActiveProfileId }) {
       // Ignore a queued close event after the dialog has already reopened.
       if ($('#file-dialog').open) return;
       ++state.fileDialogVersion;
+      if (state.workspaceLoadingEntries) {
+        ++state.workspaceRequest;
+        state.workspaceController?.abort();
+        state.workspaceController = null;
+        state.workspaceLoadingEntries = false;
+      }
+      $('#workspace-tree').replaceChildren();
       invalidateInspection();
       updateSelection();
     });
@@ -538,7 +603,7 @@ export function createWorkspace({ getActiveProfileId }) {
     $('#refresh-workspace').onclick = () => {
       invalidateInspection();
       updateSelection();
-      loadWorkspace();
+      loadWorkspace({ includeEntries: true });
     };
 
     $('#workspace-form').onsubmit = async (event) => {

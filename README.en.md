@@ -132,6 +132,8 @@ The app starts and restarts with **no Workspace selected** and **project structu
 
 Use **Workspace** to select or disconnect a folder on the computer running the app. Browse opens a Tk folder dialog on that computer. If it is unavailable, enter an absolute path manually. All browsers connected to the same server process share the selected folder, and it is not retained after restart. If a task is using the folder, use **Stop** and wait for cleanup before changing or disconnecting it.
 
+Connecting a folder validates its path only. The file list is retrieved when you open or refresh **Attach**. Subfolders render when expanded, and long lists continue with **Show more entries**. Search covers the full file list; the display page size does not limit which files you can attach. Closing Attach cancels an unfinished listing request.
+
 Selecting a folder does not send its absolute host path, structure, or file contents to the model. Turn on structure sharing to choose a relative scope, depth, and maximum entry count, and preview what is included or omitted. The absolute path is included only when separately selected. With structure Off, explicitly attached files are still sent; paths already mentioned in saved conversation history or memory are not removed.
 
 File attachments currently require a selected Workspace and stay within its boundary. Use **Attach → select files → Check selection → Apply selection**. Attached files remain included with each message until removed. Changing or disconnecting the folder clears its selected files and inspection results. The selection check verifies local preparation, not model acceptance. Browser uploads independent of a Workspace and Explore project remain Planned.

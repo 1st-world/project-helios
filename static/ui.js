@@ -10,8 +10,14 @@ export function escapeHtml(value) {
   return div.innerHTML;
 }
 
-export function refreshIcons() {
-  if (window.lucide) window.lucide.createIcons({ attrs: { 'stroke-width': 1.8 } });
+export function refreshIcons(root = document) {
+  if (!window.lucide) return;
+  const pending = root.querySelectorAll('i[data-lucide]');
+  if (!pending.length) return;
+  // Lucide retains data-lucide on SVGs; mark only new placeholders for conversion.
+  pending.forEach((icon) => icon.setAttribute('data-helios-icon', icon.getAttribute('data-lucide')));
+  window.lucide.createIcons({ root, nameAttr: 'data-helios-icon', attrs: { 'stroke-width': 1.8 } });
+  root.querySelectorAll('svg[data-helios-icon]').forEach((icon) => icon.removeAttribute('data-helios-icon'));
 }
 
 let toastTimer = null;

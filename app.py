@@ -419,6 +419,7 @@ class WorkspaceRootRequest(BaseModel):
     path: str | None = Field(min_length=1, max_length=4096)
     workspace_revision: int | None = Field(default=None, ge=0, strict=True)
     workspace_session_id: str | None = Field(default=None, min_length=1, max_length=64)
+    include_entries: bool = Field(default=True, strict=True)
 
 
 class ProfileContextSettings(ContextRequestOptions):
@@ -790,14 +791,17 @@ def require_workspace_idle() -> None:
         })
 
 
-def workspace_payload(workspace: WorkspaceService, entries: list[dict]) -> dict:
+def workspace_payload(workspace: WorkspaceService, entries: list[dict] | None) -> dict:
     """Represent an unselected folder as null without a fallback path."""
-    return {
+    payload = {
         "root": str(workspace.root) if workspace.root is not None else None,
         "revision": workspace.revision,
         "session_id": workspace.session_id,
-        "entries": entries,
+        "entries": entries if entries is not None else [],
     }
+    if entries is None:
+        payload["entries_loaded"] = False
+    return payload
 
 
 def build_workspace_structure(
@@ -820,10 +824,13 @@ def chat_uses_workspace(payload: ChatRequest) -> bool:
 
 
 @app.get("/api/workspace")
-async def workspace_tree(request: Request = None):
-    """Return the configured workspace root and its accessible file tree."""
+async def workspace_tree(request: Request = None, include_entries: bool = True):
+    """Return folder metadata and list files only when the caller requests them."""
     workspace = copy(workspace_service)
-    entries = await until_disconnect(request, run_local, workspace.tree)
+    entries = (
+        await until_disconnect(request, run_local, workspace.tree)
+        if include_entries else None
+    )
     require_workspace_root(workspace.root, workspace.revision)
     return workspace_payload(workspace, entries)
 
@@ -840,9 +847,9 @@ async def update_workspace_root(
     previous_revision = workspace.revision
 
     def select_workspace():
-        """Validate and list a candidate without mutating the active workspace."""
+        """Validate a candidate and optionally list it before publishing its root."""
         workspace.set_root(payload.path)
-        return workspace.tree()
+        return workspace.tree() if payload.include_entries else None
 
     try:
         entries = await until_disconnect(request, run_local, select_workspace)
