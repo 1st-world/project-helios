@@ -23,6 +23,7 @@ from services.provider_errors import (
     ConnectionConfigurationError, ProviderFailure, provider_metadata,
     safe_identifier,
 )
+from services.response_outcome import ResponseAccumulator
 from services.summary_usage_store import SummaryUsageStore
 from services.usage_service import UsageService
 
@@ -279,6 +280,61 @@ class AIService:
         call_kind: str = "chat",
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Yield reply deltas, usage, and completion events, surfacing provider failures."""
+        events = self._stream_response(
+            instructions, input_messages, profile_id,
+            conversation_id=conversation_id, call_kind=call_kind,
+            text_only=True,
+        )
+        try:
+            async for event in events:
+                if event["type"] != "response":
+                    yield event
+        finally:
+            await events.aclose()
+
+    async def stream_response(
+        self,
+        instructions: str,
+        input_messages: list[dict],
+        profile_id: str | None = None,
+        *,
+        conversation_id: str | None = None,
+        call_kind: str = "chat",
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
+        parallel_tool_calls: bool | None = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Yield one transient outcome, deltas, and usage without running tools."""
+        options = {}
+        if tools is not None:
+            options["tools"] = tools
+        if tool_choice is not None:
+            options["tool_choice"] = tool_choice
+        if parallel_tool_calls is not None:
+            options["parallel_tool_calls"] = parallel_tool_calls
+        events = self._stream_response(
+            instructions, input_messages, profile_id,
+            conversation_id=conversation_id, call_kind=call_kind,
+            response_options=options,
+        )
+        try:
+            async for event in events:
+                yield event
+        finally:
+            await events.aclose()
+
+    async def _stream_response(
+        self,
+        instructions: str,
+        input_messages: list[dict],
+        profile_id: str | None = None,
+        *,
+        conversation_id: str | None = None,
+        call_kind: str = "chat",
+        text_only: bool = False,
+        response_options: dict | None = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Account for one SDK stream under the selected text policy."""
         client, profile = await self._get_client_and_profile(profile_id)
         profile = replace(profile)
         if self._prepare_reply is not None:
@@ -292,6 +348,8 @@ class AIService:
         stream = None
         transport = None
         has_text = False
+        accumulator = ResponseAccumulator()
+        outcome = None
 
         def usage_event(raw_usage: object | None) -> dict:
             """Normalize terminal usage against the profile snapshot used for this request."""
@@ -325,12 +383,14 @@ class AIService:
                 input=input_messages,
                 stream=True,
                 **self._output_options(profile),
+                **(response_options or {}),
             )
             transport = getattr(stream, "response", None)
             call.update(provider_metadata(
                 transport=transport, secrets=(profile.api_key, profile.endpoint),
             ))
             async for event in stream:
+                accumulator.observe(event)
                 if event.type == "response.created":
                     response_id = safe_identifier(
                         getattr(getattr(event, "response", None), "id", None),
@@ -355,6 +415,7 @@ class AIService:
                         ),
                         usage=usage_event(response_usage)["usage"],
                     )
+                    outcome = accumulator.finish(event.response, "completed")
                     # Completion is final, regardless of the transport lifetime.
                     break
                 elif event.type in {"response.failed", "response.incomplete"}:
@@ -379,6 +440,12 @@ class AIService:
                         **failure.record_details(),
                         usage=usage_event(raw_usage)["usage"],
                     )
+                    yield {
+                        "type": "response", "call_id": call["id"],
+                        "outcome": accumulator.finish(
+                            response, event.type.removeprefix("response."),
+                        ),
+                    }
                     if raw_usage is not None:
                         terminal_usage = usage_event(raw_usage)
                         terminal_usage["usage"] = call["usage"]
@@ -410,7 +477,7 @@ class AIService:
             final_usage = usage_event(response_usage)
             final_usage["usage"] = call["usage"]
             empty_failure = None
-            if not has_text:
+            if text_only and not has_text:
                 empty_failure = ProviderFailure(
                     "provider_response_empty", response_status="completed",
                     **provider_metadata(
@@ -419,6 +486,7 @@ class AIService:
                 )
                 call.update(empty_failure.record_details())
                 self._record_call(call)
+            yield {"type": "response", "call_id": call["id"], "outcome": outcome}
             yield final_usage
             if empty_failure is not None:
                 raise empty_failure
