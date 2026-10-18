@@ -55,6 +55,11 @@ class CallUsageStore:
             "CREATE TABLE IF NOT EXISTS usage_imports (id TEXT PRIMARY KEY);"
             "CREATE TABLE IF NOT EXISTS usage_metadata "
             "(key TEXT PRIMARY KEY, value TEXT NOT NULL);"
+            "CREATE TABLE IF NOT EXISTS usage_run_links "
+            "(call_id TEXT PRIMARY KEY REFERENCES usage_calls(id), "
+            "run_id TEXT NOT NULL);"
+            "CREATE INDEX IF NOT EXISTS usage_run_links_run "
+            "ON usage_run_links(run_id);"
         )
         now = utc_timestamp(datetime.now(timezone.utc))
         with self.connection:
@@ -132,6 +137,19 @@ class CallUsageStore:
         record["started_at"] = utc_timestamp(record.get("started_at"))
         record["recorded_at"] = utc_timestamp(datetime.now(timezone.utc))
         with self.connection:
+            run_id = record.get("run_id")
+            link = self.connection.execute(
+                "SELECT run_id FROM usage_run_links WHERE call_id=?",
+                (record["id"],),
+            ).fetchone()
+            if link is not None and run_id != link[0]:
+                raise ValueError("A call cannot change its work run.")
+            if link is None and run_id is not None:
+                existing = self.connection.execute(
+                    "SELECT data FROM usage_calls WHERE id=?", (record["id"],),
+                ).fetchone()
+                if existing is not None:
+                    raise ValueError("An existing call cannot acquire a work run.")
             cursor = self.connection.execute(
                 "INSERT INTO usage_calls VALUES (?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(id) DO UPDATE SET status=excluded.status, "
@@ -141,6 +159,11 @@ class CallUsageStore:
                  record["status"], record["started_at"], record["source"],
                  json.dumps(record, ensure_ascii=False, allow_nan=False)),
             )
+            if run_id is not None:
+                self.connection.execute(
+                    "INSERT OR IGNORE INTO usage_run_links VALUES (?, ?)",
+                    (record["id"], run_id),
+                )
         if cursor.rowcount:
             self.notify_changes(record.get("conversation_id"))
 
@@ -173,7 +196,7 @@ class CallUsageStore:
         """Preserve saved replies once, without importing their content or repricing them."""
         records = []
         for index, message in enumerate(conversation.messages):
-            if message.role != "assistant":
+            if message.role != "assistant" or getattr(message, "run_id", None):
                 continue
             data = message.to_dict()
             usage = {
@@ -194,6 +217,24 @@ class CallUsageStore:
                 "price_snapshot": None,
             })
         self._import(f"conversation:{conversation.id}", records)
+
+    def run_totals(
+        self, run_id: str, *, expected_call_ids: list[str],
+    ) -> dict:
+        """Aggregate actual call rows, disclosing missing rows and unknown usage."""
+        rows = [json.loads(raw) for (raw,) in self.connection.execute(
+            "SELECT usage_calls.data FROM usage_calls JOIN usage_run_links "
+            "ON usage_calls.id=usage_run_links.call_id WHERE run_id=?",
+            (run_id,),
+        )]
+        missing = sorted(set(expected_call_ids) - {row["id"] for row in rows})
+        return {
+            "run_id": run_id, "expected_calls": len(set(expected_call_ids)),
+            "missing_call_ids": missing,
+            "totals": self._coverage(self._totals(rows), bool(
+                missing or self.recording_errors or self.import_errors
+            )),
+        }
 
     def import_summaries(self, store: object) -> None:
         """Import old summary rows using call references to avoid live-row duplication."""

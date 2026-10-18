@@ -206,6 +206,12 @@ class ConversationMemoryService:
         """Expose activation and planning information without private connection data."""
         return self.capture_policy(profile_id).policy
 
+    def _prompt_builder(self, conversation_id: str | None) -> PromptBuilder:
+        """Resolve durable work context through the request's shared run store."""
+        return PromptBuilder(
+            getattr(self.ai_service, "work_run_store", None), conversation_id,
+        )
+
     @staticmethod
     def _fragment_end(text: str, offset: int, stop: int) -> int:
         """Prefer paragraph and fenced-block boundaries, then lines, before a character fallback."""
@@ -349,6 +355,10 @@ class ConversationMemoryService:
                 low = boundaries[-1]
             return candidate(low), low, 0
 
+        if message.run_id is not None:
+            raise ContextBudgetExceeded(
+                "A complete work context exceeds the summary input budget. Its call and result bundle was preserved. Increase the budget or retain the original context."
+            )
         # Split oversized API input without advancing coverage until the complete turn is summarized.
         low, high = 0, len(message.content) - offset - 1
         while low < high:
@@ -392,6 +402,11 @@ class ConversationMemoryService:
         snapshot: MemoryPolicySnapshot,
     ) -> str:
         """Summarize a history range within call limits, shrinking chunks on context rejection."""
+        history = [
+            *history[:start],
+            *self._prompt_builder(conversation.id).summary_messages(history[start:end]),
+            *history[end:],
+        ]
         offset = 0
         while start < end:
             self._check_version(conversation, version)
@@ -433,6 +448,7 @@ class ConversationMemoryService:
         self, history: list[Message], user_prompt: str, workspace_context: str,
         snapshot: MemoryPolicySnapshot, *, attachment_content=None,
         visual_tokens: int = 0, input_limit: int | None = None,
+        conversation_id: str | None = None,
     ) -> tuple[int, int]:
         """Reject irreducible fixed input before paying to summarize older complete turns."""
         if not snapshot.policy.get("one_shot") or snapshot.policy["state"] != "ready":
@@ -444,7 +460,7 @@ class ConversationMemoryService:
         target = snapshot.policy["capacity_input_limit"]
         if input_limit is not None:
             target = min(target, input_limit)
-        retained = PromptBuilder().build(
+        retained = self._prompt_builder(conversation_id).build(
             history[cutoff:], user_prompt, workspace_context,
             attachment_content=attachment_content,
         )
@@ -467,6 +483,7 @@ class ConversationMemoryService:
             history, user_prompt, workspace_context, summary_policy,
             attachment_content=attachment_content, visual_tokens=visual_tokens,
             input_limit=input_limit,
+            conversation_id=conversation.id,
         )
         async with self._exclusive(conversation.id):
             self._check_version(conversation, version)
@@ -477,7 +494,7 @@ class ConversationMemoryService:
             )
             self._check_version(conversation, version)
             self._check_policy(summary_policy)
-            builder = PromptBuilder()
+            builder = self._prompt_builder(conversation.id)
             inputs = builder.build(
                 history, user_prompt, workspace_context, summary, cutoff,
                 attachment_content=attachment_content,
@@ -511,7 +528,7 @@ class ConversationMemoryService:
         summary_policy: MemoryPolicySnapshot | None = None,
     ) -> tuple[str, list[dict]]:
         """Apply memory thresholds and enforce blocking without forcing history summaries."""
-        builder = PromptBuilder()
+        builder = self._prompt_builder(conversation.id)
         limit = (
             input_limit
             if input_limit is not None else self.context_budget.input_limit
@@ -732,7 +749,7 @@ class ConversationMemoryService:
         if not trigger:
             return
         history = [replace(message) for message in conversation.messages]
-        instructions, inputs = PromptBuilder().build(
+        instructions, inputs = self._prompt_builder(conversation.id).build(
             history, "", memory_summary=previous_summary,
             summarized_message_count=conversation.summarized_message_count,
         )

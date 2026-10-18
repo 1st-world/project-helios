@@ -1,5 +1,6 @@
 """Bound summary work and estimate text/visual input independently of provider admission."""
 
+import json
 from dataclasses import dataclass
 
 from models.app_settings import DEFAULT_APP_SETTINGS
@@ -55,12 +56,18 @@ class ContextBudget:
 
     @staticmethod
     def estimate(
-        instructions: str, inputs: list[dict], *, visual_tokens: int = 0
+        instructions: str, inputs: list[dict], *, visual_tokens: int = 0,
+        tools: list[dict] | None = None,
     ) -> int:
         """Estimate text and framing with supplied visual proxies, excluding encoded payloads."""
         estimate = 256 + text_tokens(instructions) + visual_tokens
+        if tools:
+            estimate += text_tokens(json.dumps(tools, ensure_ascii=False))
         has_visual = False
         for item in inputs:
+            if item.get("type") is not None:
+                estimate += 32 + text_tokens(json.dumps(item, ensure_ascii=False))
+                continue
             content = item["content"]
             if isinstance(content, str):
                 estimate += ContextBudget.message_tokens(item["role"], content)

@@ -1,6 +1,10 @@
 """Build reply and memory-summary inputs from conversation history and workspace context."""
 
+import json
+from dataclasses import replace
+
 from models.message import Message
+from services.work_run_store import WorkContextUnavailableError, WorkRunStore
 
 
 class PromptBuilder:
@@ -24,6 +28,38 @@ class PromptBuilder:
         "Update prior facts only when the transcript explicitly corrects or supersedes them. "
         "Write clear, concise Markdown bullet points."
     )
+
+    def __init__(
+        self, run_store: WorkRunStore | None = None,
+        conversation_id: str | None = None,
+    ) -> None:
+        """Bind optional durable work context without creating or executing runs."""
+        self.run_store = run_store
+        self.conversation_id = conversation_id
+
+    def _run_items(self, message: Message) -> list[dict]:
+        """Require original complete context instead of substituting current files."""
+        if self.run_store is None or self.conversation_id is None:
+            raise WorkContextUnavailableError("Saved work context is unavailable.")
+        return self.run_store.context(message.run_id, self.conversation_id)
+
+    def summary_messages(self, messages: list[Message]) -> list[Message]:
+        """Render completed work as indivisible summary data without opaque reasoning."""
+        result = []
+        for message in messages:
+            if message.run_id is None:
+                result.append(replace(message))
+                continue
+            items = [
+                item for item in self._run_items(message)
+                if item.get("type") != "reasoning"
+            ]
+            result.append(replace(
+                message, content="Completed work context (data):\n" + json.dumps(
+                    items, ensure_ascii=False, allow_nan=False,
+                ),
+            ))
+        return result
 
     @classmethod
     def build_memory(
@@ -70,10 +106,12 @@ class PromptBuilder:
             )
 
         recent_history = history[max(0, summarized_message_count) :]
-        messages = [
-            {"role": message.role, "content": message.content}
-            for message in recent_history
-        ]
+        messages = []
+        for message in recent_history:
+            if message.run_id is not None:
+                messages.extend(self._run_items(message))
+            else:
+                messages.append({"role": message.role, "content": message.content})
         content = user_prompt
         if attachment_content:
             content = [

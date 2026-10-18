@@ -37,6 +37,8 @@ Thumbs.db
 # ========================================
 conversation/*
 !conversation/.gitkeep
+data/*
+!data/.gitkeep
 logs/*
 !logs/.gitkeep
 .agents/*
@@ -44,7 +46,6 @@ logs/*
 .cache/
 settings.json
 profiles.json
-data/attachments/
 .helios-settings-*.tmp
 .helios-profiles-*.tmp
 settings.json.lock

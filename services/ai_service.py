@@ -23,9 +23,10 @@ from services.provider_errors import (
     ConnectionConfigurationError, ProviderFailure, provider_metadata,
     safe_identifier,
 )
-from services.response_outcome import ResponseAccumulator
+from services.response_outcome import ResponseAccumulator, ResponseOutcome
 from services.summary_usage_store import SummaryUsageStore
 from services.usage_service import UsageService
+from services.work_run_store import WorkRunStore
 
 logger = logging.getLogger(__name__)
 
@@ -56,11 +57,15 @@ class AIService:
         *,
         summary_usage_store: SummaryUsageStore | None = None,
         call_usage_store: CallUsageStore | None = None,
+        work_run_store: WorkRunStore | None = None,
         max_output_tokens: int | None = None,
     ) -> None:
         """Bind profile and usage services and initialize the client cache."""
         self.summary_usage_store = summary_usage_store or SummaryUsageStore()
         self.call_usage_store = call_usage_store or CallUsageStore()
+        self.work_run_store = work_run_store or WorkRunStore()
+        self._run_id: str | None = None
+        self._before_run_call: Callable[[], None] | None = None
         self.usage_service = usage_service
         self.profile_service = profile_service
         self._clients: dict[tuple[str, str, str], dict[str, Any]] = {}
@@ -126,7 +131,23 @@ class AIService:
             try:
                 self.summary_usage_store.close()
             finally:
-                self.call_usage_store.close()
+                try:
+                    self.call_usage_store.close()
+                finally:
+                    self.work_run_store.close()
+
+    def with_run(
+        self, run_id: str, *, before_call: Callable[[], None],
+    ) -> "AIService":
+        """Bind prepared run input and a per-call guard without replaying initial input."""
+        self.work_run_store.get(run_id)
+        if not callable(before_call):
+            raise ValueError("Work runs require a per-call permission guard.")
+        snapshot = copy(self)
+        snapshot._run_id = run_id
+        snapshot._before_run_call = before_call
+        snapshot._prepare_reply = None
+        return snapshot
 
     def _record_call(self, record: dict) -> None:
         """Keep accounting failures from repeating requests or discarding usable replies."""
@@ -162,10 +183,18 @@ class AIService:
                 )},
             },
         }
+        if self._run_id is not None and kind != "summary":
+            self.work_run_store.begin_call(
+                self._run_id, record["id"], conversation_id,
+            )
+            record["run_id"] = self._run_id
         self._record_call(record)
         return record
 
-    def _finish_call(self, record: dict, **details: object) -> None:
+    def _finish_call(
+        self, record: dict, *, tolerate_run_failure: bool = False,
+        **details: object,
+    ) -> None:
         """Finalize a call once, retaining provider results after consumer cancellation."""
         if record["status"] != "in_progress":
             return
@@ -178,6 +207,25 @@ class AIService:
             **details,
         )
         self._record_call(record)
+        if "run_id" in record:
+            try:
+                self.work_run_store.end_call(
+                    record["run_id"], record["id"], record["status"],
+                )
+            except Exception as exc:
+                logger.error(
+                    "Could not persist work run termination (call_id=%s, error_type=%s)",
+                    record["id"], type(exc).__name__,
+                )
+                if not tolerate_run_failure:
+                    raise RuntimeError("Work run state could not be saved.") from None
+
+    def _record_outcome(self, call: dict, outcome: ResponseOutcome) -> None:
+        """Persist protocol content only for an explicitly bound work run."""
+        if "run_id" in call:
+            self.work_run_store.record_outcome(
+                call["run_id"], call["id"], outcome,
+            )
 
     def _resolve_profile(
         self, profile_id: str | None = None
@@ -337,8 +385,10 @@ class AIService:
         """Account for one SDK stream under the selected text policy."""
         client, profile = await self._get_client_and_profile(profile_id)
         profile = replace(profile)
-        if self._prepare_reply is not None:
+        if self._prepare_reply is not None and self._run_id is None:
             instructions, input_messages = self._prepare_reply()
+        if self._before_run_call is not None:
+            self._before_run_call()
         if call_kind not in {"chat", "regeneration"}:
             raise ValueError("Unsupported reply call kind.")
         call = self._begin_call(profile, call_kind, conversation_id)
@@ -416,6 +466,7 @@ class AIService:
                         usage=usage_event(response_usage)["usage"],
                     )
                     outcome = accumulator.finish(event.response, "completed")
+                    self._record_outcome(call, outcome)
                     # Completion is final, regardless of the transport lifetime.
                     break
                 elif event.type in {"response.failed", "response.incomplete"}:
@@ -440,11 +491,13 @@ class AIService:
                         **failure.record_details(),
                         usage=usage_event(raw_usage)["usage"],
                     )
+                    outcome = accumulator.finish(
+                        response, event.type.removeprefix("response."),
+                    )
+                    self._record_outcome(call, outcome)
                     yield {
                         "type": "response", "call_id": call["id"],
-                        "outcome": accumulator.finish(
-                            response, event.type.removeprefix("response."),
-                        ),
+                        "outcome": outcome,
                     }
                     if raw_usage is not None:
                         terminal_usage = usage_event(raw_usage)
@@ -496,7 +549,8 @@ class AIService:
                 exc, profile, input_messages, transport=transport,
             )
             self._finish_call(
-                call, status="failed", **failure.record_details(),
+                call, status="failed", tolerate_run_failure=True,
+                **failure.record_details(),
             )
             logger.warning("Provider request failed (call_id=%s, code=%s, status=%s)", call["id"], failure.code, failure.http_status)
             raise failure from None
@@ -504,7 +558,7 @@ class AIService:
             logger.warning("Provider response failed (call_id=%s, code=%s)", call["id"], exc.code)
             raise
         except (asyncio.CancelledError, GeneratorExit):
-            self._finish_call(call, status="cancelled")
+            self._finish_call(call, status="cancelled", tolerate_run_failure=True)
             raise
         except Exception as exc:
             self._finish_call(call, status="failed")
@@ -531,7 +585,10 @@ class AIService:
         if self._before_summary is not None:
             self._before_summary()
         instructions, request = PromptBuilder.build_memory(
-            previous_summary, messages
+            previous_summary,
+            PromptBuilder(self.work_run_store, conversation_id).summary_messages(
+                messages,
+            ),
         )
         started = time.perf_counter()
         call = self._begin_call(profile, "summary", conversation_id)

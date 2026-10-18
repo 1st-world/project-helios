@@ -59,6 +59,7 @@ from services.conversation_service import (
 )
 from services.context_policy import ContextPolicy
 from services.call_usage_store import CallUsageStore
+from services.work_run_store import WorkRunStore
 from services.folder_picker_service import (
     FolderPickerService,
     PickerReconnectingError,
@@ -127,6 +128,9 @@ summary_usage_store = SummaryUsageStore(
     settings.logs_root / "summary_usage.sqlite3"
 )
 call_usage_store = CallUsageStore(settings.logs_root / "usage_calls.sqlite3")
+work_run_store = WorkRunStore(getattr(
+    settings, "work_runs_path", settings.profiles_path.parent / "data" / "work_runs.sqlite3",
+))
 try:
     call_usage_store.import_summaries(summary_usage_store)
 except Exception:
@@ -143,6 +147,7 @@ for stored_conversation in conversation_manager.list():
 ai_service = AIService(
     usage_service, profile_service, summary_usage_store=summary_usage_store,
     call_usage_store=call_usage_store,
+    work_run_store=work_run_store,
     max_output_tokens=application_settings.context_output_reserve,
 )
 context_budget = ContextBudget(
@@ -1532,11 +1537,12 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
         }
         if attachments.content else {}
     )
-    original_context = PromptBuilder().build(
-        [replace(message) for message in request_messages[:history_end]],
-        user_prompt, workspace_context, attachment_content=attachments.content or None,
-    )
     try:
+        original_context = PromptBuilder(work_run_store, conversation.id).build(
+            [replace(message) for message in request_messages[:history_end]],
+            user_prompt, workspace_context,
+            attachment_content=attachments.content or None,
+        )
         if data:
             instructions, input_messages = await request_memory.prepare_recovery(
                 conversation, user_prompt, workspace_context, profile_id,
@@ -1803,6 +1809,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                             policy.input_budget if policy.mode == "block" else None
                         ),
                         **attachment_options,
+                        conversation_id=conversation.id,
                     )
                     user_index = (
                         payload.regenerate_message_index

@@ -30,5 +30,10 @@ class Settings(AppSettings):
         """Retain reusable originals beside settings, independently of cache and logs."""
         return self.profiles_path.parent / "data" / "attachments"
 
+    @property
+    def work_runs_path(self) -> Path:
+        """Retain work context independently of caches and rotating logs."""
+        return self.profiles_path.parent / "data" / "work_runs.sqlite3"
+
 
 settings = Settings()

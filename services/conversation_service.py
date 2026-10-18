@@ -9,6 +9,7 @@ from uuid import UUID
 
 from models.conversation import Conversation
 from models.message import Message
+from services.work_run_store import WorkRunStore
 
 logger = logging.getLogger(__name__)
 
@@ -290,6 +291,7 @@ class ConversationManager:
         cost_status: str | None = None,
         provider_usage: dict | None = None,
         usage_call_id: str | None = None,
+        run_id: str | None = None,
         attachment_sources: "list[dict] | None" = None,
     ) -> Message:
         """Persist a new message and derive the initial title from the first user content."""
@@ -313,6 +315,7 @@ class ConversationManager:
             cost_status=cost_status,
             provider_usage=provider_usage,
             usage_call_id=usage_call_id,
+            run_id=run_id,
             attachment_sources=attachment_sources or [],
         )
         title = conversation.title
@@ -324,3 +327,24 @@ class ConversationManager:
             title=title,
         )
         return message
+
+    def adopt_run_reply(
+        self, conversation: Conversation, run_id: str, run_store: WorkRunStore, *,
+        expected_messages: "list[Message]",
+    ) -> Message:
+        """Adopt a final run answer only against its original conversation version."""
+        self._require_active(conversation)
+        run = run_store.get(run_id, conversation.id)
+        if (conversation.version != run["base_version"]
+                or conversation.messages is not expected_messages
+                or run["status"] != "ready"):
+            raise ValueError("Conversation or work run changed before adoption.")
+        answer = run_store.answer(run_id)
+        # A completed orphan is retained if the later JSON write fails or is interrupted.
+        run_store.finish(run_id, "completed")
+        if run["kind"] == "regeneration":
+            return self.replace_reply(
+                conversation, run["user_index"], answer,
+                expected_messages=expected_messages, run_id=run_id,
+            )
+        return self.add_message(conversation, "assistant", answer, run_id=run_id)

@@ -4,8 +4,11 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal
+from uuid import UUID
 
 from models.attachment import ATTACHMENT_REFERENCE_VERSION, ATTACHMENT_SOURCES
+
+RUN_REFERENCE_SCHEMA_VERSION = "0.1"
 
 
 @dataclass
@@ -34,6 +37,7 @@ class Message:
     cost_status: str | None = None
     provider_usage: dict | None = None
     usage_call_id: str | None = None
+    run_id: str | None = None
     attachment_sources: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -46,6 +50,9 @@ class Message:
         if self.attachment_sources:
             data["attachment_schema_version"] = ATTACHMENT_REFERENCE_VERSION
             data["attachment_sources"] = deepcopy(self.attachment_sources)
+        if self.run_id is not None:
+            data["run_schema_version"] = RUN_REFERENCE_SCHEMA_VERSION
+            data["run_id"] = self.run_id
         if self.profile_id is not None:
             data["profile_id"] = self.profile_id
         if self.profile_name is not None:
@@ -90,6 +97,13 @@ class Message:
             raise ValueError("Invalid message content.")
         created_at = datetime.fromisoformat(data["created_at"])
         cost = data.get("estimated_cost")
+        run_id = data.get("run_id")
+        if run_id is not None or "run_schema_version" in data:
+            if (data.get("run_schema_version") != RUN_REFERENCE_SCHEMA_VERSION
+                    or role != "assistant" or not isinstance(run_id, str)):
+                raise ValueError("Unsupported work run reference.")
+            if str(UUID(run_id)) != run_id:
+                raise ValueError("Invalid work run reference.")
         sources = data.get("attachment_sources", [])
         if (
             (sources or "attachment_schema_version" in data)
@@ -121,5 +135,6 @@ class Message:
             cost_status=data.get("cost_status"),
             provider_usage=deepcopy(data.get("provider_usage")),
             usage_call_id=data.get("usage_call_id"),
+            run_id=run_id,
             attachment_sources=sources,
         )
