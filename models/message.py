@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal
 
+from models.attachment import ATTACHMENT_REFERENCE_VERSION, ATTACHMENT_SOURCES
+
 
 @dataclass
 class Message:
@@ -32,6 +34,7 @@ class Message:
     cost_status: str | None = None
     provider_usage: dict | None = None
     usage_call_id: str | None = None
+    attachment_sources: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         """Serialize a message, omitting metadata that was not recorded."""
@@ -40,6 +43,9 @@ class Message:
             "content": self.content,
             "created_at": self.created_at.isoformat(),
         }
+        if self.attachment_sources:
+            data["attachment_schema_version"] = ATTACHMENT_REFERENCE_VERSION
+            data["attachment_sources"] = deepcopy(self.attachment_sources)
         if self.profile_id is not None:
             data["profile_id"] = self.profile_id
         if self.profile_name is not None:
@@ -84,6 +90,16 @@ class Message:
             raise ValueError("Invalid message content.")
         created_at = datetime.fromisoformat(data["created_at"])
         cost = data.get("estimated_cost")
+        sources = data.get("attachment_sources", [])
+        if (
+            (sources or "attachment_schema_version" in data)
+            and data.get("attachment_schema_version") != ATTACHMENT_REFERENCE_VERSION
+        ):
+            raise ValueError("Unsupported attachment reference schema.")
+        sources = [
+            source.model_dump(mode="json", exclude_none=True)
+            for source in ATTACHMENT_SOURCES.validate_python(sources)
+        ]
         return cls(
             role=role,
             content=content,
@@ -105,4 +121,5 @@ class Message:
             cost_status=data.get("cost_status"),
             provider_usage=deepcopy(data.get("provider_usage")),
             usage_call_id=data.get("usage_call_id"),
+            attachment_sources=sources,
         )

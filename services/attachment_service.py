@@ -1,9 +1,10 @@
-"""Validate workspace attachments and prepare bounded text or native visual inputs.
+"""Resolve workspace and uploaded sources into bounded text or native visual inputs.
 
 Keep binary payloads out of stored transcripts and expose metadata for future clients.
 """
 
 import base64
+import hashlib
 import warnings
 from collections.abc import Generator
 from contextlib import closing
@@ -23,26 +24,12 @@ from pptx import Presentation
 from pypdf import PdfReader
 
 from models.app_settings import DEFAULT_APP_SETTINGS
+from models.attachment import AttachmentSource, WorkspaceAttachment
+from services.attachment_errors import AttachmentError
+from services.attachment_store import AttachmentStore, StagedUpload
 from services.bounded_io import read_bounded
 from services.local_work import check_local_cancelled
 from services.workspace_service import WorkspaceAccessError, WorkspaceService
-
-
-class AttachmentError(ValueError):
-    """Describe a file-specific validation failure without exposing its contents."""
-
-    def __init__(
-        self, code: str, message: str, path: str, status_code: int = 400
-    ) -> None:
-        """Keep stable client error codes alongside a readable explanation."""
-        super().__init__(message)
-        self.code = code
-        self.path = path
-        self.status_code = status_code
-
-    def detail(self) -> dict:
-        """Return safe structured error information for an HTTP response."""
-        return {"code": self.code, "message": str(self), "path": self.path}
 
 
 @dataclass
@@ -114,10 +101,12 @@ class AttachmentService:
     }
 
     def __init__(
-        self, workspace: WorkspaceService, *, limits: dict | None = None
+        self, workspace: WorkspaceService, *, limits: dict | None = None,
+        store: AttachmentStore | None = None,
     ) -> None:
         """Use workspace boundaries and configurable local parser resource limits."""
         self.workspace = workspace
+        self.store = store
         for name, value in (limits or {}).items():
             if not name.startswith("MAX_") or not hasattr(self, name):
                 raise ValueError("Unknown attachment resource limit.")
@@ -130,89 +119,133 @@ class AttachmentService:
             )
 
     def prepare(self, paths: list[str]) -> PreparedAttachments:
-        """Validate an entire selection before returning any provider content."""
+        """Preserve the legacy workspace-relative selection interface."""
+        return self.prepare_sources([
+            WorkspaceAttachment(source="workspace", path=path) for path in paths
+        ])
+
+    def prepare_sources(self, sources: list[AttachmentSource]) -> PreparedAttachments:
+        """Resolve source permissions separately while sharing all parser and read limits."""
+        upload_ids = [
+            str(source.attachment_id) for source in sources if source.source == "upload"
+        ]
+        if upload_ids and self.store is None:
+            raise AttachmentError(
+                "attachment_source_missing", "Uploaded attachment storage is unavailable. Select the file again.", "", 410,
+            )
+        release = self.store.claim(upload_ids) if upload_ids else None
+        try:
+            return self._prepare_sources(sources)
+        finally:
+            if release is not None:
+                release()
+
+    def _prepare_sources(self, sources: list[AttachmentSource]) -> PreparedAttachments:
+        """Prepare an all-or-nothing selection against one captured workspace identity."""
         result = PreparedAttachments()
         root = self.workspace.root
-        seen: set[Path] = set()
+        seen: set[tuple[str, object]] = set()
         total = 0
-        for supplied_path in paths:
+        workspace_used = False
+        for source in sources:
             check_local_cancelled()
+            supplied_path = source.path if source.source == "workspace" else str(source.attachment_id)
             try:
-                path = self.workspace._resolve(supplied_path, root=root)
-                if path in seen:
+                expected = None
+                if source.source == "workspace":
+                    workspace_used = True
+                    if (
+                        source.workspace_revision is not None
+                        and source.workspace_revision != self.workspace.revision
+                        or source.workspace_session_id is not None
+                        and source.workspace_session_id != self.workspace.session_id
+                    ):
+                        raise AttachmentError(
+                            "attachment_workspace_changed", "Workspace selection changed. Select the file again.", supplied_path, 409,
+                        )
+                    path = self.workspace._resolve(source.path, root=root)
+                    name = path.relative_to(root).as_posix()
+                    key = ("workspace", path)
+                    reference = {
+                        "source": "workspace", "path": name,
+                        "workspace_revision": self.workspace.revision,
+                        "workspace_session_id": self.workspace.session_id,
+                    }
+                else:
+                    expected = self.store.get(str(source.attachment_id))
+                    path = self.store.root / f"{source.attachment_id}.blob"
+                    name = expected["filename"]
+                    key = ("upload", source.attachment_id)
+                    reference = expected["reference"]
+                if key in seen:
                     continue
                 if len(seen) >= self.MAX_FILES:
                     raise AttachmentError(
-                        "attachment_limit",
-                        f"Selection exceeds the local limit of {self.MAX_FILES} distinct attachments.",
-                        supplied_path, 413,
+                        "attachment_limit", f"Selection exceeds the local limit of {self.MAX_FILES} distinct attachments.", supplied_path, 413,
                     )
-                if not path.is_file():
-                    raise AttachmentError(
-                        "attachment_not_found",
-                        "Attachment file not found.",
-                        supplied_path,
-                        404,
-                    )
-                size = path.stat().st_size
-                if size > self.MAX_FILE_BYTES:
-                    raise AttachmentError(
-                        "attachment_too_large",
-                        f"Attachment exceeds the local read limit of {self.MAX_FILE_BYTES} bytes.",
-                        supplied_path,
-                        413,
-                    )
-                # Bound reads even if a file grows after stat().
-                with path.open("rb") as source:
-                    data = read_bounded(
-                        source,
-                        min(self.MAX_FILE_BYTES, self.MAX_TOTAL_BYTES - total),
-                    )
-                total += len(data)
-                if (
-                    len(data) > self.MAX_FILE_BYTES
-                    or total > self.MAX_TOTAL_BYTES
+                data = self._read_file(path, name, self.MAX_TOTAL_BYTES - total)
+                if expected is not None and (
+                    len(data) != expected["size_bytes"]
+                    or hashlib.sha256(data).hexdigest() != expected["sha256"]
                 ):
                     raise AttachmentError(
-                        "attachment_too_large",
-                        f"Attachments exceed the local combined read limit of {self.MAX_TOTAL_BYTES} bytes.",
-                        supplied_path,
-                        413,
+                        "attachment_source_damaged", "The uploaded original changed or is damaged. Select the file again.", supplied_path, 410,
                     )
-                canonical = path.relative_to(root).as_posix()
-                parts, metadata, estimate = self._prepare_file(canonical, data)
+                total += len(data)
+                parts, metadata, estimate = self._prepare_file(name, data)
+                metadata.update(source=source.source, reference=reference)
+                if source.source == "upload":
+                    parts.insert(0, {
+                        "type": "input_text",
+                        "text": f"Uploaded attachment {source.attachment_id}: {name}",
+                    })
                 check_local_cancelled()
             except AttachmentError:
                 raise
             except PermissionError as exc:
                 raise AttachmentError(
-                    "attachment_permission_denied",
-                    "Cannot read this attachment.",
-                    supplied_path,
-                    403,
+                    "attachment_permission_denied", "Cannot read this attachment.", supplied_path, 403,
                 ) from exc
             except WorkspaceAccessError as exc:
                 raise AttachmentError(
-                    "attachment_path_invalid", str(exc), supplied_path
+                    "attachment_path_invalid", str(exc), supplied_path,
                 ) from exc
             except OSError as exc:
                 raise AttachmentError(
-                    "attachment_unavailable",
-                    "Attachment could not be read. Select it again.",
-                    supplied_path,
+                    "attachment_unavailable", "Attachment could not be read. Select it again.", supplied_path,
                 ) from exc
-            seen.add(path)
+            seen.add(key)
             result.content.extend(parts)
             result.metadata.append(metadata)
             result.visual_tokens += estimate
-        if self.workspace.root != root:
+        if workspace_used and self.workspace.root != root:
             raise AttachmentError(
-                "attachment_workspace_changed",
-                "Workspace changed while reading attachments. Select the files again.",
-                "",
-                409,
+                "attachment_workspace_changed", "Workspace changed while reading attachments. Select the files again.", "", 409,
             )
         return result
+
+    def _read_file(self, path: Path, name: str, remaining: int) -> bytes:
+        """Bound a source read even if the original grows after its size was checked."""
+        if not path.is_file():
+            raise AttachmentError("attachment_not_found", "Attachment file not found.", name, 404)
+        if path.stat().st_size > self.MAX_FILE_BYTES:
+            raise AttachmentError(
+                "attachment_too_large", f"Attachment exceeds the local read limit of {self.MAX_FILE_BYTES} bytes.", name, 413,
+            )
+        with path.open("rb") as original:
+            data = read_bounded(original, min(self.MAX_FILE_BYTES, remaining))
+        if len(data) > self.MAX_FILE_BYTES or len(data) > remaining:
+            raise AttachmentError(
+                "attachment_too_large", f"Attachments exceed the local combined read limit of {self.MAX_TOTAL_BYTES} bytes.", name, 413,
+            )
+        return data
+
+    def validate_upload(self, upload: StagedUpload) -> dict:
+        """Validate staged bytes with the same format and parser policy used by chat."""
+        data = self._read_file(upload.path, upload.filename, self.MAX_TOTAL_BYTES)
+        _, metadata, _ = self._prepare_file(upload.filename, data)
+        check_local_cancelled()
+        return metadata
 
     def _prepare_file(
         self, path: str, data: bytes

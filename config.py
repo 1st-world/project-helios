@@ -25,5 +25,10 @@ class Settings(AppSettings):
         """Place application preferences alongside connection-profile storage."""
         return self.profiles_path.with_name("settings.json")
 
+    @property
+    def attachments_root(self) -> Path:
+        """Retain reusable originals beside settings, independently of cache and logs."""
+        return self.profiles_path.parent / "data" / "attachments"
+
 
 settings = Settings()

@@ -182,6 +182,7 @@ Costs are estimates using the prices saved at call time and the reported usage. 
 | `profiles.json` | Connection profiles, API keys, pricing, profile policies, and the active profile. |
 | `settings.json` | App defaults for input, output, summaries, and attachments. |
 | `conversation/*.json` | Saved original messages, memory summaries, and reply usage. |
+| `data/attachments/` | Reusable originals and the SQLite manifest for independent uploads, retained separately from caches and rotating logs. |
 | `logs/usage_calls.sqlite3` | Per-call usage, status, pricing snapshots, and the aggregation ledger. |
 | `logs/summary_usage.sqlite3` | Summary usage storage, used alongside the call ledger. |
 | `logs/helios.log*` | Rotating app logs. |
@@ -212,6 +213,7 @@ This MINOR/PATCH distinction is Helios's alpha policy. A release-preparation com
 ### Storage and the end of alpha
 
 - The current app version is **`0.2.0`**, and the settings/profile storage schema is **the string `"0.1"`**. It is not a JSON decimal: `"0.1"` and `"0.10"` are distinct identifiers.
+- The independent attachment manifest and optional message attachment references each use string schema `"0.1"`. Existing conversations without attachments remain readable; new references record `attachment_schema_version` and `attachment_sources`. Unsupported attachment formats are preserved without overwriting or automatic migration.
 - Existing formats without a version field are identified internally as `0`. Their original bytes are backed up before the first explicit save. The migration record's `from_schema_version: 0` and the backup name's `v0` identify that origin; new documents do not write a numeric `schema_version: 0`.
 - Invalid or unsupported settings/profile versions produce an error without overwriting the originals. Preserve the affected files and backups while investigating.
 - Alpha features and formats are not a permanent compatibility contract for later stages. **At the end of alpha, including a transition to beta**, support ends for alpha legacy migration code, deprecated API field aliases, and unreviewed legacy input policies. Normal execution after alpha will not automatically interpret or recover alpha legacy formats.
@@ -235,6 +237,22 @@ For automatic reload during development, run:
 ```powershell
 .\.venv\Scripts\python.exe app.py
 ```
+
+### Independent attachment API
+
+The backend API is available before the browser file picker is connected. Send original bytes as the body of `POST /api/attachments/uploads?filename=notes.txt` to receive an app-issued UUID and `reference`. The filename is a display basename; the API does not accept server paths or directories. Receiving and validation share existing attachment resource limits, with cleanup after failed or cancelled uploads.
+
+Pass the returned reference in `attachment_sources` to `POST /api/attachments/inspect` or `POST /api/chat`.
+
+```json
+{"attachment_sources":[{"source":"upload","attachment_id":"<app-issued UUID>"}]}
+```
+
+A Workspace reference is `{"source":"workspace","path":"notes.txt"}`; inspection also returns its Workspace revision and session ID. Both sources share file count, total byte, and format processing policies. Legacy inspection `paths` and chat `attachment_files`, `workspace_file`, and `workspace_files` remain supported and require a selected Workspace.
+
+`GET /api/attachments/uploads` lists retained originals and their availability; `GET /api/attachments/uploads/{id}` returns metadata for an available original. Originals do not expire automatically and remain reusable after deselection or conversation deletion. Delete them explicitly with `DELETE /api/attachments/uploads/{id}`. In-use originals return `409`; deleted or missing IDs return `410` with a reselection instruction. Back up the originals and manifest together.
+
+Chat saves new references on the user message. Regeneration restores them when `attachment_sources` is omitted; `[]` clears the selection. Changed references are saved atomically with a successful replacement reply. Legacy path fields continue using the current request selection for regeneration. One-time recovery reuses the failed request's prepared payload, which is discarded if its original is deleted. Image/PDF bytes and extracted bodies are not copied into conversation JSON.
 
 ## Features under consideration
 

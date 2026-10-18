@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import mimetypes
+import sqlite3
 from copy import copy
 from contextlib import aclosing, asynccontextmanager
 from dataclasses import replace
@@ -18,6 +19,7 @@ from fastapi import (
     BackgroundTasks,
     FastAPI,
     HTTPException,
+    Query,
     Request,
     WebSocket,
     WebSocketDisconnect,
@@ -26,9 +28,13 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from starlette.requests import ClientDisconnect
 
 from config import settings
 from models.app_settings import AppSettings, DEFAULT_APP_SETTINGS
+from models.attachment import (
+    ATTACHMENT_SOURCES, AttachmentPath, AttachmentSource, WorkspaceAttachment,
+)
 from models.input_budget import normalize_input_budget_settings
 from models.profile import (
     PROFILE_POLICY_FIELDS, DEFAULT_LONG_CONTEXT_THRESHOLD, ConnectionProfile,
@@ -39,6 +45,7 @@ from services.attachment_errors import ProviderAttachmentError
 from services.attachment_service import (
     AttachmentError, AttachmentService, PreparedAttachments,
 )
+from services.attachment_store import AttachmentStore
 from services.context_budget import (
     ContextBudget,
     ContextBudgetExceeded,
@@ -105,9 +112,12 @@ profile_service = ProfileService(
 )
 conversation_manager = ConversationManager(settings.conversations_root)
 workspace_service = WorkspaceService(settings.workspace_root)
+attachment_store = AttachmentStore(getattr(
+    settings, "attachments_root", settings.profiles_path.parent / "data" / "attachments",
+))
 attachment_service = AttachmentService(
     workspace_service,
-    limits=application_settings.attachment_limits(),
+    limits=application_settings.attachment_limits(), store=attachment_store,
 )
 folder_picker_service = FolderPickerService()
 context_recovery = ContextRecoveryRegistry()
@@ -374,7 +384,8 @@ class ChatRequest(ContextRequestOptions):
     conversation_id: str | None = None
     workspace_file: str | None = None
     workspace_files: list[str] = Field(default_factory=list)
-    attachment_files: list[str] = Field(default_factory=list)
+    attachment_files: list[AttachmentPath] = Field(default_factory=list)
+    attachment_sources: list[AttachmentSource] | None = None
     workspace_revision: int | None = Field(default=None, ge=0, strict=True)
     workspace_session_id: str | None = Field(default=None, min_length=1, max_length=64)
     workspace_structure: WorkspaceStructureRequest | None = None
@@ -395,10 +406,18 @@ class ChatRequest(ContextRequestOptions):
 class AttachmentSelectionRequest(ContextRequestOptions):
     """Validate files for the backend attachment API without changing GUI selection."""
 
-    paths: list[str] = Field(min_length=1)
+    paths: list[AttachmentPath] = Field(default_factory=list)
+    attachment_sources: list[AttachmentSource] = Field(default_factory=list)
     profile_id: str | None = None
     workspace_revision: int | None = Field(default=None, ge=0, strict=True)
     workspace_session_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def require_selection(self):
+        """Require at least one legacy path or explicit source reference."""
+        if not self.paths and not self.attachment_sources:
+            raise ValueError("Select at least one attachment.")
+        return self
 
 
 class RenameConversationRequest(BaseModel):
@@ -820,6 +839,7 @@ def chat_uses_workspace(payload: ChatRequest) -> bool:
     return bool(
         payload.workspace_file or payload.workspace_files
         or payload.attachment_files or payload.workspace_structure is not None
+        or any(source.source == "workspace" for source in payload.attachment_sources or [])
     )
 
 
@@ -1030,7 +1050,7 @@ async def update_application_settings(payload: UpdateSettingsRequest):
             reserve_output=False,
         )
         new_attachments = AttachmentService(
-            workspace_service, limits=candidate.attachment_limits()
+            workspace_service, limits=candidate.attachment_limits(), store=attachment_store,
         )
         new_ai = ai_service.with_output_limit(candidate.context_output_reserve)
         new_memory = memory_service.with_settings(
@@ -1123,6 +1143,81 @@ async def context_policy_settings(profile_id: str | None = None):
     }
 
 
+@app.exception_handler(AttachmentError)
+async def attachment_error_response(_: Request, exc: AttachmentError):
+    """Return source errors without exposing original bytes or internal paths."""
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail()})
+
+
+async def attachment_storage_work(request, action, *args):
+    """Run storage access off the event loop and sanitize operating-system failures."""
+    try:
+        return await until_disconnect(request, run_local, action, *args)
+    except (OSError, sqlite3.Error):
+        raise AttachmentError(
+            "attachment_storage_unavailable", "Attachment storage could not be accessed. Check local storage and try again.", "", 500,
+        ) from None
+
+
+@app.post("/api/attachments/uploads", status_code=201)
+async def upload_attachment(
+    request: Request, filename: str = Query(min_length=1, max_length=255),
+):
+    """Receive bounded raw bytes and publish only a fully validated reusable original."""
+    service = copy(attachment_service)
+    upload = attachment_store.stage(
+        filename, min(service.MAX_FILE_BYTES, service.MAX_TOTAL_BYTES),
+    )
+    length = request.headers.get("content-length")
+    if length is not None:
+        if not length.isdecimal():
+            raise HTTPException(status_code=400, detail="Invalid Content-Length.")
+        if int(length) > upload.max_bytes:
+            raise AttachmentError(
+                "attachment_too_large", f"Upload exceeds the local read limit of {upload.max_bytes} bytes.", filename, 413,
+            )
+    accepted = False
+    try:
+        await run_local(upload.open)
+        async for chunk in request.stream():
+            for offset in range(0, len(chunk), 65536):
+                await run_local(upload.write, chunk[offset:offset + 65536])
+        await run_local(upload.seal)
+        metadata = await until_disconnect(request, run_local, service.validate_upload, upload)
+        stored = await until_disconnect(request, run_local, upload.publish)
+        accepted = True
+        return {**stored, "inspection": metadata}
+    except ClientDisconnect:
+        raise HTTPException(status_code=499, detail="Upload cancelled.") from None
+    except (OSError, sqlite3.Error):
+        raise AttachmentError(
+            "attachment_storage_unavailable", "The upload could not be stored. Check local storage and select the file again.", filename, 500,
+        ) from None
+    finally:
+        with anyio.CancelScope(shield=True):
+            await run_local(upload.abort, discard=not accepted)
+
+
+@app.get("/api/attachments/uploads")
+async def list_uploaded_attachments(request: Request = None):
+    """List retained originals for reuse without loading their contents."""
+    return {"uploads": await attachment_storage_work(request, attachment_store.list)}
+
+
+@app.get("/api/attachments/uploads/{attachment_id}")
+async def get_uploaded_attachment(attachment_id: UUID, request: Request = None):
+    """Return one live upload's metadata using an opaque identifier."""
+    return await attachment_storage_work(request, attachment_store.get, str(attachment_id))
+
+
+@app.delete("/api/attachments/uploads/{attachment_id}")
+async def delete_uploaded_attachment(attachment_id: UUID, request: Request = None):
+    """Delete an idle original and discard recovery payloads that reference it."""
+    await attachment_storage_work(request, attachment_store.delete, str(attachment_id))
+    context_recovery.invalidate_attachment(str(attachment_id))
+    return {"deleted": True}
+
+
 @app.post("/api/attachments/inspect")
 async def inspect_attachments(
     payload: AttachmentSelectionRequest, request: Request = None
@@ -1132,23 +1227,32 @@ async def inspect_attachments(
     request_attachments.workspace = copy(workspace_service)
     request_budget = context_budget
     request_settings = settings_service.current
-    require_workspace_revision(payload.workspace_revision, payload.workspace_session_id)
-    require_selected_workspace(request_attachments.workspace)
-    validate_selection_entries(payload.paths, request_attachments)
-    release = claim_workspace(request_attachments.workspace)
+    sources = [
+        WorkspaceAttachment(source="workspace", path=path) for path in payload.paths
+    ] + payload.attachment_sources
+    workspace_bound = any(source.source == "workspace" for source in sources)
+    if workspace_bound:
+        require_workspace_revision(payload.workspace_revision, payload.workspace_session_id)
+        require_selected_workspace(request_attachments.workspace)
+    validate_selection_entries(sources, request_attachments)
+    release = claim_workspace(request_attachments.workspace) if workspace_bound else None
     try:
         prepared = await until_disconnect(
-            request, run_local, request_attachments.prepare, payload.paths,
+            request, run_local,
+            request_attachments.prepare_sources if payload.attachment_sources else request_attachments.prepare,
+            sources if payload.attachment_sources else payload.paths,
         )
     except AttachmentError as exc:
         raise HTTPException(
             status_code=exc.status_code, detail=exc.detail()
         ) from exc
     finally:
-        release()
-    require_workspace_root(
-        request_attachments.workspace.root, request_attachments.workspace.revision,
-    )
+        if release is not None:
+            release()
+    if workspace_bound:
+        require_workspace_root(
+            request_attachments.workspace.root, request_attachments.workspace.revision,
+        )
     policy = resolve_context_policy(
         payload.profile_id, payload.context_preflight_mode,
         payload.context_input_budget,
@@ -1198,6 +1302,7 @@ async def chat(payload: ChatRequest, request: Request = None):
                 profile_id=data["profile_id"],
                 regenerate_message_index=data["user_index"],
                 expected_conversation_version=data["version"],
+                attachment_sources=data.get("attachment_sources"),
             )
         else:
             if chat_uses_workspace(payload):
@@ -1211,6 +1316,20 @@ async def chat(payload: ChatRequest, request: Request = None):
             )
             if conversation is None:
                 raise HTTPException(status_code=404, detail="Conversation not found.")
+            index = payload.regenerate_message_index
+            if (
+                index is not None and index < len(conversation.messages)
+                and payload.attachment_sources is None
+                and conversation.messages[index].attachment_sources
+            ):
+                payload = payload.model_copy(update={
+                    "attachment_sources": ATTACHMENT_SOURCES.validate_python(
+                        conversation.messages[index].attachment_sources,
+                    ),
+                })
+            if chat_uses_workspace(payload):
+                require_workspace_revision(payload.workspace_revision, payload.workspace_session_id)
+                require_selected_workspace(workspace_service)
         operation = context_recovery.begin(
             conversation.id, ticket=ticket,
             operation_id=operation_id,
@@ -1221,6 +1340,15 @@ async def chat(payload: ChatRequest, request: Request = None):
         )
         if workspace_bound:
             operation.release_workspace = claim_workspace(workspace_service)
+        upload_ids = [
+            str(source.attachment_id) for source in payload.attachment_sources or []
+            if source.source == "upload"
+        ]
+        operation.release_attachments = attachment_store.claim(upload_ids)
+        if ticket is not None and upload_ids:
+            await until_disconnect(
+                request, run_local, attachment_store.validate_originals, upload_ids,
+            )
         return await until_disconnect(
             request, prepare_chat, payload, conversation, operation,
         )
@@ -1230,6 +1358,10 @@ async def chat(payload: ChatRequest, request: Request = None):
         raise HTTPException(status_code=exc.status, detail={
             "code": exc.code, "message": str(exc),
         }) from None
+    except AttachmentError as exc:
+        if operation is not None:
+            operation.close()
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from None
     except ConnectionConfigurationError as exc:
         if operation is not None:
             operation.close()
@@ -1271,7 +1403,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
     request_budget = context_budget
     request_settings = settings_service.current
     validate_selection_entries(
-        payload.workspace_files + payload.attachment_files
+        payload.workspace_files + payload.attachment_files + (payload.attachment_sources or [])
         + ([payload.workspace_file] if payload.workspace_file else []),
         request_attachments,
     )
@@ -1331,13 +1463,16 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                 build_workspace_structure(request_workspace, payload.workspace_structure)
                 if payload.workspace_structure is not None else ""
             )
-            attachments = (
-                request_attachments.prepare(payload.attachment_files)
-                if payload.attachment_files else PreparedAttachments()
-            )
+            if payload.attachment_sources is None:
+                attachments = request_attachments.prepare(payload.attachment_files)
+            else:
+                attachments = request_attachments.prepare_sources([
+                    WorkspaceAttachment(source="workspace", path=path)
+                    for path in payload.attachment_files
+                ] + payload.attachment_sources)
             attached_paths = {
                 request_workspace._resolve(item["path"])
-                for item in attachments.metadata
+                for item in attachments.metadata if item["source"] == "workspace"
             }
             workspace_context += request_workspace.selected_context(
                 selected_files, exclude_paths=attached_paths,
@@ -1350,14 +1485,16 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                         item["size_bytes"] for item in attachments.metadata
                     ),
                 ),
-                max_files=request_attachments.MAX_FILES,
+                max_files=max(0, request_attachments.MAX_FILES - sum(
+                    item["source"] == "upload" for item in attachments.metadata
+                )),
             )
             check_local_cancelled()
             return workspace_context, attachments
 
         try:
             workspace_context, attachments = (
-                await run_local(prepare_local_inputs) if workspace_bound
+                await run_local(prepare_local_inputs) if workspace_bound or payload.attachment_sources
                 else ("", PreparedAttachments())
             )
         except AttachmentError as exc:
@@ -1368,6 +1505,12 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         if workspace_bound:
             require_workspace_root(workspace_root, request_workspace.revision)
+    saved_attachment_sources = (
+        data.get("attachment_sources") if data else (
+            [item["reference"] for item in attachments.metadata]
+            if payload.attachment_sources is not None else None
+        )
+    )
     if (
         not conversation_manager.is_active(conversation)
         or conversation.messages is not request_messages
@@ -1485,7 +1628,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
     await anyio.lowlevel.checkpoint()
     if payload.regenerate_message_index is None:
         user_message = conversation_manager.add_message(
-            conversation, "user", user_prompt
+            conversation, "user", user_prompt, attachment_sources=saved_attachment_sources,
         )
     else:
         user_message = conversation.messages[payload.regenerate_message_index]
@@ -1611,6 +1754,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                     payload.regenerate_message_index,
                     answer,
                     expected_messages=turn_messages,
+                    user_attachment_sources=saved_attachment_sources,
                     **msg_kwargs,
                 )
             if not data:
@@ -1673,6 +1817,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                         "memory": request_memory, "summary_policy": recovery_policy,
                         "workspace_context": workspace_context,
                         "attachments": attachments, "context_policy": policy,
+                        "attachment_sources": saved_attachment_sources,
                         "workspace_root": request_workspace.root if workspace_bound else None,
                         "workspace_revision": request_workspace.revision,
                         "workspace_bound": workspace_bound,

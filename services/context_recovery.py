@@ -40,6 +40,7 @@ class ChatOperation:
     ticket: RecoveryTicket | None = field(default=None, repr=False)
     closed: bool = False
     release_workspace: Callable[[], None] | None = field(default=None, repr=False)
+    release_attachments: Callable[[], None] | None = field(default=None, repr=False)
 
     def close(self) -> None:
         """Release ownership once and discard private inputs after a recovery attempt."""
@@ -53,6 +54,9 @@ class ChatOperation:
         if self.ticket is not None:
             self.ticket.data = {}
             self.ticket.weight = 0
+        if self.release_attachments is not None:
+            self.release_attachments()
+            self.release_attachments = None
 
 
 class ContextRecoveryRegistry:
@@ -118,6 +122,16 @@ class ContextRecoveryRegistry:
         if ticket.used:
             raise RecoveryError("This recovery request was already attempted. No additional call was started.")
         return ticket
+
+    def invalidate_attachment(self, attachment_id: str) -> None:
+        """Discard unused prepared payloads when their retained original is deleted."""
+        self._tickets = {
+            key: ticket for key, ticket in self._tickets.items()
+            if attachment_id not in {
+                source.get("attachment_id")
+                for source in ticket.data.get("attachment_sources") or []
+            }
+        }
 
     def begin(
         self, conversation_id: str, *, ticket: RecoveryTicket | None = None,

@@ -242,6 +242,7 @@ class ConversationManager:
         content: str,
         *,
         expected_messages: "list[Message]",
+        user_attachment_sources: "list[dict] | None" = None,
         **metadata: object,
     ) -> Message:
         """Replace a branch only after a successful response against the same transcript."""
@@ -257,6 +258,10 @@ class ConversationManager:
             raise ValueError("Regeneration requires a user message.")
         message = Message(role="assistant", content=content, **metadata)
         changes = {"messages": [*expected_messages[: user_index + 1], message]}
+        if user_attachment_sources is not None:
+            changes["messages"][user_index] = replace(
+                expected_messages[user_index], attachment_sources=user_attachment_sources,
+            )
         # Summaries may have advanced in the background while the reply streamed.
         if conversation.summarized_message_count > user_index:
             changes.update(memory_summary="", summarized_message_count=0)
@@ -285,6 +290,7 @@ class ConversationManager:
         cost_status: str | None = None,
         provider_usage: dict | None = None,
         usage_call_id: str | None = None,
+        attachment_sources: "list[dict] | None" = None,
     ) -> Message:
         """Persist a new message and derive the initial title from the first user content."""
         message = Message(
@@ -307,6 +313,7 @@ class ConversationManager:
             cost_status=cost_status,
             provider_usage=provider_usage,
             usage_call_id=usage_call_id,
+            attachment_sources=attachment_sources or [],
         )
         title = conversation.title
         if role == "user" and conversation.title == "New conversation":

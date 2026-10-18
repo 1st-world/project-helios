@@ -1,8 +1,25 @@
-"""Translate explicit provider attachment rejections into safe, stable client errors."""
+"""Describe local validation failures and explicit provider attachment rejections safely."""
 
 import re
 
 from services.provider_errors import ProviderFailure
+
+
+class AttachmentError(ValueError):
+    """Describe a file-specific failure without exposing file contents or storage paths."""
+
+    def __init__(
+        self, code: str, message: str, path: str, status_code: int = 400
+    ) -> None:
+        """Keep stable client error codes alongside a readable explanation."""
+        super().__init__(message)
+        self.code = code
+        self.path = path
+        self.status_code = status_code
+
+    def detail(self) -> dict:
+        """Return safe structured error information for an HTTP response."""
+        return {"code": self.code, "message": str(self), "path": self.path}
 
 
 class ProviderAttachmentError(ProviderFailure):

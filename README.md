@@ -182,6 +182,7 @@ Office 첨부에는 내장 이미지·차트·서식이 포함되지 않습니�
 | `profiles.json` | 연결 프로필·API 키·가격·프로필별 정책과 활성 프로필. |
 | `settings.json` | 앱의 입력·출력·요약·첨부 기본 정책. |
 | `conversation/*.json` | 저장된 대화 원문·메모리 요약·응답 사용량. |
+| `data/attachments/` | 독립 첨부 API의 재사용 원본과 SQLite manifest. 캐시·로그 회전과 별도로 보존합니다. |
 | `logs/usage_calls.sqlite3` | 호출별 사용량·상태·요금 스냅샷과 집계 원장. |
 | `logs/summary_usage.sqlite3` | 요약 사용량 저장소. 호출 원장과 함께 사용합니다. |
 | `logs/helios.log*` | 회전 보관하는 앱 로그. |
@@ -212,6 +213,7 @@ Office 첨부에는 내장 이미지·차트·서식이 포함되지 않습니�
 ### 저장 형식과 알파 종료
 
 - 현재 앱 버전은 **`0.2.0`**, 설정·프로필 저장 스키마는 **문자열 `"0.1"`**입니다. JSON 소수로 저장하지 않으므로 `"0.1"`과 `"0.10"`은 다른 식별자입니다.
+- 독립 첨부 manifest와 메시지의 선택적 첨부 참조는 각각 문자열 `"0.1"` 스키마를 사용합니다. 첨부가 없는 기존 대화는 그대로 읽으며, 새 참조에는 `attachment_schema_version`과 `attachment_sources`를 기록합니다. 지원하지 않는 첨부 형식은 원본을 덮어쓰거나 자동 이행하지 않습니다.
 - 버전 필드가 없는 기존 형식은 내부적으로 `0`으로 식별합니다. 최초 명시적 저장 전에 원본 바이트를 백업하며, 이행 기록의 `from_schema_version: 0`과 백업 이름의 `v0`에 출처를 표시합니다. 새 문서에 숫자 `schema_version: 0`을 쓰는 것은 아닙니다.
 - 유효하지 않거나 지원하지 않는 버전의 설정·프로필은 원본을 덮어쓰지 않고 오류로 처리합니다. 먼저 해당 파일과 백업을 보존한 상태에서 원인을 확인합니다.
 - 알파 기능과 호환 형식은 이후 단계의 영구 지원 계약이 아닙니다. **알파 종료 시점(베타 전환 포함)**에 알파 레거시 이행 코드, deprecated API 필드 alias, 검토 전 legacy 입력 정책의 지원을 종료합니다. 알파 종료 이후의 정상 실행 경로에서 알파 레거시를 자동으로 해석하거나 복구하지 않습니다.
@@ -235,6 +237,22 @@ Office 첨부에는 내장 이미지·차트·서식이 포함되지 않습니�
 ```powershell
 .\.venv\Scripts\python.exe app.py
 ```
+
+### 독립 첨부 API
+
+브라우저 파일 선택 UI 연결에 앞서 백엔드 API를 제공합니다. `POST /api/attachments/uploads?filename=notes.txt`에 원본 bytes를 본문으로 보내면 앱이 발급한 UUID와 `reference`를 반환합니다. 파일명은 표시용 basename이며 서버의 절대 경로나 디렉터리를 받지 않습니다. 수신·검사는 기존 첨부 자원 제한을 적용하고 실패·취소된 업로드를 정리합니다.
+
+`POST /api/attachments/inspect`와 `POST /api/chat`의 `attachment_sources`에 반환된 참조를 전달합니다.
+
+```json
+{"attachment_sources":[{"source":"upload","attachment_id":"<app-issued UUID>"}]}
+```
+
+Workspace 참조는 `{"source":"workspace","path":"notes.txt"}`이며 검사 결과에는 해당 Workspace의 revision과 session ID도 포함됩니다. 두 출처는 파일 개수·합계 bytes·형식 처리 정책을 공유합니다. 기존 `paths` 검사와 `attachment_files`·`workspace_file`·`workspace_files` 채팅 필드도 유지하며, 이 필드에는 Workspace 선택이 필요합니다.
+
+`GET /api/attachments/uploads`는 원본 목록과 존재 여부를, `GET /api/attachments/uploads/{id}`는 사용할 수 있는 원본의 메타데이터를 반환합니다. 원본은 자동 만료하지 않으며 선택 해제·대화 삭제 후에도 재사용할 수 있습니다. `DELETE /api/attachments/uploads/{id}`로 명시적으로 삭제합니다. 사용 중에는 `409`, 삭제·유실된 ID를 읽을 때는 재선택을 안내하는 `410`을 반환합니다. 원본 폴더와 manifest는 함께 백업합니다.
+
+채팅은 새 참조를 사용자 메시지에 저장하고, 재생성에서 `attachment_sources`를 생략하면 그 참조를 복원합니다. `[]`는 선택 해제이며 변경 참조는 재생성 성공 시 답변과 함께 저장됩니다. 기존 경로 필드의 재생성은 현재 요청의 선택을 사용합니다. 일회성 복구는 실패 요청의 준비 자료를 재사용하며 원본 삭제 시 해당 복구 자료도 폐기합니다. 이미지·PDF bytes와 추출 본문은 대화 JSON에 복제하지 않습니다.
 
 ## 이후 검토할 기능
 
