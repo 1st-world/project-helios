@@ -71,6 +71,7 @@
           <div class="context-chip file" title="Attachments are included with each message until removed">
             <i data-lucide="file-text"></i>
             <span class="file-chip-name"></span>
+            <span class="chip-sub file-chip-source"></span>
             <button type="button" title="Remove attachment" aria-label="Remove attachment"><i data-lucide="x"></i></button>
           </div>
         </template>
@@ -78,7 +79,7 @@
       <div class="composer">
         <textarea id="prompt" rows="1" placeholder="Message Helios..." aria-label="Message"></textarea>
         <div class="composer-actions">
-          <button id="load-file" class="quiet composer-control" type="button" aria-label="Attach files" title="Attach workspace files"><i data-lucide="paperclip"></i><span>Attach</span></button>
+          <button id="load-file" class="quiet composer-control" type="button" aria-label="Attach files" title="Attach files"><i data-lucide="paperclip"></i><span>Attach</span></button>
           <details id="work-tools" class="work-tools">
             <summary class="quiet composer-control" aria-label="Work tools"><i data-lucide="tool-case"></i><span>Tools</span></summary>
             <div class="tools-popover">
@@ -167,13 +168,28 @@
       <div><i data-lucide="paperclip"></i><h2 id="file-dialog-title">Attach files</h2></div>
       <button class="dialog-close" type="button" data-close-dialog="file-dialog" aria-label="Close"><i data-lucide="x"></i></button>
     </div>
-    <div class="file-source-row"><i data-lucide="folder"></i><span id="file-source-name">No workspace</span><button id="attachment-workspace-settings" class="quiet sm-btn" type="button">Choose workspace</button></div>
-    <label class="sr-only" for="file-search">Search workspace files</label>
-    <div class="file-search-row">
-      <input id="file-search" type="search" placeholder="Search files by name or path" autocomplete="off">
-      <button id="refresh-workspace" class="quiet sm-btn" type="button" aria-label="Refresh files" title="Refresh files"><i data-lucide="refresh-cw"></i><span>Refresh</span></button>
-    </div>
-    <div id="workspace-tree" class="workspace-tree modal-tree" aria-label="Workspace files"></div>
+    <section class="attachment-uploads" aria-labelledby="uploaded-files-title">
+      <h3 id="uploaded-files-title">Uploaded files</h3>
+      <div class="upload-actions">
+        <input id="upload-file-input" type="file" multiple hidden>
+        <button id="choose-upload-files" class="quiet sm-btn" type="button"><i data-lucide="upload"></i>Choose files</button>
+        <button id="refresh-uploads" class="quiet sm-btn" type="button" aria-label="Refresh uploaded files"><i data-lucide="refresh-cw"></i>Refresh</button>
+        <button id="cancel-upload" class="quiet sm-btn" type="button" hidden>Stop upload</button>
+      </div>
+      <p id="upload-status" class="field-hint" role="status">Choose files from your device. No workspace is needed.</p>
+      <ul id="uploaded-files" aria-label="Reusable uploaded files"></ul>
+      <p class="field-hint">Originals stay on the computer running Helios until deleted, including after deselection or conversation deletion. The trash button deletes the stored original.</p>
+    </section>
+    <section class="attachment-workspace" aria-labelledby="workspace-files-title">
+      <h3 id="workspace-files-title">Workspace files</h3>
+      <div class="file-source-row"><i data-lucide="folder"></i><span id="file-source-name">No workspace</span><button id="attachment-workspace-settings" class="quiet sm-btn" type="button">Manage workspace</button></div>
+      <label class="sr-only" for="file-search">Search workspace files</label>
+      <div class="file-search-row">
+        <input id="file-search" type="search" placeholder="Search files by name or path" autocomplete="off">
+        <button id="refresh-workspace" class="quiet sm-btn" type="button" aria-label="Refresh files" title="Refresh files"><i data-lucide="refresh-cw"></i><span>Refresh</span></button>
+      </div>
+      <div id="workspace-tree" class="workspace-tree modal-tree" aria-label="Workspace files"></div>
+    </section>
     <p class="field-hint attachment-help">Supports UTF-8 text, PNG, JPEG, WebP, static GIF, PDF, DOCX, XLSX, and PPTX. Images and PDFs are sent as originals; Office files contribute extracted text. Attachments stay included in each message until removed.</p>
     <section id="attachment-inspection" class="attachment-inspection" aria-labelledby="attachment-inspection-title" hidden>
       <h3 id="attachment-inspection-title">Selection check</h3>

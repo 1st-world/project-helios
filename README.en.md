@@ -10,7 +10,7 @@ The current version is **`0.2.0`, an alpha release**. By default, chat leaves in
 
 - Save multiple connection profiles and select a profile for responses.
 - Stream replies with Markdown and syntax highlighting; save, rename, and delete conversations; edit messages and regenerate replies.
-- Optionally connect or disconnect a Workspace, include project structure, and attach text, images, PDFs, and Office files.
+- Optionally connect or disconnect a Workspace and include project structure; attach text, images, PDFs, and Office files with or without a Workspace.
 - Optionally configure input token budgets, output limits, conversation summaries, and one-time summary recovery.
 - Record usage for replies, regenerations, and summaries; estimate costs from profile-specific prices; filter records by date and call type.
 - Configure interface fonts, text size, timezone, and usage visibility.
@@ -136,7 +136,11 @@ Connecting a folder validates its path only. The file list is retrieved when you
 
 Selecting a folder does not send its absolute host path, structure, or file contents to the model. Turn on structure sharing to choose a relative scope, depth, and maximum entry count, and preview what is included or omitted. The absolute path is included only when separately selected. With structure Off, explicitly attached files are still sent; paths already mentioned in saved conversation history or memory are not removed.
 
-File attachments currently require a selected Workspace and stay within its boundary. Use **Attach → select files → Check selection → Apply selection**. Attached files remain included with each message until removed. Changing or disconnecting the folder clears its selected files and inspection results. The selection check verifies local preparation, not model acceptance. Browser uploads independent of a Workspace and Explore project remain Planned.
+Use **Attach → Choose files** to pick files from the device running your browser, with or without a Workspace. Reuse retained originals under **Uploaded files**, or select project files under **Workspace files** in the same dialog. Use **Check selection → Apply selection** to review delivery and source information before applying. The check verifies local preparation, not model acceptance.
+
+Attachments remain included with new messages until removed. Changing or disconnecting a folder removes only Workspace attachments and preserves uploads. Reopening a conversation restores its latest user message's attachments. Regeneration uses the selected message's original attachments unless you applied a selection in Attach or removed a composer attachment; then it uses your changed selection. Changed selections are checked again, and failed regeneration preserves the previous reply and its saved references.
+
+Use **Stop upload** or close Attach to cancel an upload in progress. Completed originals stay on the device running the app; deselection, composer removal, and conversation deletion do not delete them. Use the trash button under Uploaded files for permanent deletion. Deleted or missing originals display **Unavailable** and must be selected again or removed from the selection. Explore project remains Planned.
 
 | Format | Content sent to the model |
 | --- | --- |
@@ -240,7 +244,7 @@ For automatic reload during development, run:
 
 ### Independent attachment API
 
-The backend API is available before the browser file picker is connected. Send original bytes as the body of `POST /api/attachments/uploads?filename=notes.txt` to receive an app-issued UUID and `reference`. The filename is a display basename; the API does not accept server paths or directories. Receiving and validation share existing attachment resource limits, with cleanup after failed or cancelled uploads.
+The backend API shares the preparation path used by the browser Attach dialog. Send original bytes as the body of `POST /api/attachments/uploads?filename=notes.txt` to receive an app-issued UUID and `reference`. The filename is a display basename; the API does not accept server paths or directories. Receiving and validation share existing attachment resource limits, with cleanup after failed or cancelled uploads.
 
 Pass the returned reference in `attachment_sources` to `POST /api/attachments/inspect` or `POST /api/chat`.
 
@@ -258,7 +262,6 @@ Chat saves new references on the user message. Regeneration restores them when `
 
 The following are not current features. Their scope and implementation order will be decided separately.
 
-- Browser file selection, uploads, and attachments independent of a Workspace.
 - MCP-based Work tools for finding relevant project files, proposing/reviewing/applying changes, and running commands.
 - Web search, code execution through Sandbox/Docker, tools that read relevant file ranges, and execution resource management.
 - Optional Microsoft Entra ID authentication, Foundry deployment/model discovery, and deployment information autofill.

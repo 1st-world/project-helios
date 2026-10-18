@@ -1598,6 +1598,9 @@ textarea::placeholder {
 .context-chip.file svg {
   color: var(--accent);
 }
+.context-chip.file[data-unavailable="true"] {
+  border-color: var(--danger);
+}
 .context-chip button {
   display: grid;
   place-items: center;
@@ -3288,6 +3291,100 @@ textarea::placeholder {
   font-family: var(--font-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.workspace-modal .attachment-uploads {
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.workspace-modal .attachment-uploads h3,
+.workspace-modal .attachment-workspace h3 {
+  margin: 0 0 10px;
+  font-weight: var(--font-weight-heading);
+  font-size: var(--font-size-title-group);
+  line-height: var(--line-height-heading);
+}
+.workspace-modal .attachment-uploads .upload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.workspace-modal .attachment-uploads .upload-actions [hidden] {
+  display: none;
+}
+.workspace-modal .attachment-uploads p {
+  margin: 8px 0 0;
+  white-space: pre-line;
+}
+.workspace-modal .attachment-uploads ul {
+  display: grid;
+  max-height: 180px;
+  margin: 8px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  gap: 4px;
+  list-style: none;
+}
+.workspace-modal .attachment-uploads ul:empty {
+  display: none;
+}
+.workspace-modal .attachment-uploads li {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+}
+.workspace-modal .attachment-uploads .upload-selection {
+  display: grid;
+  flex: 1;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  min-width: 0;
+  padding: 8px;
+  gap: 4px 8px;
+  border-radius: 6px;
+  background: var(--bg-app);
+  color: var(--text-sub);
+  line-height: var(--line-height-compact);
+  text-align: left;
+  cursor: pointer;
+}
+.workspace-modal .attachment-uploads .upload-selection[aria-pressed="true"] {
+  background: var(--bg-element);
+  color: var(--text-main);
+}
+.workspace-modal .attachment-uploads .upload-selection:hover {
+  background: var(--bg-element-hover);
+}
+.workspace-modal .attachment-uploads .upload-selection > span {
+  font-size: var(--font-size-control);
+  overflow-wrap: anywhere;
+}
+.workspace-modal .attachment-uploads .upload-selection > small {
+  grid-column: 2;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-meta);
+  overflow-wrap: anywhere;
+}
+.workspace-modal .attachment-uploads .upload-delete {
+  flex: none;
+  align-self: center;
+  width: 36px;
+  height: 36px;
+  padding: 8px;
+}
+.workspace-modal .attachment-uploads svg {
+  width: 16px;
+  height: 16px;
+}
+
+.workspace-modal .attachment-workspace[data-connected="false"] .file-search-row {
+  display: none;
+}
+.workspace-modal .attachment-workspace[data-connected="false"] .modal-tree {
+  height: auto;
 }
 
 .file-source-row {

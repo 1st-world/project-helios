@@ -7,10 +7,11 @@ import { calendarDate, formatMessageTimestamp, getTimezone } from './timezone.js
 import { createDisclosure } from './disclosure.js';
 import { showActionDialog } from './dialogs.js';
 
-export function createChat({ getActiveProfileId, getAttachmentFiles, getWorkspaceContext = () => ({}), onAttachmentMetadata, clearFocusFiles, onGeneratingChange, onConversationChange, openSettings }) {
+export function createChat({ getActiveProfileId, getAttachmentSelection, restoreAttachments, onAttachmentsSaved, getWorkspaceContext = () => ({}), onAttachmentMetadata, clearFocusFiles, onGeneratingChange, onConversationChange, openSettings }) {
   const state = {
     conversationId: null,
     conversationVersion: null,
+    conversationLoadVersion: 0,
     controller: null,
     generating: false,
     showConversationUsage: true,
@@ -469,13 +470,20 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, getWorkspac
 
   async function openConversation(id, preserveScroll = false) {
     if (messageEditor?.saving && !preserveScroll) return;
+    const loadVersion = ++state.conversationLoadVersion;
     closeMobileSidebar();
     const response = await fetch(`/api/conversations/${id}`);
+    if (loadVersion !== state.conversationLoadVersion) return false;
     if (!response.ok) return toast('Could not open conversation.', 'error');
     const data = await response.json();
+    if (loadVersion !== state.conversationLoadVersion) return false;
     messageEditor = null;
     state.conversationId = data.id;
     state.conversationVersion = data.version;
+    if (!preserveScroll) {
+      const latestUser = data.messages.findLast(message => message.role === 'user');
+      restoreAttachments(latestUser?.attachment_sources || []);
+    }
     const savedScrollTop = chat.scrollTop;
     const wasNearBottom = isNearBottom();
     footerDisclosure.finish();
@@ -499,6 +507,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, getWorkspac
 
   function newChat() {
     if (messageEditor?.saving) return;
+    ++state.conversationLoadVersion;
     messageEditor = null;
     closeMobileSidebar();
     state.conversationId = null;
@@ -685,7 +694,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, getWorkspac
         body: JSON.stringify({
           prompt: text,
           conversation_id: state.conversationId,
-          attachment_files: getAttachmentFiles(),
+          ...(options.recoveryId ? {} : getAttachmentSelection({ regenerating: options.regenerateMessageIndex != null })),
           ...workspaceContext,
           profile_id: getActiveProfileId(),
           regenerate_message_index: options.regenerateMessageIndex,
@@ -750,6 +759,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, getWorkspac
             }
           }
           if (event.type === 'done') {
+            if (!options.recoveryId) onAttachmentsSaved();
             if (event.created_at) assistant.setMeta({ created_at: event.created_at });
             onFinish();
           }
@@ -791,8 +801,9 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, getWorkspac
     const conversationId = state.conversationId;
     const version = state.conversationVersion;
     if (!await showActionDialog({ title: 'Regenerate response?',
-      description: hasFollowing ? 'Once successful, the new response will replace this response and remove all following messages.'
-        : 'Once successful, the new response will replace this response.',
+      description: (hasFollowing ? 'Once successful, the new response will replace this response and remove all following messages.'
+        : 'Once successful, the new response will replace this response.')
+        + ' Uses the original attachments unless you changed the selection in Attach or removed a file from the composer.',
       confirmLabel: 'Regenerate', danger: hasFollowing })) return;
     if (state.generating || state.conversationId !== conversationId || state.conversationVersion !== version) return;
     // The server keeps the original branch until regeneration completes successfully.

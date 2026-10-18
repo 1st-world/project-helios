@@ -11,7 +11,9 @@ const workspace = createWorkspace({ getActiveProfileId: () => profiles.getActive
 const profiles = createProfiles({ isGenerating: () => chat.isGenerating() });
 const chat = createChat({
   getActiveProfileId: profiles.getActiveProfileId,
-  getAttachmentFiles: workspace.getAttachmentFiles,
+  getAttachmentSelection: workspace.getAttachmentSelection,
+  restoreAttachments: workspace.restoreAttachments,
+  onAttachmentsSaved: workspace.markAttachmentsSaved,
   getWorkspaceContext: workspace.getWorkspaceContext,
   onAttachmentMetadata: workspace.updateAttachmentMetadata,
   clearFocusFiles: workspace.clearFocusFiles,

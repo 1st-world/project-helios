@@ -1,4 +1,13 @@
-/* Describe validated attachment delivery and processing notes without exposing file contents or inferring model support. */
+/* Identify attachment sources and describe delivery without exposing contents or inferring model support. */
+
+export function attachmentKey(file) {
+  const ref = file.reference || file;
+  return ref.source === 'upload' ? `upload:${ref.attachment_id}` : `workspace:${ref.workspace_session_id || ''}:${ref.workspace_revision ?? ''}:${ref.path}`;
+}
+
+export function attachmentSourceLabel(file) {
+  return (file.reference || file).source === 'upload' ? 'Uploaded' : 'Workspace';
+}
 
 export function attachmentIcon(path, kind = '') {
   const extension = path.split('.').pop().toLowerCase();

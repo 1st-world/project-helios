@@ -1,15 +1,16 @@
-/* Own the workspace tree, selected attachments, and workspace dialogs, coordinating the folder picker. */
+/* Coordinate workspace browsing and mixed attachment selections, inspection, and restoration. */
 
 import { $, closeMobileSidebar, refreshIcons, toast } from './ui.js';
 import { createWorkspacePicker } from './workspace-picker.js';
-import { attachmentIcon, attachmentSummary, attachmentWarnings } from './attachments.js';
+import { attachmentIcon, attachmentKey, attachmentSourceLabel, attachmentSummary, attachmentWarnings } from './attachments.js';
+import { createUploads } from './uploads.js';
 import { describeRequestError } from './chat-feedback.js';
 
 export function createWorkspace({ getActiveProfileId }) {
   // This bounds rendered rows per branch, without limiting file selection or model input.
   const treePageSize = 200;
   const state = {
-    workspaceFiles: [],
+    attachments: [],
     workspaceRoot: null,
     workspaceRevision: null,
     workspaceSessionId: null,
@@ -24,13 +25,61 @@ export function createWorkspace({ getActiveProfileId }) {
     generating: false,
     fileDialogVersion: 0,
     workspaceRequest: 0,
-    attachmentMetadata: new Map(),
+    selectionEdited: false,
+    restoreController: null,
     inspection: null,
     inspectionFeedback: null,
     inspectionController: null
   };
 
   const picker = createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot: () => state.workspaceRoot });
+
+  const uploads = createUploads({
+    isBusy: () => state.attachingFile || state.generating,
+    getPending: () => state.pendingFiles,
+    onToggle: toggleAttachment,
+    onUploaded(file) {
+      invalidateInspection();
+      state.pendingFiles.push(file);
+      updateSelection();
+    },
+    onDeleted(file) {
+      if (state.attachments.some(item => attachmentKey(item) === attachmentKey(file))) state.selectionEdited = true;
+      state.attachments = state.attachments.filter(item => attachmentKey(item) !== attachmentKey(file));
+      state.pendingFiles = state.pendingFiles.filter(item => attachmentKey(item) !== attachmentKey(file));
+      invalidateInspection();
+      renderAttachments();
+      updateSelection();
+    },
+    onInventory(files) {
+      const inventory = new Map(files.map(file => [attachmentKey(file), file]));
+      let changed = false;
+      for (const file of [...state.attachments, ...state.pendingFiles]) {
+        if (file.reference.source !== 'upload') continue;
+        const original = inventory.get(attachmentKey(file));
+        const available = Boolean(original && original.available !== false);
+        if (file.available !== available) changed = true;
+        file.available = available;
+        if (original) file.path = original.path;
+      }
+      if (changed) invalidateInspection();
+      renderAttachments();
+      updateSelection();
+    },
+    onChange() { invalidateInspection(); updateSelection(); }
+  });
+
+  function workspaceFile(path) {
+    return { path, reference: { source: 'workspace', path, workspace_revision: state.workspaceRevision, workspace_session_id: state.workspaceSessionId } };
+  }
+
+  function pendingWorkspacePath(path) {
+    return state.pendingFiles.some(file => file.reference.source === 'workspace' && file.path === path);
+  }
+
+  function sameSelection(first, second) {
+    return first.length === second.length && first.every((file, index) => attachmentKey(file) === attachmentKey(second[index]));
+  }
 
   function* matchingFiles(entries, query) {
     for (const entry of entries) {
@@ -75,8 +124,8 @@ export function createWorkspace({ getActiveProfileId }) {
           row.className = 'tree-entry file';
           row.dataset.path = entry.path;
           row.title = entry.path;
-          row.setAttribute('aria-pressed', String(state.pendingFiles.includes(entry.path)));
-          row.classList.toggle('selected', state.pendingFiles.includes(entry.path));
+          row.setAttribute('aria-pressed', String(pendingWorkspacePath(entry.path)));
+          row.classList.toggle('selected', pendingWorkspacePath(entry.path));
           row.disabled = state.attachingFile || state.generating;
           row.innerHTML = `<i data-lucide="${attachmentIcon(entry.path)}"></i>`;
           const name = document.createElement('span');
@@ -112,7 +161,7 @@ export function createWorkspace({ getActiveProfileId }) {
     if (!tree.childElementCount) {
       const empty = document.createElement('p');
       empty.className = 'workspace-empty-state';
-      empty.textContent = !state.workspaceRoot ? 'Choose a workspace to attach selected files. Chat is available without a workspace. Independent file uploads are planned.'
+      empty.textContent = !state.workspaceRoot ? 'No workspace selected. Use Choose files above, or connect a workspace to browse project files.'
         : query ? 'No matching files. Try another name or path.' : 'No files in this folder. Choose another folder in Workspace settings.';
       tree.append(empty);
     }
@@ -132,7 +181,11 @@ export function createWorkspace({ getActiveProfileId }) {
     if (changed) {
       state.workspaceEntries = [];
       state.workspaceFileCount = null;
-      clearFocusFiles();
+      const hadWorkspaceFiles = state.attachments.some(file => file.reference.source === 'workspace');
+      state.attachments = state.attachments.filter(file => file.reference.source === 'upload');
+      state.pendingFiles = state.pendingFiles.filter(file => file.reference.source === 'upload');
+      if (hadWorkspaceFiles) state.selectionEdited = true;
+      invalidateInspection();
       $('#workspace-structure-enabled').checked = false;
       $('#workspace-structure-path').value = '';
       $('#workspace-structure-depth').value = '1';
@@ -151,19 +204,7 @@ export function createWorkspace({ getActiveProfileId }) {
     $('#composer-workspace-name').textContent = folderName;
     $('#file-source-name').textContent = folderName;
     $('#file-source-name').title = data.root || 'No workspace selected';
-    const paths = new Set();
-    const collect = (entries) => entries.forEach((entry) => {
-      if (entry.type === 'file') paths.add(entry.path);
-      if (entry.children) collect(entry.children);
-    });
-    if (data.entries_loaded !== false) {
-      collect(state.workspaceEntries);
-      state.workspaceFiles = state.workspaceFiles.filter((path) => paths.has(path));
-      state.pendingFiles = state.pendingFiles.filter((path) => paths.has(path));
-    }
-    for (const path of state.attachmentMetadata.keys()) {
-      if (!state.workspaceFiles.includes(path)) state.attachmentMetadata.delete(path);
-    }
+    $('.attachment-workspace').dataset.connected = String(Boolean(data.root));
     if (state.inspection && !inspectionIsCurrent()) invalidateInspection();
     renderAttachments();
     updateSelection();
@@ -190,7 +231,6 @@ export function createWorkspace({ getActiveProfileId }) {
       $('#workspace-tree').textContent = 'Could not load files. Use Refresh to try again.';
       state.workspaceEntries = [];
       state.workspaceFileCount = null;
-      state.pendingFiles = [];
       invalidateInspection();
       updateSelection();
       toast('Could not load workspace.', 'error');
@@ -204,72 +244,119 @@ export function createWorkspace({ getActiveProfileId }) {
 
   function updateSelection() {
     $('#workspace-tree').querySelectorAll('[data-path]').forEach((row) => {
-      const selected = state.pendingFiles.includes(row.dataset.path);
+      const selected = pendingWorkspacePath(row.dataset.path);
       row.classList.toggle('selected', selected);
       row.setAttribute('aria-pressed', String(selected));
       row.disabled = state.attachingFile || state.generating;
     });
     $('#workspace-tree').querySelectorAll('.tree-more').forEach((button) => { button.disabled = state.attachingFile || state.generating; });
     const count = state.pendingFiles.length;
+    const busy = state.attachingFile || state.generating || uploads.isUploading();
     $('#selected-file-label').textContent = count ? `${count} file${count === 1 ? '' : 's'} selected` : 'No files selected';
     $('#selected-file-label').dataset.hasFile = String(count > 0);
-    $('#selected-file-label').title = state.pendingFiles.join('\n');
-    $('#attach-selected-file').disabled = state.attachingFile || state.generating || (!count && !state.workspaceFiles.length);
+    $('#selected-file-label').title = state.pendingFiles.map(file => `${file.path} (${attachmentSourceLabel(file)})`).join('\n');
+    $('#attach-selected-file').disabled = busy || (!count && !state.attachments.length);
     $('#attach-selected-file').textContent = state.attachingFile ? 'Checking...' : !count ? 'Clear attachments'
       : inspectionIsCurrent() && !state.inspection.data.context_policy.blocked ? 'Apply selection' : 'Check selection';
     $('#refresh-workspace').disabled = state.attachingFile || state.generating || state.changingWorkspace;
     $('#file-search').disabled = !state.workspaceRoot || state.generating;
-    $('#attachment-workspace-settings').disabled = state.attachingFile || state.generating;
+    $('#attachment-workspace-settings').disabled = busy;
+    uploads.update();
   }
 
   function toggleFile(path) {
-    if (state.attachingFile || state.generating) return;
+    toggleAttachment(workspaceFile(path));
+  }
+
+  function toggleAttachment(file) {
+    if (state.attachingFile || state.generating || uploads.isUploading()) return;
     invalidateInspection();
-    if (state.pendingFiles.includes(path)) {
-      state.pendingFiles = state.pendingFiles.filter((selected) => selected !== path);
+    const key = attachmentKey(file);
+    if (state.pendingFiles.some(item => attachmentKey(item) === key)) {
+      state.pendingFiles = state.pendingFiles.filter(item => attachmentKey(item) !== key);
     } else {
-      state.pendingFiles.push(path);
+      state.pendingFiles.push(file);
     }
     updateSelection();
   }
 
   function renderAttachments() {
     const bar = $('.context-bar');
-    bar.querySelectorAll('.context-chip.file').forEach((chip) => chip.remove());
-    for (const path of state.workspaceFiles) {
+    const focusedKey = document.activeElement?.closest('[data-attachment-key]')?.dataset.attachmentKey;
+    bar.querySelectorAll('.context-chip.file').forEach(chip => chip.remove());
+    for (const file of state.attachments) {
       const chip = $('#file-chip-template').content.firstElementChild.cloneNode(true);
-      chip.dataset.workspaceFile = path;
-      const metadata = state.attachmentMetadata.get(path);
-      chip.querySelector('i[data-lucide]').setAttribute('data-lucide', attachmentIcon(path, metadata?.kind));
-      chip.title = [path, metadata ? attachmentSummary(metadata) : '', ...attachmentWarnings(metadata || {}), 'Included with each message until removed.'].filter(Boolean).join('\n');
-      const name = chip.querySelector('.file-chip-name');
-      name.textContent = path;
-      name.title = path;
+      const key = attachmentKey(file);
+      chip.dataset.attachmentKey = key;
+      chip.dataset.source = file.reference.source;
+      if (file.reference.source === 'workspace') chip.dataset.workspaceFile = file.path;
+      chip.querySelector('i[data-lucide]').setAttribute('data-lucide', attachmentIcon(file.path, file.kind));
+      chip.title = [file.path, attachmentSourceLabel(file), file.reference.attachment_id || '', attachmentSummary(file), ...attachmentWarnings(file),
+        file.available === false ? 'Original unavailable. Select the file again or remove this attachment.' : 'Included with each new message until removed.'].filter(Boolean).join('\n');
+      chip.dataset.unavailable = String(file.available === false);
+      chip.querySelector('.file-chip-name').textContent = file.path;
+      chip.querySelector('.file-chip-source').textContent = file.available === false ? 'Unavailable' : attachmentSourceLabel(file);
       const remove = chip.querySelector('button');
       remove.disabled = state.generating;
-      remove.title = `Remove ${path}`;
-      remove.setAttribute('aria-label', `Remove ${path}`);
+      const identity = file.reference.source === 'upload' ? ` (${file.reference.attachment_id.slice(0, 8)})` : '';
+      remove.title = `Remove ${attachmentSourceLabel(file).toLowerCase()} attachment: ${file.path}${identity}`;
+      remove.setAttribute('aria-label', remove.title);
       remove.onclick = () => {
         if (state.generating) return;
-        state.workspaceFiles = state.workspaceFiles.filter((selected) => selected !== path);
-        state.pendingFiles = state.pendingFiles.filter((selected) => selected !== path);
-        state.attachmentMetadata.delete(path);
+        state.selectionEdited = true;
+        state.attachments = state.attachments.filter(item => attachmentKey(item) !== key);
+        state.pendingFiles = state.pendingFiles.filter(item => attachmentKey(item) !== key);
         invalidateInspection();
         renderAttachments();
         updateSelection();
+        const next = [...bar.querySelectorAll('.context-chip.file button')][0] || $('#load-file');
+        next.focus();
       };
       bar.append(chip);
+      if (focusedKey === key) remove.focus({ preventScroll: true });
     }
     refreshIcons(bar);
   }
 
   function clearFocusFiles() {
-    state.workspaceFiles = [];
+    state.restoreController?.abort();
+    state.restoreController = null;
+    uploads.cancel();
+    state.attachments = [];
     state.pendingFiles = [];
-    state.attachmentMetadata.clear();
+    state.selectionEdited = false;
     invalidateInspection();
     renderAttachments();
     updateSelection();
+  }
+
+  async function restoreAttachments(sources = []) {
+    clearFocusFiles();
+    const controller = new AbortController();
+    state.restoreController = controller;
+    state.attachments = sources.map(reference => reference.source === 'workspace'
+      ? { path: reference.path, reference }
+      : { path: `Uploaded file (${reference.attachment_id.slice(0, 8)})`, reference });
+    state.pendingFiles = [...state.attachments];
+    renderAttachments();
+    updateSelection();
+    await Promise.all(state.attachments.filter(file => file.reference.source === 'upload').map(async file => {
+      try {
+        const response = await fetch(`/api/attachments/uploads/${file.reference.attachment_id}`, { signal: controller.signal });
+        const data = await response.json();
+        if (state.restoreController !== controller || controller.signal.aborted) return;
+        if (response.ok) Object.assign(file, { path: data.filename, size_bytes: data.size_bytes, available: true });
+        else if (response.status === 410) file.available = false;
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+      }
+      if (state.restoreController === controller) { renderAttachments(); updateSelection(); }
+    }));
+  }
+
+  function getAttachmentSelection({ regenerating = false } = {}) {
+    if (regenerating && !state.selectionEdited) return {};
+    return { attachment_sources: state.attachments.map(file => ({ ...file.reference })) };
   }
 
   function openWorkspaceDialog() {
@@ -283,18 +370,18 @@ export function createWorkspace({ getActiveProfileId }) {
     ++state.fileDialogVersion;
     invalidateInspection();
     closeMobileSidebar();
-    state.pendingFiles = [...state.workspaceFiles];
+    state.pendingFiles = [...state.attachments];
     $('#file-search').value = '';
     updateSelection();
     $('#workspace-tree').textContent = state.workspaceRoot ? 'Loading files...' : 'No workspace selected.';
     $('#file-dialog').showModal();
-    $('#file-search').focus();
-    await loadWorkspace({ includeEntries: true });
+    $('#choose-upload-files').focus();
+    await Promise.all([loadWorkspace({ includeEntries: true }), uploads.load()]);
   }
 
   function setGenerating(value) {
     state.generating = value;
-    if (value) invalidateInspection();
+    if (value) { invalidateInspection(); uploads.cancel(); }
     ['load-file', 'workspace-card', 'workspace-context-chip'].forEach((id) => {
       const el = $(`#${id}`);
       if (el) el.disabled = value;
@@ -434,8 +521,7 @@ export function createWorkspace({ getActiveProfileId }) {
     const inspection = state.inspection;
     return Boolean(inspection && inspection.root === state.workspaceRoot && inspection.revision === state.workspaceRevision
       && inspection.sessionId === state.workspaceSessionId && inspection.profileId === getActiveProfileId()
-      && inspection.version === state.fileDialogVersion && inspection.paths.length === state.pendingFiles.length
-      && inspection.paths.every((path, index) => path === state.pendingFiles[index]));
+      && inspection.version === state.fileDialogVersion && sameSelection(inspection.files, state.pendingFiles));
   }
 
   function invalidateInspection() {
@@ -479,7 +565,7 @@ export function createWorkspace({ getActiveProfileId }) {
     for (const file of files) {
       const item = document.createElement('li');
       const name = document.createElement('strong');
-      name.textContent = file.path;
+      name.textContent = `${file.path} · ${attachmentSourceLabel(file)}`;
       const description = document.createElement('p');
       description.textContent = attachmentSummary(file);
       item.append(name, description);
@@ -495,18 +581,20 @@ export function createWorkspace({ getActiveProfileId }) {
 
   function updateAttachmentMetadata(files) {
     if (!Array.isArray(files)) return;
-    for (const file of files) {
-      if (state.workspaceFiles.includes(file.path)) state.attachmentMetadata.set(file.path, file);
+    for (const metadata of files) {
+      const file = state.attachments.find(item => metadata.reference ? attachmentKey(item) === attachmentKey(metadata)
+        : item.reference.source === 'workspace' && item.path === metadata.path);
+      if (file) Object.assign(file, metadata);
     }
     renderAttachments();
   }
 
   async function checkOrApplySelection() {
-    const paths = [...state.pendingFiles];
-    if (state.attachingFile || state.generating || (!paths.length && !state.workspaceFiles.length)) return;
-    if (!paths.length || (inspectionIsCurrent() && !state.inspection.data.context_policy.blocked)) {
-      state.workspaceFiles = paths.length ? state.inspection.data.files.map(file => file.path) : [];
-      state.attachmentMetadata = new Map(paths.length ? state.inspection.data.files.map(file => [file.path, file]) : []);
+    const files = [...state.pendingFiles];
+    if (state.attachingFile || state.generating || (!files.length && !state.attachments.length) || uploads.isUploading()) return;
+    if (!files.length || (inspectionIsCurrent() && !state.inspection.data.context_policy.blocked)) {
+      state.attachments = files.length ? state.inspection.data.files : [];
+      state.selectionEdited = true;
       renderAttachments();
       $('#file-dialog').close();
       $('#prompt').focus();
@@ -521,7 +609,7 @@ export function createWorkspace({ getActiveProfileId }) {
     const isCurrent = () => state.inspectionController === controller && $('#file-dialog').open && !state.generating
       && version === state.fileDialogVersion && root === state.workspaceRoot && revision === state.workspaceRevision
       && sessionId === state.workspaceSessionId && profileId === getActiveProfileId()
-      && paths.length === state.pendingFiles.length && paths.every((path, index) => path === state.pendingFiles[index]);
+      && sameSelection(files, state.pendingFiles);
     state.inspectionController = controller;
     state.attachingFile = true;
     state.inspectionFeedback = { type: 'checking', message: 'Checking selected files locally...' };
@@ -530,7 +618,7 @@ export function createWorkspace({ getActiveProfileId }) {
     try {
       const response = await fetch('/api/attachments/inspect', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paths, profile_id: profileId, workspace_revision: revision ?? undefined, workspace_session_id: sessionId ?? undefined }), signal: controller.signal
+        body: JSON.stringify({ attachment_sources: files.map(file => file.reference), profile_id: profileId, workspace_revision: revision ?? undefined, workspace_session_id: sessionId ?? undefined }), signal: controller.signal
       });
       let data;
       try { data = await response.json(); }
@@ -544,7 +632,9 @@ export function createWorkspace({ getActiveProfileId }) {
           || !data.context_policy || !['warn', 'block', 'off'].includes(data.context_policy.mode)) {
         throw new Error('Could not read the file check result. Check the selection again.');
       }
-      state.inspection = { paths, root, revision, sessionId, version, profileId, data };
+      data.files = data.files.map(file => ({ ...file, reference: file.reference || workspaceFile(file.path).reference }));
+      if (!sameSelection(data.files, files)) throw new Error('The checked sources changed. Check the selection again.');
+      state.inspection = { files, root, revision, sessionId, version, profileId, data };
       state.inspectionFeedback = null;
       renderInspection();
     } catch (error) {
@@ -568,6 +658,7 @@ export function createWorkspace({ getActiveProfileId }) {
   }
 
   function init() {
+    uploads.init();
     $('#workspace-card').onclick = openWorkspaceDialog;
     $('#workspace-context-chip').onclick = openWorkspaceDialog;
     $('#attachment-workspace-settings').onclick = () => {
@@ -596,6 +687,8 @@ export function createWorkspace({ getActiveProfileId }) {
         state.workspaceLoadingEntries = false;
       }
       $('#workspace-tree').replaceChildren();
+      uploads.cancel();
+      $('#uploaded-files').replaceChildren();
       invalidateInspection();
       updateSelection();
     });
@@ -618,6 +711,7 @@ export function createWorkspace({ getActiveProfileId }) {
 
   return {
     init, load: loadWorkspace, clearFocusFiles, setGenerating, beforeDialogClose,
-    restorePicker: picker.restore, getAttachmentFiles: () => [...state.workspaceFiles], getWorkspaceContext, updateAttachmentMetadata
+    restorePicker: picker.restore, getAttachmentSelection, restoreAttachments, getWorkspaceContext, updateAttachmentMetadata,
+    markAttachmentsSaved() { state.selectionEdited = false; }
   };
 }
