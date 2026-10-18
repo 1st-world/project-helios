@@ -98,7 +98,7 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot })
     resume = resume || token === savedToken;
     sessionStorage.setItem(pickerStorageKey, token);
     sessionStorage.setItem(pickerStorageKey + '.path', $('#workspace-path-input').value);
-    const controls = Array.from($('#workspace-dialog').querySelectorAll('#browse-workspace-btn, #apply-workspace, input'));
+    const controls = Array.from($('#workspace-dialog').querySelectorAll('#browse-workspace-btn, #apply-workspace, #disconnect-workspace, #preview-workspace-structure, input'));
     const picker = {
       token, controls, disabled: controls.map((control) => control.disabled),
       help: $('#workspace-path-help').textContent,
@@ -143,7 +143,7 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot })
     workspaceReady.then(() => {
       input.removeEventListener('input', markEdited);
       // Fill only missing initial data, never a selected path or a user's draft.
-      if (savedPath === null && !edited && input.value === initialPath && !initialPath) input.value = getWorkspaceRoot();
+      if (savedPath === null && !edited && input.value === initialPath && !initialPath) input.value = getWorkspaceRoot() || '';
     });
   }
 

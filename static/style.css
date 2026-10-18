@@ -66,6 +66,7 @@
   --line-height-body-compact: 1.5;
   --line-height-input: 1.5;
   --line-height-prose: 1.65;
+  --line-height-code-block: 1.5;
 
   --letter-spacing-brand: 0.14em;
   --letter-spacing-section-label: 0.11em;
@@ -3226,8 +3227,67 @@ textarea::placeholder {
   margin-top: 8px;
 }
 
-.settings-dialog .workspace-roadmap {
-  margin: 4px 0 0;
+.workspace-modal .workspace-structure {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.workspace-modal .workspace-structure h3 {
+  margin: 0 0 12px;
+  font-weight: var(--font-weight-heading);
+  font-size: var(--font-size-title-group);
+  line-height: var(--line-height-heading);
+}
+.workspace-modal .workspace-structure .workspace-structure-toggle {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  gap: 8px;
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-description);
+}
+.workspace-modal .workspace-structure-toggle input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+.workspace-modal .workspace-structure p {
+  margin: 8px 0 12px;
+}
+.workspace-modal .workspace-structure fieldset {
+  min-width: 0;
+  margin: 16px 0 0;
+  padding: 0;
+  border: 0;
+}
+.workspace-modal .workspace-structure-limits {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 12px;
+  gap: 12px;
+}
+.workspace-modal .workspace-structure-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 12px;
+  gap: 8px;
+}
+.workspace-modal .workspace-structure pre {
+  max-height: 200px;
+  margin: 12px 0 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-app);
+  color: var(--text-main);
+  font-size: var(--font-size-code-block);
+  line-height: var(--line-height-code-block);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .file-source-row {
@@ -3243,6 +3303,9 @@ textarea::placeholder {
   width: 15px;
   height: 15px;
   color: var(--accent);
+}
+.workspace-modal .file-source-row button {
+  margin-left: auto;
 }
 
 .file-search-row {

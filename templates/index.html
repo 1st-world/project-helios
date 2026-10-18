@@ -37,7 +37,7 @@
           </span>
           <i data-lucide="chevron-right" class="workspace-card-action"></i>
         </span>
-        <span class="workspace-card-meta" id="workspace-file-count">Loading folder...</span>
+        <span class="workspace-card-meta" id="workspace-file-count">Loading workspace...</span>
       </button>
 
       <div class="sidebar-dock">
@@ -65,7 +65,7 @@
         <button id="workspace-context-chip" class="context-chip workspace" type="button" title="Manage workspace context">
           <i data-lucide="folder"></i>
           <span id="composer-workspace-name">Workspace</span>
-          <span class="chip-sub" id="composer-workspace-sub">Folder context</span>
+          <span class="chip-sub" id="composer-workspace-sub">Structure off</span>
         </button>
         <template id="file-chip-template">
           <div class="context-chip file" title="Attachments are included with each message until removed">
@@ -127,21 +127,39 @@
     </div>
     <div class="info-callout">
       <i data-lucide="info"></i>
-      <p>A list of file and folder paths in your workspace (up to 300 entries) is included with your messages. File contents are included only when you explicitly attach a file.</p>
+      <p>Chat with or without a workspace. Connecting a folder sets the boundary for selected files; it does not send folder paths or file contents automatically.</p>
     </div>
     <form id="workspace-form" class="workspace-folder-bar">
       <label for="workspace-path-input">Folder path</label>
       <div class="path-input-group">
-        <input id="workspace-path-input" required placeholder="C:\Projects\my-project" aria-describedby="workspace-path-help">
+        <input id="workspace-path-input" required placeholder="C:/Users/Projects/my-project" aria-describedby="workspace-path-help">
         <button id="browse-workspace-btn" class="quiet sm-btn" type="button"><i data-lucide="folder-open"></i><span>Browse</span></button>
       </div>
       <span id="workspace-path-help" class="field-hint" role="status">Choose a folder on the computer running Helios, then apply. This folder is shared across conversations.</span>
-      <p class="field-hint workspace-roadmap">Chatting without a workspace folder is planned.</p>
       <div class="dialog-actions">
+        <button id="disconnect-workspace" class="quiet" type="button" disabled>Disconnect</button>
         <button class="quiet" type="button" data-close-dialog="workspace-dialog">Cancel</button>
-        <button id="apply-workspace" class="primary-btn" type="submit">Apply folder</button>
+        <button id="apply-workspace" class="primary-btn" type="submit">Apply</button>
       </div>
     </form>
+    <section class="workspace-structure" aria-labelledby="workspace-structure-title">
+      <h3 id="workspace-structure-title">Structure with messages</h3>
+      <label class="workspace-structure-toggle" for="workspace-structure-enabled"><input id="workspace-structure-enabled" type="checkbox" disabled>Include folder and file names</label>
+      <p class="field-hint">Off by default. This selection applies to new messages and regenerated answers. Past conversation and memory may still contain earlier project information.</p>
+      <fieldset id="workspace-structure-options" disabled hidden>
+        <label for="workspace-structure-path">Relative folder</label>
+        <input id="workspace-structure-path" placeholder="Workspace root" aria-describedby="workspace-structure-scope-help">
+        <span id="workspace-structure-scope-help" class="field-hint">Leave blank to start at the workspace root.</span>
+        <div class="workspace-structure-limits">
+          <div><label for="workspace-structure-depth">Folder depth</label><input id="workspace-structure-depth" type="number" min="1" step="1" value="1" placeholder="All depths" aria-describedby="workspace-structure-limit-help"></div>
+          <div><label for="workspace-structure-entries">Maximum entries</label><input id="workspace-structure-entries" type="number" min="1" step="1" placeholder="All entries" aria-describedby="workspace-structure-limit-help"></div>
+        </div>
+        <p id="workspace-structure-limit-help" class="field-hint">Depth 1 includes direct children. A blank limit includes all depths or entries in the chosen folder.</p>
+        <label class="workspace-structure-toggle" for="workspace-structure-absolute"><input id="workspace-structure-absolute" type="checkbox">Also include the absolute workspace path</label>
+        <div class="workspace-structure-preview-actions"><button id="preview-workspace-structure" class="quiet sm-btn" type="button">Preview structure</button><span id="workspace-structure-status" class="field-hint" role="status"></span></div>
+        <pre id="workspace-structure-preview" tabindex="0" aria-label="Structure preview" hidden></pre>
+      </fieldset>
+    </section>
   </dialog>
 
   <dialog id="file-dialog" class="settings-dialog workspace-modal" aria-labelledby="file-dialog-title">
@@ -149,7 +167,7 @@
       <div><i data-lucide="paperclip"></i><h2 id="file-dialog-title">Attach files</h2></div>
       <button class="dialog-close" type="button" data-close-dialog="file-dialog" aria-label="Close"><i data-lucide="x"></i></button>
     </div>
-    <div class="file-source-row"><i data-lucide="folder"></i><span id="file-source-name">Workspace</span></div>
+    <div class="file-source-row"><i data-lucide="folder"></i><span id="file-source-name">No workspace</span><button id="attachment-workspace-settings" class="quiet sm-btn" type="button">Choose workspace</button></div>
     <label class="sr-only" for="file-search">Search workspace files</label>
     <div class="file-search-row">
       <input id="file-search" type="search" placeholder="Search files by name or path" autocomplete="off">

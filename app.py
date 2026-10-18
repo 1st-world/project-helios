@@ -111,6 +111,7 @@ attachment_service = AttachmentService(
 )
 folder_picker_service = FolderPickerService()
 context_recovery = ContextRecoveryRegistry()
+workspace_operations: set[object] = set()
 usage_service = UsageService()
 summary_usage_store = SummaryUsageStore(
     settings.logs_root / "summary_usage.sqlite3"
@@ -275,6 +276,8 @@ class ReadFileRequest(BaseModel):
     """Validate the relative workspace path requested for reading."""
 
     path: str = Field(min_length=1, max_length=4096)
+    workspace_revision: int | None = Field(default=None, ge=0, strict=True)
+    workspace_session_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class ContextRequestOptions(BaseModel):
@@ -346,6 +349,24 @@ class UpdateSettingsRequest(BaseModel):
     )
 
 
+class WorkspaceStructureRequest(BaseModel):
+    """Select the relative scope and visible range of an optional project manifest."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(default="", max_length=4096)
+    max_depth: int | None = Field(default=None, ge=1, strict=True)
+    max_entries: int | None = Field(default=None, ge=1, strict=True)
+    include_absolute_path: bool = Field(default=False, strict=True)
+
+
+class WorkspaceStructurePreviewRequest(WorkspaceStructureRequest):
+    """Pin a local structure preview to the workspace shown in the browser."""
+
+    workspace_revision: int | None = Field(default=None, ge=0, strict=True)
+    workspace_session_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
 class ChatRequest(ContextRequestOptions):
     """Validate a new chat turn or regeneration request and its context selection."""
 
@@ -354,6 +375,9 @@ class ChatRequest(ContextRequestOptions):
     workspace_file: str | None = None
     workspace_files: list[str] = Field(default_factory=list)
     attachment_files: list[str] = Field(default_factory=list)
+    workspace_revision: int | None = Field(default=None, ge=0, strict=True)
+    workspace_session_id: str | None = Field(default=None, min_length=1, max_length=64)
+    workspace_structure: WorkspaceStructureRequest | None = None
     profile_id: str | None = None
     regenerate_message_index: int | None = Field(default=None, ge=0)
     expected_conversation_version: int | None = Field(default=None, ge=0)
@@ -373,6 +397,8 @@ class AttachmentSelectionRequest(ContextRequestOptions):
 
     paths: list[str] = Field(min_length=1)
     profile_id: str | None = None
+    workspace_revision: int | None = Field(default=None, ge=0, strict=True)
+    workspace_session_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class RenameConversationRequest(BaseModel):
@@ -390,7 +416,9 @@ class EditMessageRequest(BaseModel):
 class WorkspaceRootRequest(BaseModel):
     """Validate the submitted workspace folder path."""
 
-    path: str = Field(min_length=1, max_length=4096)
+    path: str | None = Field(min_length=1, max_length=4096)
+    workspace_revision: int | None = Field(default=None, ge=0, strict=True)
+    workspace_session_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class ProfileContextSettings(ContextRequestOptions):
@@ -707,13 +735,88 @@ async def until_disconnect(request, action, *args, **kwargs):
     return result
 
 
-def require_workspace_root(root) -> None:
+def require_workspace_root(root, revision: int | None = None) -> None:
     """Reject local results prepared for a workspace that is no longer selected."""
-    if workspace_service.root != root:
+    if (
+        workspace_service.root != root
+        or (revision is not None and workspace_service.revision != revision)
+    ):
         raise HTTPException(status_code=409, detail={
             "code": "attachment_workspace_changed",
             "message": "Workspace changed while preparing this request. Try again.",
         })
+
+
+def require_workspace_revision(
+    revision: int | None, session_id: str | None = None,
+) -> None:
+    """Reject stale browser references even after a folder is selected again."""
+    require_workspace_root(workspace_service.root, revision)
+    if session_id is not None and workspace_service.session_id != session_id:
+        raise HTTPException(status_code=409, detail={
+            "code": "attachment_workspace_changed",
+            "message": "Workspace session changed. Refresh the Workspace and select project input again.",
+        })
+
+
+def require_selected_workspace(workspace: WorkspaceService) -> None:
+    """Require an explicit folder before interpreting project-relative input."""
+    if workspace.root is None:
+        raise HTTPException(status_code=400, detail={
+            "code": "workspace_not_selected",
+            "message": "Choose a Workspace folder before using project files or folder structure.",
+        })
+
+
+def claim_workspace(workspace: WorkspaceService):
+    """Keep folder changes blocked until project work and its cleanup finish."""
+    token = object()
+    if workspace.root is not None:
+        workspace_operations.add(token)
+
+    def release() -> None:
+        """Release an operation idempotently after streaming or local worker cleanup."""
+        workspace_operations.discard(token)
+
+    return release
+
+
+def require_workspace_idle() -> None:
+    """Leave the selected folder intact while a project request still owns it."""
+    if workspace_operations:
+        raise HTTPException(status_code=409, detail={
+            "code": "workspace_request_in_progress",
+            "message": "A project request is running. Stop it and wait for cleanup before changing the Workspace.",
+        })
+
+
+def workspace_payload(workspace: WorkspaceService, entries: list[dict]) -> dict:
+    """Represent an unselected folder as null without a fallback path."""
+    return {
+        "root": str(workspace.root) if workspace.root is not None else None,
+        "revision": workspace.revision,
+        "session_id": workspace.session_id,
+        "entries": entries,
+    }
+
+
+def build_workspace_structure(
+    workspace: WorkspaceService, options: WorkspaceStructureRequest,
+) -> str:
+    """Build only the explicitly selected folder-structure context."""
+    return workspace.project_context(
+        relative_path=options.path, max_depth=options.max_depth,
+        max_entries=options.max_entries,
+        include_absolute_path=options.include_absolute_path,
+    )
+
+
+def chat_uses_workspace(payload: ChatRequest) -> bool:
+    """Distinguish explicit project input from a folder-independent chat request."""
+    return bool(
+        payload.workspace_file or payload.workspace_files
+        or payload.attachment_files or payload.workspace_structure is not None
+    )
 
 
 @app.get("/api/workspace")
@@ -721,17 +824,20 @@ async def workspace_tree(request: Request = None):
     """Return the configured workspace root and its accessible file tree."""
     workspace = copy(workspace_service)
     entries = await until_disconnect(request, run_local, workspace.tree)
-    require_workspace_root(workspace.root)
-    return {"root": str(workspace.root), "entries": entries}
+    require_workspace_root(workspace.root, workspace.revision)
+    return workspace_payload(workspace, entries)
 
 
 @app.put("/api/workspace/root")
 async def update_workspace_root(
     payload: WorkspaceRootRequest, request: Request = None
 ):
-    """Select an existing workspace folder and return its file tree."""
+    """Select or disconnect a folder once all project requests have finished."""
+    require_workspace_revision(payload.workspace_revision, payload.workspace_session_id)
+    require_workspace_idle()
     workspace = copy(workspace_service)
     previous_root = workspace.root
+    previous_revision = workspace.revision
 
     def select_workspace():
         """Validate and list a candidate without mutating the active workspace."""
@@ -742,13 +848,37 @@ async def update_workspace_root(
         entries = await until_disconnect(request, run_local, select_workspace)
     except WorkspaceAccessError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    require_workspace_root(previous_root)
+    require_workspace_root(previous_root, previous_revision)
+    require_workspace_idle()
     workspace_service.root = workspace.root
+    workspace_service.revision = workspace.revision
     logger.info("Workspace root changed to %s", workspace_service.root)
-    return {
-        "root": str(workspace_service.root),
-        "entries": entries,
-    }
+    return workspace_payload(workspace_service, entries)
+
+
+@app.post("/api/workspace/structure")
+async def preview_workspace_structure(
+    payload: WorkspaceStructurePreviewRequest, request: Request = None,
+):
+    """Preview the exact selected structure locally without reading file bodies."""
+    require_workspace_revision(payload.workspace_revision, payload.workspace_session_id)
+    workspace = copy(workspace_service)
+    require_selected_workspace(workspace)
+    release = claim_workspace(workspace)
+    try:
+        context = await until_disconnect(
+            request, run_local, build_workspace_structure, workspace, payload,
+        )
+        require_workspace_root(workspace.root, workspace.revision)
+        return {
+            "context": context, "root": str(workspace.root),
+            "revision": workspace.revision,
+            "session_id": workspace.session_id,
+        }
+    except WorkspaceAccessError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        release()
 
 
 @app.websocket("/api/workspace/picker/{token}")
@@ -769,7 +899,7 @@ async def workspace_picker(websocket: WebSocket, token: UUID):
             return
         session = folder_picker_service.attach(
             key,
-            str(workspace_service.root),
+            str(workspace_service.root) if workspace_service.root is not None else "",
             start=command["action"] == "start",
         )
         if session is None:
@@ -826,12 +956,15 @@ async def workspace_picker(websocket: WebSocket, token: UUID):
 @app.post("/api/read-file")
 async def read_file(payload: ReadFileRequest, request: Request = None):
     """Read a workspace text file and translate access failures into HTTP errors."""
+    require_workspace_revision(payload.workspace_revision, payload.workspace_session_id)
+    workspace = copy(workspace_service)
+    require_selected_workspace(workspace)
+    release = claim_workspace(workspace)
     try:
-        workspace = copy(workspace_service)
         content = await until_disconnect(
             request, run_local, workspace.read_text, payload.path,
         )
-        require_workspace_root(workspace.root)
+        require_workspace_root(workspace.root, workspace.revision)
         return {
             "path": payload.path,
             "content": content,
@@ -851,6 +984,8 @@ async def read_file(payload: ReadFileRequest, request: Request = None):
     except Exception:
         logger.exception("Unexpected workspace read error")
         raise HTTPException(status_code=500, detail="Could not read file.")
+    finally:
+        release()
 
 
 def application_settings_response() -> dict:
@@ -990,7 +1125,10 @@ async def inspect_attachments(
     request_attachments.workspace = copy(workspace_service)
     request_budget = context_budget
     request_settings = settings_service.current
+    require_workspace_revision(payload.workspace_revision, payload.workspace_session_id)
+    require_selected_workspace(request_attachments.workspace)
     validate_selection_entries(payload.paths, request_attachments)
+    release = claim_workspace(request_attachments.workspace)
     try:
         prepared = await until_disconnect(
             request, run_local, request_attachments.prepare, payload.paths,
@@ -999,7 +1137,11 @@ async def inspect_attachments(
         raise HTTPException(
             status_code=exc.status_code, detail=exc.detail()
         ) from exc
-    require_workspace_root(request_attachments.workspace.root)
+    finally:
+        release()
+    require_workspace_root(
+        request_attachments.workspace.root, request_attachments.workspace.revision,
+    )
     policy = resolve_context_policy(
         payload.profile_id, payload.context_preflight_mode,
         payload.context_input_budget,
@@ -1040,6 +1182,10 @@ async def chat(payload: ChatRequest, request: Request = None):
                 or not data["memory"].policy_is_current(data["summary_policy"])
             ):
                 raise RecoveryError("The conversation or connection policy changed after this failure. Review the current input and send a new request.")
+            if data.get("workspace_root") is not None:
+                require_workspace_root(
+                    data["workspace_root"], data["workspace_revision"],
+                )
             payload = ChatRequest(
                 prompt=data["prompt"], conversation_id=conversation.id,
                 profile_id=data["profile_id"],
@@ -1047,6 +1193,9 @@ async def chat(payload: ChatRequest, request: Request = None):
                 expected_conversation_version=data["version"],
             )
         else:
+            if chat_uses_workspace(payload):
+                require_workspace_revision(payload.workspace_revision, payload.workspace_session_id)
+                require_selected_workspace(workspace_service)
             ai_service.resolve_profile_id(payload.profile_id)
             conversation = (
                 conversation_manager.get(payload.conversation_id or "")
@@ -1059,6 +1208,12 @@ async def chat(payload: ChatRequest, request: Request = None):
             conversation.id, ticket=ticket,
             operation_id=operation_id,
         )
+        workspace_bound = (
+            data.get("workspace_bound", data.get("workspace_root") is not None)
+            if ticket is not None else chat_uses_workspace(payload)
+        )
+        if workspace_bound:
+            operation.release_workspace = claim_workspace(workspace_service)
         return await until_disconnect(
             request, prepare_chat, payload, conversation, operation,
         )
@@ -1101,6 +1256,10 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
     request_memory = data["memory"] if data else memory_service
     request_attachments = copy(attachment_service)
     request_workspace = copy(workspace_service)
+    workspace_bound = (
+        data.get("workspace_bound", data.get("workspace_root") is not None)
+        if data else chat_uses_workspace(payload)
+    )
     request_attachments.workspace = request_workspace
     request_budget = context_budget
     request_settings = settings_service.current
@@ -1160,8 +1319,11 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
             selected_files.append(payload.workspace_file)
 
         def prepare_local_inputs():
-            """Build the manifest and selected input from one captured workspace root."""
-            workspace_context = request_workspace.project_context()
+            """Prepare only explicitly selected structure and files from a fixed root."""
+            workspace_context = (
+                build_workspace_structure(request_workspace, payload.workspace_structure)
+                if payload.workspace_structure is not None else ""
+            )
             attachments = (
                 request_attachments.prepare(payload.attachment_files)
                 if payload.attachment_files else PreparedAttachments()
@@ -1187,14 +1349,18 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
             return workspace_context, attachments
 
         try:
-            workspace_context, attachments = await run_local(prepare_local_inputs)
+            workspace_context, attachments = (
+                await run_local(prepare_local_inputs) if workspace_bound
+                else ("", PreparedAttachments())
+            )
         except AttachmentError as exc:
             raise HTTPException(
                 status_code=exc.status_code, detail=exc.detail()
             ) from exc
         except WorkspaceAccessError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        require_workspace_root(workspace_root)
+        if workspace_bound:
+            require_workspace_root(workspace_root, request_workspace.revision)
     if (
         not conversation_manager.is_active(conversation)
         or conversation.messages is not request_messages
@@ -1500,6 +1666,9 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                         "memory": request_memory, "summary_policy": recovery_policy,
                         "workspace_context": workspace_context,
                         "attachments": attachments, "context_policy": policy,
+                        "workspace_root": request_workspace.root if workspace_bound else None,
+                        "workspace_revision": request_workspace.revision,
+                        "workspace_bound": workspace_bound,
                     })
                     if recovery_id is None:
                         raise SummaryUnavailableError("This failed request is too large for the temporary recovery cache. Reduce the selected input or choose another deployment.")
@@ -1595,5 +1764,5 @@ if __name__ == "__main__":
         host="127.0.0.1",
         port=8000,
         reload=True,
-        reload_excludes=["logs/*", "conversation/*", "workspace/*"],
+        reload_excludes=["logs/*", "conversation/*"],
     )

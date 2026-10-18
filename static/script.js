@@ -12,6 +12,7 @@ const profiles = createProfiles({ isGenerating: () => chat.isGenerating() });
 const chat = createChat({
   getActiveProfileId: profiles.getActiveProfileId,
   getAttachmentFiles: workspace.getAttachmentFiles,
+  getWorkspaceContext: workspace.getWorkspaceContext,
   onAttachmentMetadata: workspace.updateAttachmentMetadata,
   clearFocusFiles: workspace.clearFocusFiles,
   openSettings: profiles.openSettings,

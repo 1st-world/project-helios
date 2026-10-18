@@ -35,8 +35,6 @@ Thumbs.db
 # ========================================
 # Project Helios Runtime Data
 # ========================================
-workspace/*
-!workspace/.gitkeep
 conversation/*
 !conversation/.gitkeep
 logs/*

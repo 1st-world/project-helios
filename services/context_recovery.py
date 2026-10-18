@@ -1,5 +1,6 @@
 """Keep short-lived failed-request receipts and serialize explicitly authorized recovery work."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from time import monotonic
 from uuid import uuid4
@@ -38,6 +39,7 @@ class ChatOperation:
     conversation_id: str
     ticket: RecoveryTicket | None = field(default=None, repr=False)
     closed: bool = False
+    release_workspace: Callable[[], None] | None = field(default=None, repr=False)
 
     def close(self) -> None:
         """Release ownership once and discard private inputs after a recovery attempt."""
@@ -45,6 +47,9 @@ class ChatOperation:
             return
         self.closed = True
         self.registry._busy.discard(self.conversation_id)
+        if self.release_workspace is not None:
+            self.release_workspace()
+            self.release_workspace = None
         if self.ticket is not None:
             self.ticket.data = {}
             self.ticket.weight = 0

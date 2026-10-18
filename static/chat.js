@@ -7,7 +7,7 @@ import { calendarDate, formatMessageTimestamp, getTimezone } from './timezone.js
 import { createDisclosure } from './disclosure.js';
 import { showActionDialog } from './dialogs.js';
 
-export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmentMetadata, clearFocusFiles, onGeneratingChange, onConversationChange, openSettings }) {
+export function createChat({ getActiveProfileId, getAttachmentFiles, getWorkspaceContext = () => ({}), onAttachmentMetadata, clearFocusFiles, onGeneratingChange, onConversationChange, openSettings }) {
   const state = {
     conversationId: null,
     conversationVersion: null,
@@ -655,6 +655,13 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
     if (messageEditor) return toast('Save or cancel your message edit before sending.', 'info');
     const text = options.prompt ?? prompt.value.trim();
     if (!text || state.generating) return;
+    let workspaceContext;
+    try { workspaceContext = options.recoveryId ? {} : getWorkspaceContext(); }
+    catch (error) {
+      toast(error.message || 'Review the workspace structure settings before sending.', 'error');
+      if (options.preserveDraft && state.conversationId) await openConversation(state.conversationId, true);
+      return;
+    }
     const requestFeedback = { conversationId: state.conversationId, items: [], sourceCreatedAt: options.sourceCreatedAt };
     state.requestFeedback.delete(state.conversationId);
     renderRequestFeedback();
@@ -679,6 +686,7 @@ export function createChat({ getActiveProfileId, getAttachmentFiles, onAttachmen
           prompt: text,
           conversation_id: state.conversationId,
           attachment_files: getAttachmentFiles(),
+          ...workspaceContext,
           profile_id: getActiveProfileId(),
           regenerate_message_index: options.regenerateMessageIndex,
           expected_conversation_version: options.expectedConversationVersion,

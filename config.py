@@ -13,7 +13,7 @@ class Settings(AppSettings):
     """Keep project paths separate from preferences persisted in settings.json."""
 
     tokenizer_path: Path = PROJECT_ROOT / ".cache/tokenizers/o200k_base.tiktoken"
-    workspace_root: Path = PROJECT_ROOT / "workspace"
+    workspace_root: Path | None = None
     conversations_root: Path = PROJECT_ROOT / "conversation"
     logs_root: Path = PROJECT_ROOT / "logs"
     profiles_path: Path = PROJECT_ROOT / "profiles.json"
