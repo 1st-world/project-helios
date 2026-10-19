@@ -6,7 +6,7 @@ import { attachmentIcon, attachmentKey, attachmentSourceLabel, attachmentSummary
 import { createUploads } from './uploads.js';
 import { describeRequestError } from './chat-feedback.js';
 
-export function createWorkspace({ getActiveProfileId }) {
+export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
   // This bounds rendered rows per branch, without limiting file selection or model input.
   const treePageSize = 200;
   const state = {
@@ -14,6 +14,9 @@ export function createWorkspace({ getActiveProfileId }) {
     workspaceRoot: null,
     workspaceRevision: null,
     workspaceSessionId: null,
+    conversationId: null,
+    workspaceAvailable: false,
+    workspaceReady: null,
     workspaceEntries: [],
     workspaceFileCount: null,
     workspaceController: null,
@@ -32,7 +35,7 @@ export function createWorkspace({ getActiveProfileId }) {
     inspectionController: null
   };
 
-  const picker = createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot: () => state.workspaceRoot });
+  const picker = createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot: () => state.workspaceRoot, getWorkspaceScope: workspaceScope });
 
   const uploads = createUploads({
     isBusy: () => state.attachingFile || state.generating,
@@ -71,6 +74,45 @@ export function createWorkspace({ getActiveProfileId }) {
 
   function workspaceFile(path) {
     return { path, reference: { source: 'workspace', path, workspace_revision: state.workspaceRevision, workspace_session_id: state.workspaceSessionId } };
+  }
+
+  function workspaceScope() {
+    return { conversation_id: state.conversationId ?? undefined, workspace_session_id: state.workspaceSessionId ?? undefined };
+  }
+
+  function selectConversation(id, binding, { preserveSelection = false } = {}) {
+    state.conversationId = id;
+    ++state.workspaceRequest;
+    state.workspaceController?.abort();
+    state.workspaceController = null;
+    state.workspaceLoadingEntries = false;
+    if (!preserveSelection) clearFocusFiles();
+    applyWorkspace({ root: binding.root, revision: binding.revision, session_id: binding.session_id, available: binding.available, entries_loaded: false });
+    state.workspaceReady = Promise.resolve();
+  }
+
+  async function startDraft() {
+    state.conversationId = null;
+    const request = ++state.workspaceRequest;
+    state.workspaceController?.abort();
+    state.workspaceController = null;
+    state.workspaceLoadingEntries = false;
+    clearFocusFiles();
+    applyWorkspace({ root: null, revision: null, session_id: null, entries_loaded: false });
+    state.workspaceReady = (async () => {
+      const response = await fetch('/api/workspace', { method: 'POST' });
+      if (request !== state.workspaceRequest) return;
+      if (!response.ok) throw new Error('Could not start the workspace draft. Open a new chat to try again.');
+      const data = await response.json();
+      if (request !== state.workspaceRequest) return;
+      applyWorkspace(data);
+    })();
+    try { await state.workspaceReady; }
+    catch (error) { if (request === state.workspaceRequest) toast(error.message, 'error'); }
+  }
+
+  function adoptConversation(id) {
+    state.conversationId = id;
   }
 
   function pendingWorkspacePath(path) {
@@ -178,6 +220,11 @@ export function createWorkspace({ getActiveProfileId }) {
     state.workspaceRoot = data.root;
     state.workspaceRevision = revision;
     state.workspaceSessionId = sessionId;
+    state.workspaceAvailable = Boolean(data.root) && data.available !== false;
+    for (const file of [...state.attachments, ...state.pendingFiles]) {
+      if (file.reference.source === 'workspace') file.available = state.workspaceAvailable
+        && file.reference.workspace_revision === revision && file.reference.workspace_session_id === sessionId;
+    }
     document.dispatchEvent(new CustomEvent('workspace-change', { detail: { changed } }));
     if (changed) {
       state.workspaceEntries = [];
@@ -220,7 +267,11 @@ export function createWorkspace({ getActiveProfileId }) {
     state.workspaceController = controller;
     state.workspaceLoadingEntries = includeEntries;
     try {
-      const response = await fetch(includeEntries ? '/api/workspace' : '/api/workspace?include_entries=false', { signal: controller.signal });
+      await state.workspaceReady;
+      if (request !== state.workspaceRequest) return;
+      const query = new URLSearchParams({ include_entries: String(includeEntries) });
+      for (const [key, value] of Object.entries(workspaceScope())) if (value !== undefined) query.set(key, value);
+      const response = await fetch(`/api/workspace?${query}`, { signal: controller.signal });
       if (!response.ok) throw new Error('Could not load workspace.');
       const data = await response.json();
       if (request !== state.workspaceRequest) return;
@@ -293,7 +344,8 @@ export function createWorkspace({ getActiveProfileId }) {
       if (file.reference.source === 'workspace') chip.dataset.workspaceFile = file.path;
       chip.querySelector('i[data-lucide]').setAttribute('data-lucide', attachmentIcon(file.path, file.kind));
       chip.title = [file.path, attachmentSourceLabel(file), file.reference.attachment_id || '', attachmentSummary(file), ...attachmentWarnings(file),
-        file.available === false ? 'Original unavailable. Select the file again or remove this attachment.' : 'Included with each new message until removed.'].filter(Boolean).join('\n');
+        file.available === false ? file.reference.source === 'workspace' ? 'Workspace changed or unavailable. Select the file again or remove this attachment.'
+          : 'Original unavailable. Select the file again or remove this attachment.' : 'Included with each new message until removed.'].filter(Boolean).join('\n');
       chip.dataset.unavailable = String(file.available === false);
       chip.querySelector('.file-chip-name').textContent = file.path;
       chip.querySelector('.file-chip-source').textContent = file.available === false ? 'Unavailable' : attachmentSourceLabel(file);
@@ -336,7 +388,8 @@ export function createWorkspace({ getActiveProfileId }) {
     const controller = new AbortController();
     state.restoreController = controller;
     state.attachments = sources.map(reference => reference.source === 'workspace'
-      ? { path: reference.path, reference }
+      ? { path: reference.path, reference, available: Boolean(state.workspaceRoot) && state.workspaceAvailable
+          && reference.workspace_revision === state.workspaceRevision && reference.workspace_session_id === state.workspaceSessionId }
       : { path: `Uploaded file (${reference.attachment_id.slice(0, 8)})`, reference });
     state.pendingFiles = [...state.attachments];
     renderAttachments();
@@ -357,20 +410,24 @@ export function createWorkspace({ getActiveProfileId }) {
 
   function getAttachmentSelection({ regenerating = false } = {}) {
     if (regenerating && !state.selectionEdited) return {};
+    if (state.attachments.some(file => file.available === false)) throw new Error('Some attachments are unavailable. Select them again or remove them before sending.');
     return { attachment_sources: state.attachments.map(file => ({ ...file.reference })) };
   }
 
-  function openWorkspaceDialog() {
+  async function openWorkspaceDialog() {
+    try { if (!state.workspaceSessionId) await state.workspaceReady; }
+    catch { toast('Could not load workspace. Open a new chat to try again.', 'error'); return false; }
     closeMobileSidebar();
     $('#workspace-path-input').value = state.workspaceRoot || '';
     updateStructureControls();
     $('#workspace-dialog').showModal();
+    return true;
   }
 
-  function chooseWorkspace() {
+  async function chooseWorkspace() {
+    if (!await openWorkspaceDialog()) return false;
     return new Promise(resolve => {
       $('#workspace-dialog').addEventListener('close', () => resolve(Boolean(state.workspaceRoot)), { once: true });
-      openWorkspaceDialog();
     });
   }
 
@@ -424,7 +481,10 @@ export function createWorkspace({ getActiveProfileId }) {
     };
   }
 
-  function getWorkspaceContext() {
+  async function getWorkspaceContext() {
+    await state.workspaceReady;
+    if (state.changingWorkspace) throw new Error('Wait for the Workspace change to finish before sending.');
+    if (!state.workspaceSessionId) throw new Error('Could not load workspace. Reopen this conversation or start a new chat.');
     return {
       workspace_revision: state.workspaceRevision ?? undefined,
       workspace_session_id: state.workspaceSessionId ?? undefined,
@@ -433,7 +493,7 @@ export function createWorkspace({ getActiveProfileId }) {
   }
 
   function updateStructureControls() {
-    const busy = state.generating || state.changingWorkspace || picker.isPicking();
+    const busy = state.generating || state.changingWorkspace || picker.isPicking() || !state.workspaceSessionId;
     const connected = Boolean(state.workspaceRoot);
     const enabled = connected && $('#workspace-structure-enabled').checked;
     $('#workspace-path-input').disabled = busy;
@@ -450,7 +510,8 @@ export function createWorkspace({ getActiveProfileId }) {
     if (connected) {
       const count = state.workspaceFileCount;
       const files = count === null ? 'Folder connected' : `${count} file${count === 1 ? '' : 's'}`;
-      $('#workspace-file-count').textContent = `${files} · Structure ${enabled ? 'on' : 'off'}`;
+      $('#workspace-file-count').textContent = state.workspaceAvailable ? `${files} · Structure ${enabled ? 'on' : 'off'}` : 'Folder unavailable · Choose another folder';
+      if (!state.workspaceAvailable) $('#composer-workspace-sub').textContent = 'Unavailable';
     }
   }
 
@@ -469,7 +530,7 @@ export function createWorkspace({ getActiveProfileId }) {
     try {
       const response = await fetch('/api/workspace/structure', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...options, workspace_revision: revision ?? undefined, workspace_session_id: sessionId ?? undefined }), signal: controller.signal
+        body: JSON.stringify({ ...options, ...workspaceScope(), workspace_revision: revision ?? undefined, workspace_session_id: sessionId ?? undefined }), signal: controller.signal
       });
       const data = await response.json();
       if (!response.ok) {
@@ -493,21 +554,23 @@ export function createWorkspace({ getActiveProfileId }) {
   async function changeWorkspace(path) {
     if (state.generating || state.changingWorkspace || picker.isPicking()) return;
     state.changingWorkspace = true;
+    const request = ++state.workspaceRequest;
     resetStructurePreview();
     invalidateInspection();
     updateStructureControls();
     try {
       const response = await fetch('/api/workspace/root', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path, workspace_revision: state.workspaceRevision ?? undefined, workspace_session_id: state.workspaceSessionId ?? undefined, include_entries: false })
+        body: JSON.stringify({ path, ...workspaceScope(), workspace_revision: state.workspaceRevision ?? undefined, include_entries: false })
       });
       const data = await response.json();
+      if (request !== state.workspaceRequest) return;
       if (!response.ok) {
         const feedback = describeRequestError(data, 'Could not change the workspace.');
         throw new Error(feedback.message);
       }
-      ++state.workspaceRequest;
       applyWorkspace(data);
+      onWorkspaceSaved?.(state.conversationId, data.conversation_version);
       $('#workspace-dialog').close();
       toast(path === null ? 'Workspace disconnected.' : 'Workspace folder updated.', 'success');
     } catch (error) {
@@ -626,7 +689,7 @@ export function createWorkspace({ getActiveProfileId }) {
     try {
       const response = await fetch('/api/attachments/inspect', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ attachment_sources: files.map(file => file.reference), profile_id: profileId, workspace_revision: revision ?? undefined, workspace_session_id: sessionId ?? undefined }), signal: controller.signal
+        body: JSON.stringify({ attachment_sources: files.map(file => file.reference), profile_id: profileId, ...workspaceScope(), workspace_revision: revision ?? undefined, workspace_session_id: sessionId ?? undefined }), signal: controller.signal
       });
       let data;
       try { data = await response.json(); }
@@ -718,7 +781,7 @@ export function createWorkspace({ getActiveProfileId }) {
   }
 
   return {
-    init, load: loadWorkspace, clearFocusFiles, setGenerating, beforeDialogClose, chooseWorkspace,
+    init, load: loadWorkspace, startDraft, selectConversation, adoptConversation, clearFocusFiles, setGenerating, beforeDialogClose, chooseWorkspace,
     restorePicker: picker.restore, getAttachmentSelection, restoreAttachments, getWorkspaceContext, updateAttachmentMetadata,
     getWorkspaceInfo() { return { root: state.workspaceRoot, revision: state.workspaceRevision, sessionId: state.workspaceSessionId }; },
     markAttachmentsSaved() { state.selectionEdited = false; }

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from models.message import Message
+from models.workspace import WorkspaceBinding
 
 
 @dataclass
@@ -24,6 +25,7 @@ class Conversation:
     memory_summary: str = ""
     summarized_message_count: int = 0
     version: int = 0
+    workspace: WorkspaceBinding = field(default_factory=WorkspaceBinding)
     is_deleted: bool = field(default=False, repr=False, compare=False)
 
     def to_dict(self, include_messages: bool = True) -> dict:
@@ -36,6 +38,7 @@ class Conversation:
             "memory_summary": self.memory_summary,
             "summarized_message_count": self.summarized_message_count,
             "version": self.version,
+            "workspace": self.workspace.model_dump(),
         }
         if include_messages:
             data["messages"] = [message.to_dict() for message in self.messages]
@@ -82,4 +85,5 @@ class Conversation:
             memory_summary=memory_summary,
             summarized_message_count=summarized_message_count,
             version=version,
+            workspace=WorkspaceBinding.model_validate(data.get("workspace", {})),
         )

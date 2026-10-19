@@ -9,6 +9,7 @@ from uuid import UUID
 
 from models.conversation import Conversation
 from models.message import Message
+from models.workspace import WorkspaceBinding
 from services.work_run_store import WorkRunStore
 
 logger = logging.getLogger(__name__)
@@ -120,9 +121,9 @@ class ConversationManager:
                 setattr(conversation, name, value)
             raise
 
-    def create(self) -> Conversation:
+    def create(self, workspace: WorkspaceBinding | None = None) -> Conversation:
         """Register and persist an empty conversation, rolling back on save failure."""
-        conversation = Conversation()
+        conversation = Conversation(workspace=workspace or WorkspaceBinding())
         self._conversations[conversation.id] = conversation
         try:
             self._save(conversation)
@@ -131,6 +132,13 @@ class ConversationManager:
             conversation.is_deleted = True
             raise
         return conversation
+
+    def set_workspace(
+        self, conversation: Conversation, workspace: WorkspaceBinding,
+    ) -> None:
+        """Persist a changed folder atomically with the conversation's next version."""
+        if conversation.workspace != workspace:
+            self._commit_changes(conversation, workspace=workspace)
 
     def get(self, conversation_id: str) -> Conversation | None:
         """Return a registered conversation by identifier, or None if absent."""

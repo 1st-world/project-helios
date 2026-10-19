@@ -2,7 +2,7 @@
 
 import { $, toast } from './ui.js';
 
-export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot }) {
+export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, getWorkspaceScope = () => ({}) }) {
   const pickerStorageKey = 'helios.workspacePicker';
   let workspacePicker = null;
   let pickerPageLeaving = false;
@@ -57,7 +57,7 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot })
     picker.socket = socket;
     socket.onopen = () => {
       if (workspacePicker !== picker || picker.socket !== socket || pickerPageLeaving) { socket.close(); return; }
-      socket.send(JSON.stringify({ action: start ? 'start' : 'resume' }));
+      socket.send(JSON.stringify({ action: start ? 'start' : 'resume', ...getWorkspaceScope() }));
       if (picker.cancelRequested) socket.send(JSON.stringify({ action: 'cancel' }));
     };
     socket.onmessage = (event) => {

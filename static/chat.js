@@ -7,7 +7,7 @@ import { calendarDate, formatMessageTimestamp, getTimezone } from './timezone.js
 import { createDisclosure } from './disclosure.js';
 import { showActionDialog } from './dialogs.js';
 
-export function createChat({ getActiveProfileId, getAttachmentSelection, restoreAttachments, onAttachmentsSaved, getWorkspaceContext = () => ({}), onAttachmentMetadata, clearFocusFiles, onGeneratingChange, onConversationChange, openSettings, exploration }) {
+export function createChat({ getActiveProfileId, getAttachmentSelection, restoreAttachments, onAttachmentsSaved, getWorkspaceContext = () => ({}), selectWorkspace, startWorkspaceDraft, adoptWorkspace, onAttachmentMetadata, clearFocusFiles, onGeneratingChange, onConversationChange, openSettings, exploration }) {
   const state = {
     conversationId: null,
     conversationVersion: null,
@@ -406,6 +406,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
 
   function onStart(event) {
     state.conversationId = event.conversation_id;
+    adoptWorkspace?.(state.conversationId);
   }
 
   function onDelta(event, assistant, answer) {
@@ -481,6 +482,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     messageEditor = null;
     state.conversationId = data.id;
     state.conversationVersion = data.version;
+    selectWorkspace?.(data.id, { ...data.workspace, available: data.workspace_available }, { preserveSelection: preserveScroll });
     if (!preserveScroll) {
       exploration?.resetChoice();
       const latestUser = data.messages.findLast(message => message.role === 'user');
@@ -524,6 +526,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     chat.innerHTML = emptyChatMarkup;
     loadConversations();
     prompt.focus();
+    return startWorkspaceDraft?.();
   }
 
   async function renameConversation(item) {
@@ -671,9 +674,13 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     if (!text || state.generating) return;
     let workspaceContext;
     let explorationContext;
+    let attachmentSelection;
+    const workspaceViewVersion = state.conversationLoadVersion;
     try {
-      workspaceContext = options.recoveryId ? {} : getWorkspaceContext();
+      workspaceContext = options.recoveryId ? {} : await getWorkspaceContext();
+      if (state.generating || workspaceViewVersion !== state.conversationLoadVersion) return;
       explorationContext = options.recoveryId ? {} : exploration?.selection() || {};
+      attachmentSelection = options.recoveryId ? {} : getAttachmentSelection({ regenerating: options.regenerateMessageIndex != null });
     }
     catch (error) {
       toast(error.message || 'Review the workspace structure settings before sending.', 'error');
@@ -704,7 +711,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
         body: JSON.stringify({
           prompt: text,
           conversation_id: state.conversationId,
-          ...(options.recoveryId ? {} : getAttachmentSelection({ regenerating: options.regenerateMessageIndex != null })),
+          ...attachmentSelection,
           ...workspaceContext,
           ...explorationContext,
           profile_id: getActiveProfileId(),
@@ -871,5 +878,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     };
   }
 
-  return { init, newChat, setUsageVisibility, setResponseUsageVisibility, renderUsageContent, usageFooter, isGenerating: () => state.generating };
+  return { init, newChat, setUsageVisibility, setResponseUsageVisibility, renderUsageContent, usageFooter, isGenerating: () => state.generating,
+    setWorkspaceVersion(id, version) { if (id === state.conversationId && Number.isSafeInteger(version)) state.conversationVersion = version; }
+  };
 }

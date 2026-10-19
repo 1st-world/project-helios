@@ -8,7 +8,10 @@ import { initializeSettings } from './settings.js';
 import { createUsage } from './usage.js';
 import { createExploration } from './exploration.js';
 
-const workspace = createWorkspace({ getActiveProfileId: () => profiles.getActiveProfileId() });
+const workspace = createWorkspace({
+  getActiveProfileId: () => profiles.getActiveProfileId(),
+  onWorkspaceSaved: (id, version) => chat.setWorkspaceVersion(id, version)
+});
 const profiles = createProfiles({ isGenerating: () => chat.isGenerating() });
 const exploration = createExploration({
   getWorkspace: workspace.getWorkspaceInfo,
@@ -22,6 +25,9 @@ const chat = createChat({
   restoreAttachments: workspace.restoreAttachments,
   onAttachmentsSaved: workspace.markAttachmentsSaved,
   getWorkspaceContext: workspace.getWorkspaceContext,
+  selectWorkspace: workspace.selectConversation,
+  startWorkspaceDraft: workspace.startDraft,
+  adoptWorkspace: workspace.adoptConversation,
   onAttachmentMetadata: workspace.updateAttachmentMetadata,
   clearFocusFiles: workspace.clearFocusFiles,
   openSettings: profiles.openSettings,
@@ -57,7 +63,6 @@ profiles.init();
 chat.init();
 
 profiles.checkHealth();
-const workspaceReady = workspace.load();
-chat.newChat();
+const workspaceReady = chat.newChat();
 profiles.load();
-workspace.restorePicker(workspaceReady);
+workspaceReady.then(() => workspace.restorePicker(workspaceReady));

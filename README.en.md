@@ -36,7 +36,7 @@ python -m venv .venv
 
 Open [Helios in your browser](http://127.0.0.1:8000). Press `Ctrl+C` in the server terminal to stop it.
 
-The default configuration is a local, single-user app without login or per-user authorization. Run one server process. Multiple browsers connected to it share the same profiles, conversations, and Workspace.
+The default configuration is a local, single-user app without login or per-user authorization. Run one server process. Multiple browsers can access the same profiles and saved conversations. Workspace connections belong to individual conversations.
 
 ### Your first connection
 
@@ -129,9 +129,11 @@ When "Summarize once & retry…" is available after a context-limit rejection, r
 
 ## Workspace and attachments
 
-The app starts and restarts with **no Workspace selected** and **project structure Off**. You can chat without a folder. No default Workspace folder is bundled or created automatically. Existing project folders and files are not connected or deleted automatically.
+New chats start with **no Workspace selected** and **project structure Off**. You can chat without a folder. The first message saves the folder selection with its conversation. Reopening a saved conversation restores its own Workspace connection, including after restart. Older conversations without connection metadata remain folder-free.
 
-Use **Workspace** to select or disconnect a folder on the computer running the app. Browse opens a Tk folder dialog on that computer. If it is unavailable, enter an absolute path manually. All browsers connected to the same server process share the selected folder, and it is not retained after restart. If a task is using the folder, use **Stop** and wait for cleanup before changing or disconnecting it.
+Use **Workspace** to select or disconnect a folder on the computer running the app. Browse opens a Tk folder dialog on that computer. If it is unavailable, enter an absolute path manually. Changes are saved only to the current conversation and do not affect other conversations' folders. If the current conversation has a request in progress, use **Stop** and wait for cleanup before changing or disconnecting its folder.
+
+No default Workspace folder is created automatically. A saved folder that was moved, deleted, or cannot be accessed is shown as **Unavailable**. Choose an existing folder or disconnect it in Workspace. Plain chat without project input remains available.
 
 Connecting a folder validates its path only. The file list is retrieved when you open or refresh **Attach**. Subfolders render when expanded, and long lists continue with **Show more entries**. Search covers the full file list; the display page size does not limit which files you can attach. Closing Attach cancels an unfinished listing request.
 
@@ -139,7 +141,7 @@ Selecting a folder does not send its absolute host path, structure, or file cont
 
 Use **Attach → Choose files** to pick files from the device running your browser, with or without a Workspace. Reuse retained originals under **Uploaded files**, or select project files under **Workspace files** in the same dialog. Use **Check selection → Apply selection** to review delivery and source information before applying. The check verifies local preparation, not model acceptance.
 
-Attachments remain included with new messages until removed. Changing or disconnecting a folder removes only Workspace attachments and preserves uploads. Reopening a conversation restores its latest user message's attachments. Regeneration uses the selected message's original attachments unless you applied a selection in Attach or removed a composer attachment; then it uses your changed selection. Changed selections are checked again, and failed regeneration preserves the previous reply and its saved references.
+Attachments remain included with new messages until removed. Changing or disconnecting a folder removes only Workspace attachments and preserves uploads. Reopening a conversation restores its own Workspace and latest user message's attachments together. Workspace attachments from an earlier connection are shown as **Unavailable**; a same-named file in another folder is never substituted. Select them again or remove them. Regeneration uses the selected message's original attachments unless you applied a selection in Attach or removed a composer attachment; then it uses your changed selection. Changed selections are checked again, and failed regeneration preserves the previous reply and its saved references.
 
 Use **Stop upload** or close Attach to cancel an upload in progress. Completed originals stay on the device running the app; deselection, composer removal, and conversation deletion do not delete them. Use the trash button under Uploaded files for permanent deletion. Deleted or missing originals display **Unavailable** and must be selected again or removed from the selection.
 
@@ -272,7 +274,7 @@ Provisional local resource limits are 64KiB per result, 256KiB per stdio message
 
 ### Project exploration API
 
-Explicitly select read-only exploration with `explore_project: true` in the development `POST /api/chat` API. Include the current `workspace_revision` and `workspace_session_id` from `GET /api/workspace?include_entries=false`. A Workspace is required; structure sharing remains independent. No file tree or absolute root is automatically inserted into model input.
+Explicitly select read-only exploration with `explore_project: true` in the development `POST /api/chat` API. For a new chat, create an independent draft with `POST /api/workspace`, then select a folder with `PUT /api/workspace/root`, passing the returned `session_id` as `workspace_session_id`. The first chat request with this identity saves the connection to its conversation. For a saved conversation, query `GET /api/workspace?conversation_id=<id>&include_entries=false` and pass `conversation_id` with its current `workspace_revision` and `workspace_session_id` to chat, folder changes, structure previews, file reads, and attachment inspections. A Workspace is required; structure sharing remains independent. No file tree or absolute root is automatically inserted into model input. The temporary Workspace used by legacy API requests without identifiers is separate from browser conversations' selections.
 
 ```json
 {"prompt":"Explain how this project loads settings.","explore_project":true,"workspace_revision":0,"workspace_session_id":"<current session>","exploration_limits":null}

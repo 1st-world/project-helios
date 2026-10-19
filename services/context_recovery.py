@@ -146,3 +146,7 @@ class ContextRecoveryRegistry:
             ticket.used, ticket.operation_id = True, operation_id
         self._busy.add(conversation_id)
         return ChatOperation(self, conversation_id, ticket)
+
+    def is_busy(self, conversation_id: str) -> bool:
+        """Report whether a conversation still owns a preparation or streaming request."""
+        return conversation_id in self._busy

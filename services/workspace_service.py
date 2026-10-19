@@ -49,6 +49,15 @@ class WorkspaceService:
             self.root = resolved
             self.revision += 1
 
+    def is_available(self) -> bool:
+        """Check a restored folder without recreating it or following a replaced root link."""
+        if self.root is None:
+            return False
+        try:
+            return self.root.is_dir() and self.root.resolve(strict=True) == self.root
+        except (OSError, RuntimeError, ValueError):
+            return False
+
     def _resolve(self, relative_path: str, *, root: Path | None = None) -> Path:
         """Resolve a relative path within the current or snapshotted workspace boundary."""
         check_local_cancelled()
