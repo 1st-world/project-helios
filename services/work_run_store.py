@@ -94,6 +94,7 @@ class WorkRunStore:
     def create(
         self, conversation_id: str, base_version: int, *,
         kind: str = "explore", user_index: int | None = None,
+        snapshot: dict | None = None,
     ) -> str:
         """Start an explicit run without making a provider request or selecting tools."""
         if (not isinstance(conversation_id, str) or not conversation_id
@@ -110,6 +111,8 @@ class WorkRunStore:
             "user_index": user_index, "status": "preparing",
             "started_at": _now(), "finished_at": None,
         }
+        if snapshot is not None:
+            data["snapshot"] = json.loads(_json(snapshot))
         with self.connection:
             self.connection.execute(
                 "INSERT INTO work_runs VALUES (?, ?, ?, ?)",
@@ -277,6 +280,13 @@ class WorkRunStore:
             "SELECT call_id, status, outcome FROM model_steps "
             "WHERE run_id=? ORDER BY position", (run_id,),
         )]
+
+    def model_call_count(self, run_id: str) -> int:
+        """Count submitted model steps without loading their stored response bodies."""
+        self.get(run_id)
+        return self.connection.execute(
+            "SELECT COUNT(*) FROM model_steps WHERE run_id=?", (run_id,),
+        ).fetchone()[0]
 
     def usage(self, run_id: str, call_store: CallUsageStore) -> dict:
         """Aggregate the ledger against every durable model-call reference."""

@@ -526,6 +526,8 @@ class ConversationMemoryService:
         visual_tokens: int = 0,
         preflight_mode: str = "block",
         summary_policy: MemoryPolicySnapshot | None = None,
+        reply_tools: list[dict] | None = None,
+        reply_instructions_suffix: str = "",
     ) -> tuple[str, list[dict]]:
         """Apply memory thresholds and enforce blocking without forcing history summaries."""
         builder = self._prompt_builder(conversation.id)
@@ -539,6 +541,13 @@ class ConversationMemoryService:
         if preflight_mode not in {"warn", "block", "off"}:
             raise ValueError("Context preflight mode must be warn, block, or off.")
 
+        def reply_estimate(inputs: tuple[str, list[dict]]) -> int:
+            """Include enabled function definitions in reply planning, not summary prose."""
+            return self.context_budget.estimate(
+                inputs[0] + reply_instructions_suffix, inputs[1],
+                visual_tokens=visual_tokens, tools=reply_tools,
+            )
+
         def admit(inputs: tuple[str, list[dict]]) -> tuple[str, list[dict]]:
             """Reject estimated input only when the selected policy explicitly blocks it."""
             self._check_version(conversation, version)
@@ -549,7 +558,7 @@ class ConversationMemoryService:
                 )
             if (
                 preflight_mode == "block"
-                and self.context_budget.estimate(*inputs, visual_tokens=visual_tokens) > limit
+                and reply_estimate(inputs) > limit
             ):
                 raise ContextBudgetExceeded(
                     "The estimated input exceeds the selected preflight limit. "
@@ -559,9 +568,7 @@ class ConversationMemoryService:
 
         if (
             preflight_mode == "block"
-            and self.context_budget.estimate(
-                *fixed, visual_tokens=visual_tokens
-            ) > limit
+            and reply_estimate(fixed) > limit
         ):
             raise ContextBudgetExceeded(
                 "The current question and workspace context exceed the input "
@@ -597,7 +604,7 @@ class ConversationMemoryService:
         )
         if not automatic:
             return admit(prepared)
-        estimated = self.context_budget.estimate(*prepared, visual_tokens=visual_tokens)
+        estimated = reply_estimate(prepared)
         auto_needed = automatic and estimated > trigger
         # Requests that already fit can proceed while background memory is being generated.
         if not auto_needed:
@@ -631,7 +638,7 @@ class ConversationMemoryService:
             boundaries = self.turn_boundaries(history)
             work = [0]
             while True:
-                estimate = self.context_budget.estimate(*inputs, visual_tokens=visual_tokens)
+                estimate = reply_estimate(inputs)
                 auto_needed = automatic and estimate > trigger
                 if not auto_needed:
                     break

@@ -119,7 +119,9 @@ class ProjectMCPClient:
                             or len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > self.limits.result_bytes):
                         raise ProjectReadError("mcp_invalid_tool_result")
                     if not waiting.done():
-                        waiting.set_result(payload)
+                        waiting.set_result({
+                            "payload": payload, "text": result.content[0].text,
+                        })
                     waiting = None
         except BaseException as exc:
             self.failure_type = type(exc).__name__
@@ -153,6 +155,10 @@ class ProjectMCPClient:
             raise
 
     async def call_tool(self, name: str, arguments: dict) -> dict:
+        """Return the validated structured payload for one project request."""
+        return (await self.call_tool_result(name, arguments))["payload"]
+
+    async def call_tool_result(self, name: str, arguments: dict) -> dict:
         """Submit one bounded local request and stop the session if its caller leaves."""
         validate_arguments(name, arguments)
         if len(json.dumps(arguments, ensure_ascii=False).encode("utf-8")) > 16384:

@@ -140,7 +140,7 @@ Use **Attach → Choose files** to pick files from the device running your brows
 
 Attachments remain included with new messages until removed. Changing or disconnecting a folder removes only Workspace attachments and preserves uploads. Reopening a conversation restores its latest user message's attachments. Regeneration uses the selected message's original attachments unless you applied a selection in Attach or removed a composer attachment; then it uses your changed selection. Changed selections are checked again, and failed regeneration preserves the previous reply and its saved references.
 
-Use **Stop upload** or close Attach to cancel an upload in progress. Completed originals stay on the device running the app; deselection, composer removal, and conversation deletion do not delete them. Use the trash button under Uploaded files for permanent deletion. Deleted or missing originals display **Unavailable** and must be selected again or removed from the selection. Explore project remains Planned.
+Use **Stop upload** or close Attach to cancel an upload in progress. Completed originals stay on the device running the app; deselection, composer removal, and conversation deletion do not delete them. Use the trash button under Uploaded files for permanent deletion. Deleted or missing originals display **Unavailable** and must be selected again or removed from the selection. The Explore project UI remains Planned.
 
 | Format | Content sent to the model |
 | --- | --- |
@@ -249,7 +249,7 @@ For automatic reload during development, run:
 
 ### Local MCP project-reading foundation
 
-The development `ProjectMCPClient` calls the bundled stdio server's `list_files`, `search_text`, and `read_file` for a selected Workspace. It pins the official Python MCP SDK to `2.3.0` and protocol `2026-07-28`. Chat orchestration is not connected yet; **Explore project remains Planned**. Ordinary chat, Settings, and Attach do not start an MCP server.
+`ProjectMCPClient` calls the bundled stdio server's `list_files`, `search_text`, and `read_file` for a selected Workspace. It pins the official Python MCP SDK to `2.3.0` and protocol `2026-07-28`. The explicit exploration API below supports repeated calls; **the Explore project UI remains Planned**. Ordinary chat, Settings, and Attach do not start an MCP server.
 
 Listings return direct children only; searches use case-sensitive literal UTF-8 text. Partial reads return relative paths, lines, Unicode columns, original byte ranges, and a metadata-based file revision. Long lines are fragmented and original newlines are preserved. Follow `next_cursor`, including empty progress pages. `complete` means traversal of the requested scope finished; omission counts still disclose excluded paths and unreadable files. It does not promise that the entire project was read.
 
@@ -258,6 +258,26 @@ Automatic reading applies ancestor and nested `.gitignore` rules. Hidden files, 
 Ignore patterns are case-sensitive. Global Git configuration, global ignore files, and `.git/info/exclude` are not read.
 
 Provisional local resource limits are 64KiB per result, 256KiB per stdio message, 2KiB text fragments, and 1MiB/2,048 steps/a cooperative 5 seconds of work per page. Individual filesystem calls can take longer; the host stops the session after an 8-second call timeout. Pages allow up to 256 listing entries, 128 search matches, or 128 read fragments, with traversal depth 32 and 16 cursors per session expiring after 5 idle minutes. Each `.gitignore` must be readable UTF-8 within 64KiB or the operation fails. These are not model token limits and do not change attachment limits. Cancellation, timeouts, protocol failures, and session closure clean the process tree and discard cursors. Windows startup fails if a Job Object cannot be obtained. Arbitrary commands and external MCP servers are not accepted.
+
+### Project exploration API
+
+Explicitly select read-only exploration with `explore_project: true` in the development `POST /api/chat` API. Include the current `workspace_revision` and `workspace_session_id` from `GET /api/workspace?include_entries=false`. A Workspace is required; structure sharing remains independent. No file tree or absolute root is automatically inserted into model input.
+
+```json
+{"prompt":"Explain how this project loads settings.","explore_project":true,"workspace_revision":0,"workspace_session_id":"<current session>","exploration_limits":null}
+```
+
+Only `helios_project_list_files`, `helios_project_search_text`, and `helios_project_read_file` are registered. Multiple function calls execute serially in their original order. Subsequent requests replay original output, opaque reasoning, and original tool results linked by `call_id`. Intermediate response text is not merged into the final answer. Saved results and source ranges also support subsequent turns and completed-run memory summaries without rereading current files as historical evidence.
+
+Input estimates and explicit Block mode include function definitions, exploration instructions, and accumulated results. Open runs are not summarized, and input rejection or Provider failure does not trigger automatic shrinking or retries. Exploration requests use `store: false` and request `reasoning.encrypted_content`. A returned reasoning item without reusable encrypted state stops with a compatibility error. Actual Foundry Deployment support requires separate verification; not every combination has been tested. The [OpenAI function calling documentation](https://developers.openai.com/api/docs/guides/function-calling) describes the function contract and does not establish Foundry support.
+
+All three `exploration_limits` fields default to `null`. `max_model_calls` limits exploration response calls; `elapsed_time_target_seconds` and `cost_goal_usd` set elapsed-time and known estimated-cost goals checked between actions. Time and cost goals are not hard deadlines for in-flight API calls or billing caps. A cost-goal run with incomplete cost information stops before another call. Initial and background conversation-memory summaries retain their existing consent, policies, and separate accounting and are outside these exploration response-call goals. Tool resources and model capacity are separate.
+
+SSE `start` and final `done` events include `run_id`; `work_progress` identifies phases and tool calls. `work_usage` reports individual calls and `run_usage` reports a separate aggregate. Errors also provide run references and known totals; unavailable storage remains unknown. Aggregates are not copied into message fields as a single API call. Connections, prices, policies, and read scope are pinned at startup. Conversation edits/deletion, Workspace changes, and revocation of memory already used by the run stop further execution and adoption. Revocation before the first submission can rebuild original history; a run that already used the summary does not continue by substituting original history.
+
+Request cancellation or disconnect stops work, holding the Workspace lease until MCP cleanup finishes. Regeneration creates a new run; only a successful final answer and attachment references replace the old branch. Failure and cancellation preserve it. If even terminal-state storage fails, ownership is released and the saved state is reported as unavailable; restart recovers unfinished runs as interrupted. Exploration context failures do not issue one-time summary receipts that resume incomplete runs. Review input and start a new exploration. A failed final conversation JSON write can leave a completed run without an adopted reply; it is not automatically adopted or replayed.
+
+The app remains at `0.2.0`. Release `0.3.0-alpha` follows Explore project UI implementation and alignment and validation of the existing UI/UX.
 
 ### Independent attachment API
 
@@ -277,7 +297,7 @@ Chat saves new references on the user message. Regeneration restores them when `
 
 ## Features under consideration
 
-The following are not current features. Their scope and implementation order will be decided separately.
+The following are not yet available in the chat UI. Their scope and implementation order will be decided separately.
 
 - MCP-based Work tools for finding relevant project files, proposing/reviewing/applying changes, and running commands.
 - Web search, code execution through Sandbox/Docker, tools that read relevant file ranges, and execution resource management.

@@ -106,14 +106,15 @@ class ContextPolicy:
         )
 
     def assess(
-        self, instructions: str, inputs: list[dict], *, visual_tokens: int = 0
+        self, instructions: str, inputs: list[dict], *, visual_tokens: int = 0,
+        tools: list[dict] | None = None,
     ) -> dict:
         """Report uncertain estimates; only explicit block mode rejects an estimate."""
         estimate = (
             None
             if self.mode == "off" or self.input_budget is None
             else ContextBudget.estimate(
-                instructions, inputs, visual_tokens=visual_tokens
+                instructions, inputs, visual_tokens=visual_tokens, tools=tools,
             )
         )
         exceeded = (

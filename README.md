@@ -140,7 +140,7 @@ Provider 거절 뒤 입력 축소·API 전환·재요청은 자동으로 실행�
 
 추가한 파일은 제거할 때까지 새 메시지에 포함됩니다. 폴더 변경·해제는 Workspace 첨부만 제거하며 업로드 첨부는 유지합니다. 대화를 다시 열면 마지막 사용자 메시지의 첨부를 복원합니다. 재생성은 해당 메시지의 원래 첨부를 사용하되, Attach에서 선택을 적용하거나 입력창의 첨부를 제거했다면 변경한 선택을 사용합니다. 선택을 바꿀 때는 다시 검사하며, 실패한 재생성은 이전 답변과 저장된 첨부를 유지합니다.
 
-업로드 중 **Stop upload**를 누르거나 Attach를 닫으면 진행 중인 업로드를 취소합니다. 완료된 원본은 앱을 실행하는 컴퓨터에 보관하며, 선택 취소·입력창에서 제거·대화 삭제만으로 지우지 않습니다. 원본을 영구 삭제하려면 Uploaded files의 휴지통 버튼을 사용합니다. 삭제·유실된 원본은 **Unavailable**로 표시하며 다시 선택하거나 첨부에서 제거해야 합니다. Explore project는 아직 Planned입니다.
+업로드 중 **Stop upload**를 누르거나 Attach를 닫으면 진행 중인 업로드를 취소합니다. 완료된 원본은 앱을 실행하는 컴퓨터에 보관하며, 선택 취소·입력창에서 제거·대화 삭제만으로 지우지 않습니다. 원본을 영구 삭제하려면 Uploaded files의 휴지통 버튼을 사용합니다. 삭제·유실된 원본은 **Unavailable**로 표시하며 다시 선택하거나 첨부에서 제거해야 합니다. Explore project UI는 아직 Planned입니다.
 
 | 형식 | 모델에 보내는 내용 |
 | --- | --- |
@@ -249,7 +249,7 @@ Office 첨부에는 내장 이미지·차트·서식이 포함되지 않습니�
 
 ### 로컬 MCP 프로젝트 읽기 기반
 
-개발용 `ProjectMCPClient`는 선택한 Workspace에 대해 앱에 포함된 stdio 서버의 `list_files`, `search_text`, `read_file`을 호출합니다. 공식 Python MCP SDK `2.3.0`과 프로토콜 `2026-07-28`을 고정합니다. 아직 채팅 반복 실행과 연결하지 않았으며 **Explore project는 Planned**입니다. 일반 채팅·Settings·Attach는 MCP 서버를 시작하지 않습니다.
+`ProjectMCPClient`는 선택한 Workspace에 대해 앱에 포함된 stdio 서버의 `list_files`, `search_text`, `read_file`을 호출합니다. 공식 Python MCP SDK `2.3.0`과 프로토콜 `2026-07-28`을 고정합니다. 아래의 명시적 탐색 API에서 반복 실행을 지원하며 **Explore project UI는 Planned**입니다. 일반 채팅·Settings·Attach는 MCP 서버를 시작하지 않습니다.
 
 목록은 해당 폴더의 직접 하위 항목만 반환하고, 검색은 대소문자를 구별하는 literal UTF-8 검색입니다. 부분 읽기는 상대 경로·줄·Unicode 열·원본 byte 구간과 메타데이터 기반 파일 revision을 반환합니다. 긴 줄은 조각으로 나누며 원문 개행을 보존합니다. `next_cursor`가 있으면 빈 진행 페이지도 이어서 읽어야 합니다. `complete`는 요청 범위의 순회를 마쳤다는 뜻이며, 제외한 경로나 읽지 못한 파일은 누락 집계에 남습니다. 전체 프로젝트를 읽었다는 보장은 아닙니다.
 
@@ -258,6 +258,26 @@ Office 첨부에는 내장 이미지·차트·서식이 포함되지 않습니�
 ignore 패턴은 대소문자를 구별하며 Git 전역 설정·전역 ignore·`.git/info/exclude`는 읽지 않습니다.
 
 로컬 잠정 자원 한도는 결과 64KiB, stdio 메시지 256KiB, 텍스트 조각 2KiB, 페이지 작업량 1MiB/2,048단계/협력적 5초입니다. 파일시스템 호출 하나의 지연까지 보장하지는 않으며 호스트 호출은 8초 후 세션을 중지합니다. 페이지당 목록 256개·검색 128개·읽기 조각 128개, 탐색 깊이 32, 세션당 cursor 16개/유휴 5분을 적용합니다. `.gitignore`는 파일당 64KiB의 UTF-8만 허용하며 읽을 수 없으면 실패합니다. 이 값은 모델 토큰 한도가 아니며 첨부 제한을 바꾸지 않습니다. 취소·시간 초과·프로토콜 오류·세션 종료 시 프로세스 트리를 정리하고 cursor를 폐기합니다. Windows Job Object를 확보할 수 없으면 시작을 거절하며 임의 명령·외부 MCP 서버는 받지 않습니다.
+
+### 프로젝트 탐색 API
+
+개발용 `POST /api/chat`의 `explore_project: true`로 읽기 탐색을 명시적으로 선택합니다. 먼저 `GET /api/workspace?include_entries=false`에서 얻은 현재 `workspace_revision`과 `workspace_session_id`를 함께 전달해야 합니다. Workspace가 필요하며 구조 전달은 별도 선택입니다. 파일 tree나 절대 root를 모델에 자동으로 넣지 않습니다.
+
+```json
+{"prompt":"이 프로젝트의 설정 로딩을 설명해 주세요.","explore_project":true,"workspace_revision":0,"workspace_session_id":"<current session>","exploration_limits":null}
+```
+
+모델에는 `helios_project_list_files`, `helios_project_search_text`, `helios_project_read_file`만 등록합니다. 여러 함수 호출은 원래 순서대로 직렬 실행하며 원본 output·opaque reasoning·해당 `call_id`의 원본 도구 결과를 후속 요청에 재전송합니다. 중간 응답의 텍스트는 최종 답변으로 합치지 않습니다. 저장된 결과와 참조 범위는 다음 턴과 완료한 실행의 메모리 요약에서도 사용하며, 현재 파일을 다시 읽어 과거 결과를 바꾸지 않습니다.
+
+입력 추정과 명시적 Block에는 함수 정의·탐색 지침·누적 도구 결과도 포함합니다. 진행 중 실행은 요약하지 않으며 입력 초과·Provider 실패 뒤 자동 축소나 재요청을 하지 않습니다. 탐색은 `store: false`와 `reasoning.encrypted_content` 요청을 사용합니다. reasoning 항목이 반환됐는데 재사용할 암호화 상태가 없으면 호환성 오류로 중지합니다. 실제 Foundry Deployment의 지원은 별도 확인이 필요하며 모든 조합을 검증한 것은 아닙니다. 함수 계약은 [OpenAI function calling 문서](https://developers.openai.com/api/docs/guides/function-calling)를 참고하되 Foundry 지원 보장으로 해석하지 않습니다.
+
+`exploration_limits`의 세 값은 모두 기본 `null`입니다. `max_model_calls`는 탐색 응답 호출 수를, `elapsed_time_target_seconds`와 `cost_goal_usd`는 작업 사이에서 확인할 시간·알려진 추정 비용 목표를 지정합니다. 시간·비용 목표는 진행 중인 API 호출의 강제 deadline이나 청구 상한이 아니며, 비용 정보가 불완전한 비용 목표 실행은 추가 호출 전에 중지합니다. 초기·백그라운드 대화 메모리 요약은 기존 동의·정책과 별도 사용량을 유지하며 이 탐색 응답 호출 목표에 포함하지 않습니다. 도구 자원 한도나 모델 용량을 이 값으로 바꾸지 않습니다.
+
+SSE의 `start`/최종 `done`에는 `run_id`가, `work_progress`에는 단계·도구 호출 ID가 포함됩니다. `work_usage`는 호출별 사용량, `run_usage`는 별도 집계입니다. 실패 응답도 실행 참조와 알려진 집계를 제공하며 저장소를 확인할 수 없으면 unknown으로 남깁니다. 집계를 단일 호출의 사용량으로 메시지에 복제하지 않습니다. 연결·가격·정책·읽기 범위는 시작 시 고정하며, 대화 변경·삭제·Workspace 변경과 사용한 메모리 동의 철회는 후속 실행과 답변 채택을 중지합니다. 첫 제출 전 메모리가 철회되면 원본 이력으로 준비할 수 있지만, 이미 그 요약을 사용한 실행은 원본으로 갈아 끼워 계속하지 않습니다.
+
+중지는 요청 취소·연결 종료로 처리하고 MCP 정리까지 Workspace 점유를 유지합니다. 재생성은 새 실행이며 성공한 최종 답변과 첨부 참조만 기존 분기를 교체합니다. 실패·취소는 이전 분기를 보존합니다. 종료 상태 저장도 실패하면 점유는 해제하고 저장 상태를 unavailable로 표시하며, 재시작 시 남은 미완료 실행은 interrupted로 복구합니다. 탐색의 컨텍스트 오류에는 불완전 실행을 재개하는 일회성 요약 receipt를 만들지 않습니다. 입력을 검토한 새 탐색이 필요합니다. 최종 대화 JSON 저장 실패로 채택되지 않은 completed 실행이 남을 수 있으며 자동 채택·재실행하지 않습니다.
+
+현재 앱은 `0.2.0`을 유지합니다. `0.3.0-alpha`는 Explore project UI 구현과 기존 UI/UX 정렬·검증을 마친 뒤 준비합니다.
 
 ### 독립 첨부 API
 
@@ -277,7 +297,7 @@ Workspace 참조는 `{"source":"workspace","path":"notes.txt"}`이며 검사 결
 
 ## 이후 검토할 기능
 
-아래 항목은 현재 제공하는 기능이 아니며, 구체적인 범위와 구현 순서는 별도로 정합니다.
+아래 항목은 아직 채팅 UI에서 제공하지 않는 기능이며, 구체적인 범위와 구현 순서는 별도로 정합니다.
 
 - MCP 기반 Work tools: 필요한 프로젝트 파일 탐색, 변경 제안·검토·적용, 명령 실행.
 - 웹 검색과 Sandbox/Docker 등을 활용한 코드 실행, 필요한 파일 구간을 읽는 도구와 실행 자원 관리.

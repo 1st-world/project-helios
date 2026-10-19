@@ -7,7 +7,7 @@ import mimetypes
 import sqlite3
 from copy import copy
 from contextlib import aclosing, asynccontextmanager
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import date
 from logging.handlers import RotatingFileHandler
 from typing import ClassVar, Literal
@@ -59,7 +59,7 @@ from services.conversation_service import (
 )
 from services.context_policy import ContextPolicy
 from services.call_usage_store import CallUsageStore
-from services.work_run_store import WorkRunStore
+from services.work_run_store import ACTIVE_STATES, WorkRunStore
 from services.folder_picker_service import (
     FolderPickerService,
     PickerReconnectingError,
@@ -70,6 +70,11 @@ from services.memory_service import (
 )
 from services.local_work import check_local_cancelled, run_local
 from services.prompt_builder import PromptBuilder
+from services.project_exploration import (
+    EXPLORATION_INSTRUCTIONS, ExplorationError, ExplorationLimits,
+    ProjectExplorer, project_function_tools,
+)
+from services.project_reader import ProjectReadLimits
 from services.profile_service import (
     ProfileNotFoundError, ProfileService, ProfileStorageError,
 )
@@ -394,6 +399,8 @@ class ChatRequest(ContextRequestOptions):
     workspace_revision: int | None = Field(default=None, ge=0, strict=True)
     workspace_session_id: str | None = Field(default=None, min_length=1, max_length=64)
     workspace_structure: WorkspaceStructureRequest | None = None
+    explore_project: bool = Field(default=False, strict=True)
+    exploration_limits: ExplorationLimits | None = None
     profile_id: str | None = None
     regenerate_message_index: int | None = Field(default=None, ge=0)
     expected_conversation_version: int | None = Field(default=None, ge=0)
@@ -405,6 +412,13 @@ class ChatRequest(ContextRequestOptions):
         """Require an explicit operation identifier alongside a recovery receipt."""
         if (self.recovery_id is None) != (self.operation_id is None):
             raise ValueError("Recovery and operation identifiers must be supplied together.")
+        if self.explore_project and (
+            self.workspace_revision is None or self.workspace_session_id is None
+            or self.recovery_id is not None
+        ):
+            raise ValueError("Project exploration requires the current Workspace revision and session, and cannot reuse a recovery receipt.")
+        if self.exploration_limits is not None and not self.explore_project:
+            raise ValueError("Exploration limits require explicit project exploration.")
         return self
 
 
@@ -842,7 +856,7 @@ def build_workspace_structure(
 def chat_uses_workspace(payload: ChatRequest) -> bool:
     """Distinguish explicit project input from a folder-independent chat request."""
     return bool(
-        payload.workspace_file or payload.workspace_files
+        payload.explore_project or payload.workspace_file or payload.workspace_files
         or payload.attachment_files or payload.workspace_structure is not None
         or any(source.source == "workspace" for source in payload.attachment_sources or [])
     )
@@ -1537,6 +1551,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
         }
         if attachments.content else {}
     )
+    exploration_tools = project_function_tools() if payload.explore_project else None
     try:
         original_context = PromptBuilder(work_run_store, conversation.id).build(
             [replace(message) for message in request_messages[:history_end]],
@@ -1561,6 +1576,10 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                 summary_policy=request_memory_policy,
                 preflight_mode=policy.mode if policy.input_budget is not None else "off",
                 input_limit=policy.input_budget,
+                **({
+                    "reply_tools": exploration_tools,
+                    "reply_instructions_suffix": EXPLORATION_INSTRUCTIONS,
+                } if payload.explore_project else {}),
                 **attachment_options,
             )
     except ContextBudgetExceeded as exc:
@@ -1602,9 +1621,17 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
             "code": "context_recovery_unavailable",
             "message": "The one-time summary failed. No reply call was started; any summary usage remains recorded.",
         }) from None
-    context_assessment = policy.assess(
-        instructions, input_messages, visual_tokens=attachments.visual_tokens,
-    )
+
+    def assess_inputs(instructions, messages) -> dict:
+        """Count enabled exploration definitions without changing ordinary chat estimates."""
+        if payload.explore_project:
+            instructions += EXPLORATION_INSTRUCTIONS
+        return policy.assess(
+            instructions, messages, visual_tokens=attachments.visual_tokens,
+            **({"tools": exploration_tools} if payload.explore_project else {}),
+        )
+
+    context_assessment = assess_inputs(instructions, input_messages)
     using_original_context = False
 
     def current_inputs() -> tuple[str, list[dict]]:
@@ -1622,9 +1649,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
             if data:
                 raise ContextChangedError("The recovery permission changed before submission. No further request was sent.")
             using_original_context = True
-            context_assessment = policy.assess(
-                *original_context, visual_tokens=attachments.visual_tokens,
-            )
+            context_assessment = assess_inputs(*original_context)
         if context_assessment["blocked"]:
             raise ContextBudgetExceeded("Original history exceeds the selected input budget after memory was stopped.")
         return original_context if using_original_context else (instructions, input_messages)
@@ -1639,6 +1664,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
     else:
         user_message = conversation.messages[payload.regenerate_message_index]
     turn_messages = conversation.messages
+    turn_version = conversation.version
 
     async def events():
         """Stream reply events, save a completed reply, and schedule memory compaction."""
@@ -1648,6 +1674,59 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
         profile_data = None
         completed = False
         reported_assessment = None
+        run_id = None
+        memory_submitted = False
+
+        def exploration_authority() -> None:
+            """Stop stale authority and prevent using responses derived from revoked memory."""
+            if (not conversation_manager.is_active(conversation)
+                    or conversation.messages is not turn_messages
+                    or conversation.version != turn_version):
+                raise ContextChangedError("Conversation changed during exploration. Start a new request.")
+            if (workspace_service.root != request_workspace.root
+                    or workspace_service.revision != request_workspace.revision
+                    or workspace_service.session_id != request_workspace.session_id):
+                raise ContextChangedError("Workspace changed during exploration. Start a new request.")
+            if memory_submitted and not request_memory.policy_is_current(request_memory_policy):
+                raise ContextChangedError("Conversation memory permission changed during exploration. Start a new request.")
+
+        def exploration_input() -> tuple[str, list[dict]]:
+            """Allow original-history fallback only before summarized input is submitted."""
+            nonlocal memory_submitted
+            selected = current_inputs()
+            memory_submitted = memory_submitted or selected != original_context
+            return selected
+
+        def exploration_assessment(assessment: dict) -> None:
+            """Publish the actual per-call estimate to existing policy events and errors."""
+            nonlocal context_assessment
+            context_assessment = assessment
+
+        def failure_packet(error: dict) -> str:
+            """Attach independent run accounting to an exploration failure without new calls."""
+            if run_id is not None:
+                status = "stopped" if error.get("code") in {
+                    "conversation_changed", "context_recovery_unavailable", "context_preflight_blocked",
+                } else "failed"
+                recorded = stop_run(status, error.get("code", "request_failed"))
+                try:
+                    run_status = work_run_store.get(run_id)["status"] if recorded else "unavailable"
+                    run_usage = work_run_store.usage(run_id, call_usage_store)
+                except Exception:
+                    run_status, run_usage = "unavailable", None
+                error = {**error, "run_id": run_id,
+                         "run_status": run_status, "run_usage": run_usage}
+            return f"data: {json.dumps(error)}\n\n"
+
+        def stop_run(status: str, reason: str) -> bool:
+            """Release request ownership even if terminal run storage is unavailable."""
+            try:
+                if work_run_store.get(run_id)["status"] in ACTIVE_STATES:
+                    work_run_store.finish(run_id, status, reason=reason)
+                return True
+            except Exception as exc:
+                logger.error("Could not finalize work run (error_type=%s)", type(exc).__name__)
+                return False
 
         def policy_events():
             """Report the final estimate again if memory revocation changed the actual input."""
@@ -1673,10 +1752,37 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
 
         try:
             outgoing_instructions, outgoing_messages = current_inputs()
+            if payload.explore_project:
+                run_id = work_run_store.create(
+                    conversation.id, turn_version,
+                    kind="regeneration" if payload.regenerate_message_index is not None else "explore",
+                    user_index=payload.regenerate_message_index,
+                    snapshot={
+                        "workspace": {
+                            "root": str(request_workspace.root),
+                            "revision": request_workspace.revision,
+                            "session_id": request_workspace.session_id,
+                        },
+                        "profile": {name: getattr(pinned_profile, name) for name in (
+                            "id", "name", "deployment", "input_price_per_million",
+                            "output_price_per_million", "long_context_threshold",
+                            "long_input_price_per_million", "long_output_price_per_million",
+                            "cache_read_price_per_million", "cache_write_price_per_million",
+                            "long_cache_read_price_per_million", "long_cache_write_price_per_million",
+                        )},
+                        "context_policy": asdict(policy),
+                        "memory_policy": request_memory_policy.policy,
+                        "tools": exploration_tools,
+                        "resource_limits": asdict(ProjectReadLimits()),
+                        "goals": (payload.exploration_limits or ExplorationLimits()).model_dump(),
+                    },
+                )
             start_event = {
                 "type": "start", "conversation_id": conversation.id,
                 "user_created_at": user_message.created_at.isoformat(),
             }
+            if run_id is not None:
+                start_event["run_id"] = run_id
             yield f"data: {json.dumps(start_event)}\n\n"
             if attachments.metadata:
                 metadata_event = {
@@ -1686,16 +1792,28 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
             for notice in policy_events():
                 yield notice
             outgoing_instructions, outgoing_messages = current_inputs()
-            async with aclosing(request_ai.stream(
-                outgoing_instructions,
-                outgoing_messages,
-                profile_id=profile_id,
-                conversation_id=conversation.id,
-                call_kind=(
-                    "regeneration" if payload.regenerate_message_index
-                    is not None else "chat"
-                ),
-            )) as reply_stream:
+            if run_id is not None:
+                explorer = ProjectExplorer(
+                    request_ai, work_run_store, run_id, workspace_service,
+                    prepare_input=exploration_input,
+                    check_authority=exploration_authority, policy=policy,
+                    visual_tokens=attachments.visual_tokens,
+                    limits=payload.exploration_limits,
+                    protected=[
+                        profile_service.storage_path, settings_service.storage_path,
+                        settings.conversations_root, settings.logs_root,
+                        settings.attachments_root, settings.work_runs_path,
+                    ],
+                    on_assessment=exploration_assessment,
+                )
+                source = explorer.stream(profile_id)
+            else:
+                source = request_ai.stream(
+                    outgoing_instructions, outgoing_messages,
+                    profile_id=profile_id, conversation_id=conversation.id,
+                    call_kind=("regeneration" if payload.regenerate_message_index is not None else "chat"),
+                )
+            async with aclosing(source) as reply_stream:
                 async for event in reply_stream:
                     for notice in policy_events():
                         yield notice
@@ -1746,7 +1864,14 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                 ):
                     msg_kwargs[name] = usage_data.get(name)
 
-            if payload.regenerate_message_index is None:
+            if run_id is not None:
+                exploration_authority()
+                saved_message = conversation_manager.adopt_run_reply(
+                    conversation, run_id, work_run_store,
+                    expected_messages=turn_messages,
+                    user_attachment_sources=saved_attachment_sources,
+                )
+            elif payload.regenerate_message_index is None:
                 if conversation.messages is not turn_messages:
                     raise ContextChangedError(
                         "Conversation changed during generation. Please retry."
@@ -1773,6 +1898,8 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
             done_event = {
                 "type": "done", "created_at": saved_message.created_at.isoformat(),
             }
+            if run_id is not None:
+                done_event["run_id"] = run_id
             yield f"data: {json.dumps(done_event)}\n\n"
         except ConversationUnavailableError:
             logger.info(
@@ -1788,12 +1915,12 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                 "message": str(exc), "input_budget": policy.input_budget,
                 **estimation_metadata(enabled=policy.mode != "off"),
             }
-            yield f"data: {json.dumps(error)}\n\n"
+            yield failure_packet(error)
         except ContextWindowExceeded as exc:
             for notice in policy_events():
                 yield notice
             error = {"type": "error", **exc.detail()}
-            if not data:
+            if not data and not payload.explore_project:
                 offer = {"available": False}
                 try:
                     if (
@@ -1848,7 +1975,12 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                 ) as exc:
                     offer["reason"] = str(exc)
                 error["recovery"] = offer
-            yield f"data: {json.dumps(error)}\n\n"
+            if payload.explore_project:
+                error["recovery"] = {
+                    "available": False,
+                    "reason": "Exploration stopped. Review the input and start a new exploration; the failed run is not automatically resumed.",
+                }
+            yield failure_packet(error)
         except ProviderAttachmentError as exc:
             for notice in policy_events():
                 yield notice
@@ -1856,12 +1988,14 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                 "type": "error", **exc.detail(),
                 "paths": [item["path"] for item in attachments.metadata],
             }
-            yield f"data: {json.dumps(error)}\n\n"
+            yield failure_packet(error)
         except ProviderFailure as exc:
             for notice in policy_events():
                 yield notice
             error = {"type": "error", **exc.detail()}
-            yield f"data: {json.dumps(error)}\n\n"
+            yield failure_packet(error)
+        except ExplorationError as exc:
+            yield failure_packet({"type": "error", "code": exc.code, "message": str(exc)})
         except ContextChangedError as exc:
             error = {
                 "type": "error", "message": str(exc),
@@ -1869,13 +2003,16 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                     "context_recovery_unavailable" if data else "conversation_changed"
                 ),
             }
-            yield f"data: {json.dumps(error)}\n\n"
+            yield failure_packet(error)
         except Exception as exc:
             for notice in policy_events():
                 yield notice
             logger.error("Chat stream failed (error_type=%s)", type(exc).__name__)
             error = {"type": "error", **ProviderFailure("request_failed").detail()}
-            yield f"data: {json.dumps(error)}\n\n"
+            yield failure_packet(error)
+        finally:
+            if run_id is not None:
+                stop_run("cancelled", "request_closed")
 
     async def operation_events():
         """Release the request slot before background work and close nested provider streams."""

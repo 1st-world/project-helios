@@ -331,6 +331,7 @@ class ConversationManager:
     def adopt_run_reply(
         self, conversation: Conversation, run_id: str, run_store: WorkRunStore, *,
         expected_messages: "list[Message]",
+        user_attachment_sources: "list[dict] | None" = None,
     ) -> Message:
         """Adopt a final run answer only against its original conversation version."""
         self._require_active(conversation)
@@ -346,5 +347,6 @@ class ConversationManager:
             return self.replace_reply(
                 conversation, run["user_index"], answer,
                 expected_messages=expected_messages, run_id=run_id,
+                user_attachment_sources=user_attachment_sources,
             )
         return self.add_message(conversation, "assistant", answer, run_id=run_id)

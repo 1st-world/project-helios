@@ -66,6 +66,7 @@ class AIService:
         self.work_run_store = work_run_store or WorkRunStore()
         self._run_id: str | None = None
         self._before_run_call: Callable[[], None] | None = None
+        self._prepare_run_call: Callable[[], tuple[str, list[dict]]] | None = None
         self.usage_service = usage_service
         self.profile_service = profile_service
         self._clients: dict[tuple[str, str, str], dict[str, Any]] = {}
@@ -137,15 +138,18 @@ class AIService:
                     self.work_run_store.close()
 
     def with_run(
-        self, run_id: str, *, before_call: Callable[[], None],
+        self, run_id: str, *,
+        before_call: Callable[[], None],
+        prepare_call: Callable[[], tuple[str, list[dict]]] | None = None,
     ) -> "AIService":
-        """Bind prepared run input and a per-call guard without replaying initial input."""
+        """Bind run state, an authority guard, and optional last-moment input preparation."""
         self.work_run_store.get(run_id)
         if not callable(before_call):
             raise ValueError("Work runs require a per-call permission guard.")
         snapshot = copy(self)
         snapshot._run_id = run_id
         snapshot._before_run_call = before_call
+        snapshot._prepare_run_call = prepare_call
         snapshot._prepare_reply = None
         return snapshot
 
@@ -351,6 +355,8 @@ class AIService:
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
         parallel_tool_calls: bool | None = None,
+        include: list[str] | None = None,
+        store: bool | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Yield one transient outcome, deltas, and usage without running tools."""
         options = {}
@@ -360,6 +366,10 @@ class AIService:
             options["tool_choice"] = tool_choice
         if parallel_tool_calls is not None:
             options["parallel_tool_calls"] = parallel_tool_calls
+        if include is not None:
+            options["include"] = include
+        if store is not None:
+            options["store"] = store
         events = self._stream_response(
             instructions, input_messages, profile_id,
             conversation_id=conversation_id, call_kind=call_kind,
@@ -389,6 +399,8 @@ class AIService:
             instructions, input_messages = self._prepare_reply()
         if self._before_run_call is not None:
             self._before_run_call()
+        if self._prepare_run_call is not None:
+            instructions, input_messages = self._prepare_run_call()
         if call_kind not in {"chat", "regeneration"}:
             raise ValueError("Unsupported reply call kind.")
         call = self._begin_call(profile, call_kind, conversation_id)
