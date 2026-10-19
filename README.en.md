@@ -247,6 +247,18 @@ For automatic reload during development, run:
 .\.venv\Scripts\python.exe app.py
 ```
 
+### Local MCP project-reading foundation
+
+The development `ProjectMCPClient` calls the bundled stdio server's `list_files`, `search_text`, and `read_file` for a selected Workspace. It pins the official Python MCP SDK to `2.3.0` and protocol `2026-07-28`. Chat orchestration is not connected yet; **Explore project remains Planned**. Ordinary chat, Settings, and Attach do not start an MCP server.
+
+Listings return direct children only; searches use case-sensitive literal UTF-8 text. Partial reads return relative paths, lines, Unicode columns, original byte ranges, and a metadata-based file revision. Long lines are fragmented and original newlines are preserved. Follow `next_cursor`, including empty progress pages. `complete` means traversal of the requested scope finished; omission counts still disclose excluded paths and unreadable files. It does not promise that the entire project was read.
+
+Automatic reading applies ancestor and nested `.gitignore` rules. Hidden files, symbolic links, junctions, hard links, and host-selected Helios credentials, backups, and runtime stores are excluded without a model-controlled override, including through Windows 8.3 aliases. This application-level path policy is separate from explicit attachments and is not an OS sandbox. Detected changes to open files, directories, or ignore rules invalidate their continuations. A file revision is neither a content hash nor a filesystem snapshot.
+
+Ignore patterns are case-sensitive. Global Git configuration, global ignore files, and `.git/info/exclude` are not read.
+
+Provisional local resource limits are 64KiB per result, 256KiB per stdio message, 2KiB text fragments, and 1MiB/2,048 steps/a cooperative 5 seconds of work per page. Individual filesystem calls can take longer; the host stops the session after an 8-second call timeout. Pages allow up to 256 listing entries, 128 search matches, or 128 read fragments, with traversal depth 32 and 16 cursors per session expiring after 5 idle minutes. Each `.gitignore` must be readable UTF-8 within 64KiB or the operation fails. These are not model token limits and do not change attachment limits. Cancellation, timeouts, protocol failures, and session closure clean the process tree and discard cursors. Windows startup fails if a Job Object cannot be obtained. Arbitrary commands and external MCP servers are not accepted.
+
 ### Independent attachment API
 
 The backend API shares the preparation path used by the browser Attach dialog. Send original bytes as the body of `POST /api/attachments/uploads?filename=notes.txt` to receive an app-issued UUID and `reference`. The filename is a display basename; the API does not accept server paths or directories. Receiving and validation share existing attachment resource limits, with cleanup after failed or cancelled uploads.

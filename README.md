@@ -247,6 +247,18 @@ Office 첨부에는 내장 이미지·차트·서식이 포함되지 않습니�
 .\.venv\Scripts\python.exe app.py
 ```
 
+### 로컬 MCP 프로젝트 읽기 기반
+
+개발용 `ProjectMCPClient`는 선택한 Workspace에 대해 앱에 포함된 stdio 서버의 `list_files`, `search_text`, `read_file`을 호출합니다. 공식 Python MCP SDK `2.3.0`과 프로토콜 `2026-07-28`을 고정합니다. 아직 채팅 반복 실행과 연결하지 않았으며 **Explore project는 Planned**입니다. 일반 채팅·Settings·Attach는 MCP 서버를 시작하지 않습니다.
+
+목록은 해당 폴더의 직접 하위 항목만 반환하고, 검색은 대소문자를 구별하는 literal UTF-8 검색입니다. 부분 읽기는 상대 경로·줄·Unicode 열·원본 byte 구간과 메타데이터 기반 파일 revision을 반환합니다. 긴 줄은 조각으로 나누며 원문 개행을 보존합니다. `next_cursor`가 있으면 빈 진행 페이지도 이어서 읽어야 합니다. `complete`는 요청 범위의 순회를 마쳤다는 뜻이며, 제외한 경로나 읽지 못한 파일은 누락 집계에 남습니다. 전체 프로젝트를 읽었다는 보장은 아닙니다.
+
+자동 읽기에는 상위·하위 `.gitignore` 규칙이 적용됩니다. 숨김 파일, 심볼릭 링크·junction·hard link, 호스트가 지정한 Helios 자격 증명·백업·런타임 저장소는 제외하며 모델 인자로 포함시킬 수 없습니다. Windows 8.3 별칭으로도 우회할 수 없습니다. 이는 명시적 첨부 선택과 별개인 앱 수준 경로 정책이며 OS sandbox가 아닙니다. 열린 파일·폴더와 ignore 정책의 변경을 감지하면 해당 이어 읽기를 거절합니다. 파일 revision은 내용 hash나 파일시스템 snapshot이 아닙니다.
+
+ignore 패턴은 대소문자를 구별하며 Git 전역 설정·전역 ignore·`.git/info/exclude`는 읽지 않습니다.
+
+로컬 잠정 자원 한도는 결과 64KiB, stdio 메시지 256KiB, 텍스트 조각 2KiB, 페이지 작업량 1MiB/2,048단계/협력적 5초입니다. 파일시스템 호출 하나의 지연까지 보장하지는 않으며 호스트 호출은 8초 후 세션을 중지합니다. 페이지당 목록 256개·검색 128개·읽기 조각 128개, 탐색 깊이 32, 세션당 cursor 16개/유휴 5분을 적용합니다. `.gitignore`는 파일당 64KiB의 UTF-8만 허용하며 읽을 수 없으면 실패합니다. 이 값은 모델 토큰 한도가 아니며 첨부 제한을 바꾸지 않습니다. 취소·시간 초과·프로토콜 오류·세션 종료 시 프로세스 트리를 정리하고 cursor를 폐기합니다. Windows Job Object를 확보할 수 없으면 시작을 거절하며 임의 명령·외부 MCP 서버는 받지 않습니다.
+
 ### 독립 첨부 API
 
 브라우저 Attach와 같은 준비 경로를 사용하는 백엔드 API를 제공합니다. `POST /api/attachments/uploads?filename=notes.txt`에 원본 bytes를 본문으로 보내면 앱이 발급한 UUID와 `reference`를 반환합니다. 파일명은 표시용 basename이며 서버의 절대 경로나 디렉터리를 받지 않습니다. 수신·검사는 기존 첨부 자원 제한을 적용하고 실패·취소된 업로드를 정리합니다.
