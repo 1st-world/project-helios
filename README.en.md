@@ -11,6 +11,7 @@ The current version is **`0.2.0`, an alpha release**. By default, chat leaves in
 - Save multiple connection profiles and select a profile for responses.
 - Stream replies with Markdown and syntax highlighting; save, rename, and delete conversations; edit messages and regenerate replies.
 - Optionally connect or disconnect a Workspace and include project structure; attach text, images, PDFs, and Office files with or without a Workspace.
+- Let Explore project list, search, and partially read relevant files; inspect run activity, usage, and saved evidence.
 - Optionally configure input token budgets, output limits, conversation summaries, and one-time summary recovery.
 - Record usage for replies, regenerations, and summaries; estimate costs from profile-specific prices; filter records by date and call type.
 - Configure interface fonts, text size, timezone, and usage visibility.
@@ -140,7 +141,7 @@ Use **Attach → Choose files** to pick files from the device running your brows
 
 Attachments remain included with new messages until removed. Changing or disconnecting a folder removes only Workspace attachments and preserves uploads. Reopening a conversation restores its latest user message's attachments. Regeneration uses the selected message's original attachments unless you applied a selection in Attach or removed a composer attachment; then it uses your changed selection. Changed selections are checked again, and failed regeneration preserves the previous reply and its saved references.
 
-Use **Stop upload** or close Attach to cancel an upload in progress. Completed originals stay on the device running the app; deselection, composer removal, and conversation deletion do not delete them. Use the trash button under Uploaded files for permanent deletion. Deleted or missing originals display **Unavailable** and must be selected again or removed from the selection. The Explore project UI remains Planned.
+Use **Stop upload** or close Attach to cancel an upload in progress. Completed originals stay on the device running the app; deselection, composer removal, and conversation deletion do not delete them. Use the trash button under Uploaded files for permanent deletion. Deleted or missing originals display **Unavailable** and must be selected again or removed from the selection.
 
 | Format | Content sent to the model |
 | --- | --- |
@@ -171,6 +172,16 @@ Adjust these in **Context & attachments → Attachment resource limits**. The pr
 
 Oversized file content causes a selection error instead of being silently truncated. Extracted content, transmission serialization, and concurrent work can consume substantially more resources than the original file sizes suggest. Cancellation is cooperative; an individual parser or filesystem call may not stop immediately.
 
+### Explore project
+
+Connect a Workspace and select **Tools → Explore project** to authorize read-only exploration for the next response once. The selection clears when the request starts, the Workspace changes, or you create or open another conversation. Folder selection, structure sharing, and attachments do not enable exploration. Regeneration and responses after message edits use the current Tools selection without restoring a previous run's permission.
+
+**Scope & goals** explains read scope, exclusions, repeated model-call costs, and optional response-call, time, and estimated-cost goals. Goals are empty by default. Time and cost goals do not interrupt in-flight calls or impose a billing cap. Memory summaries follow separate settings and accounting. **Stop** ends further work while retaining records and costs of calls already made.
+
+Each run has collapsed activity below the conversation. Expand it to page through its captured Workspace, profile, goals, model/tool steps, and per-call usage. **Open saved result** shows relative paths, actual line/column/byte ranges, original results, omissions, and continuations. It does not reread current files or represent partial coverage as the whole project. Private model reasoning is not returned to the browser. The response-usage display preference also controls run totals and per-call usage.
+
+Failed, cancelled, interrupted, and replaced runs remain available. Completed runs outside the current answer branch are labelled and never automatically adopted. Reopening a conversation restores its history; older runs and steps are paged. Conversation deletion does not automatically erase original run content or the separate usage ledger, but deleted conversations' activity cannot be opened through the UI/API.
+
 ## Usage and costs
 
 Use **Settings → Usage & costs** to inspect call records and date-based totals. Per-message and per-conversation displays are optional. Usage is based on provider-reported tokens and distinguishes missing values from `0`. Reasoning tokens are not added to output a second time.
@@ -187,7 +198,7 @@ Costs are estimates using the prices saved at call time and the reported usage. 
 | `settings.json` | App defaults for input, output, summaries, and attachments. |
 | `conversation/*.json` | Saved original messages, memory summaries, and reply usage. |
 | `data/attachments/` | Reusable originals and the SQLite manifest for independent uploads, retained separately from caches and rotating logs. |
-| `data/work_runs.sqlite3` | Work tools foundation storage for run states, model responses, original tool results, and per-call usage references. The Explore UI remains Planned. |
+| `data/work_runs.sqlite3` | Exploration states, model responses, original tool results, and per-call usage references. Failed and replaced runs remain stored without automatic expiration. |
 | `logs/usage_calls.sqlite3` | Per-call usage, status, pricing snapshots, and the aggregation ledger. |
 | `logs/summary_usage.sqlite3` | Summary usage storage, used alongside the call ledger. |
 | `logs/helios.log*` | Rotating app logs. |
@@ -249,7 +260,7 @@ For automatic reload during development, run:
 
 ### Local MCP project-reading foundation
 
-`ProjectMCPClient` calls the bundled stdio server's `list_files`, `search_text`, and `read_file` for a selected Workspace. It pins the official Python MCP SDK to `2.3.0` and protocol `2026-07-28`. The explicit exploration API below supports repeated calls; **the Explore project UI remains Planned**. Ordinary chat, Settings, and Attach do not start an MCP server.
+`ProjectMCPClient` calls the bundled stdio server's `list_files`, `search_text`, and `read_file` for a selected Workspace. It pins the official Python MCP SDK to `2.3.0` and protocol `2026-07-28`. Explore project UI and the explicit API below support repeated calls. Ordinary chat with tools Off, Settings, Attach, and saved exploration queries do not start an MCP server.
 
 Listings return direct children only; searches use case-sensitive literal UTF-8 text. Partial reads return relative paths, lines, Unicode columns, original byte ranges, and a metadata-based file revision. Long lines are fragmented and original newlines are preserved. Follow `next_cursor`, including empty progress pages. `complete` means traversal of the requested scope finished; omission counts still disclose excluded paths and unreadable files. It does not promise that the entire project was read.
 
@@ -279,6 +290,8 @@ Request cancellation or disconnect stops work, holding the Workspace lease until
 
 The app remains at `0.2.0`. Release `0.3.0-alpha` follows Explore project UI implementation and alignment and validation of the existing UI/UX.
 
+`GET /api/conversations/{id}/work-runs` returns the newest 20 runs and `next_before`; pass `before` for older pages. `GET /api/conversations/{id}/work-runs/{run_id}?offset=0` returns run metadata, totals, 30 ordered steps, and `next_offset`, without raw model output. Its `/evidence?response_id=...&call_id=...` endpoint returns one original saved tool result. All queries require the existing owning conversation, do not resolve arbitrary file paths or cross-conversation runs, and make no Provider requests or MCP calls.
+
 ### Independent attachment API
 
 The backend API shares the preparation path used by the browser Attach dialog. Send original bytes as the body of `POST /api/attachments/uploads?filename=notes.txt` to receive an app-issued UUID and `reference`. The filename is a display basename; the API does not accept server paths or directories. Receiving and validation share existing attachment resource limits, with cleanup after failed or cancelled uploads.
@@ -299,8 +312,8 @@ Chat saves new references on the user message. Regeneration restores them when `
 
 The following are not yet available in the chat UI. Their scope and implementation order will be decided separately.
 
-- MCP-based Work tools for finding relevant project files, proposing/reviewing/applying changes, and running commands.
-- Web search, code execution through Sandbox/Docker, tools that read relevant file ranges, and execution resource management.
+- MCP-based Work tools for proposing, reviewing, and applying changes, and running commands.
+- Web search, code execution through Sandbox/Docker, and execution resource management.
 - Optional Microsoft Entra ID authentication, Foundry deployment/model discovery, and deployment information autofill.
 
 Entra ID and model discovery are not prerequisites for basic chat. Automatically filling deployment information also remains separate from the user's choice to enable memory or token limits.

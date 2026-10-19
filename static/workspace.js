@@ -178,6 +178,7 @@ export function createWorkspace({ getActiveProfileId }) {
     state.workspaceRoot = data.root;
     state.workspaceRevision = revision;
     state.workspaceSessionId = sessionId;
+    document.dispatchEvent(new CustomEvent('workspace-change', { detail: { changed } }));
     if (changed) {
       state.workspaceEntries = [];
       state.workspaceFileCount = null;
@@ -712,6 +713,7 @@ export function createWorkspace({ getActiveProfileId }) {
   return {
     init, load: loadWorkspace, clearFocusFiles, setGenerating, beforeDialogClose,
     restorePicker: picker.restore, getAttachmentSelection, restoreAttachments, getWorkspaceContext, updateAttachmentMetadata,
+    getWorkspaceInfo() { return { root: state.workspaceRoot, revision: state.workspaceRevision, sessionId: state.workspaceSessionId }; },
     markAttachmentsSaved() { state.selectionEdited = false; }
   };
 }

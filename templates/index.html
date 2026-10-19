@@ -81,11 +81,13 @@
         <div class="composer-actions">
           <button id="load-file" class="quiet composer-control" type="button" aria-label="Attach files" title="Attach files"><i data-lucide="paperclip"></i><span>Attach</span></button>
           <details id="work-tools" class="work-tools">
-            <summary class="quiet composer-control" aria-label="Work tools"><i data-lucide="tool-case"></i><span>Tools</span></summary>
+            <summary class="quiet composer-control" aria-label="Work tools" id="work-tools-trigger"><i data-lucide="tool-case"></i><span id="work-tools-label">Tools</span></summary>
             <div class="tools-popover">
               <strong>Work tools</strong>
-              <p>Coming to your local workspace.</p>
-              <button type="button" disabled><i data-lucide="folder-search"></i><span><strong>Explore project</strong><small>Find and read relevant files</small></span><span class="planned-badge">Planned</span></button>
+              <p>Choose tools for the next response.</p>
+              <label class="explore-choice"><input id="explore-project" type="checkbox" aria-describedby="explore-workspace"><span><strong>Explore project</strong><small>Read-only · repeated model calls</small></span></label>
+              <p id="explore-workspace" role="status">Choose a workspace to explore.</p>
+              <button id="explore-settings" type="button"><i data-lucide="sliders-horizontal"></i><span><strong>Scope &amp; goals</strong><small>Read permissions, repeated calls and cost</small></span></button>
               <button type="button" disabled><i data-lucide="git-compare-arrows"></i><span><strong>Propose changes</strong><small>Review changes across files</small></span><span class="planned-badge">Planned</span></button>
               <button type="button" disabled><i data-lucide="file-check"></i><span><strong>Apply changes</strong><small>Apply edits after your review</small></span><span class="planned-badge">Planned</span></button>
               <button type="button" disabled><i data-lucide="terminal"></i><span><strong>Run commands</strong><small>Run tests and builds locally</small></span><span class="planned-badge">Planned</span></button>
@@ -120,6 +122,30 @@
   </main>
 
   <div id="toast" class="toast hidden"></div>
+
+  <dialog id="exploration-settings-dialog" class="settings-dialog exploration-settings" aria-labelledby="exploration-settings-title">
+    <div class="dialog-heading"><h2 id="exploration-settings-title">Explore project</h2><button class="dialog-close" type="button" data-close-dialog="exploration-settings-dialog" aria-label="Close exploration settings"><i data-lucide="x"></i></button></div>
+    <p id="exploration-scope"></p>
+    <p>For the next response, the model may list, search and read allowed UTF-8 file ranges in this workspace. Selected content is sent to your model provider. Structure sharing is a separate choice. Files stay unchanged and commands are unavailable.</p>
+    <p>Automatic exploration excludes hidden/system paths, case-sensitive .gitignore matches, links and Helios runtime data. Explicit attachments use their own selection and processing rules.</p>
+    <p>Exploration can make repeated paid model calls and reuse growing tool results. Stop ends further work; calls already made can still incur cost. No exploration goal is set by default.</p>
+    <form id="exploration-goals-form">
+      <fieldset id="exploration-goals">
+        <legend>Optional goals</legend>
+        <label for="exploration-call-goal">Exploration response calls<input id="exploration-call-goal" type="number" min="1" step="1" placeholder="No goal"></label>
+        <label for="exploration-time-goal">Elapsed time target (seconds)<input id="exploration-time-goal" type="number" min="0" step="any" placeholder="No target"></label>
+        <label for="exploration-cost-goal">Estimated cost goal (USD)<input id="exploration-cost-goal" type="number" min="0" step="any" placeholder="No goal"></label>
+      </fieldset>
+      <p>Goals are checked between work steps. Time and cost goals do not interrupt an in-flight call or impose a billing cap. A completed answer can exceed a target. Incomplete cost records stop further calls when a cost goal is set. Memory-summary calls follow your separate memory settings and are excluded from these exploration goals.</p>
+      <div class="dialog-actions"><button class="primary-btn" type="submit">Done</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="exploration-evidence-dialog" class="settings-dialog exploration-evidence" aria-labelledby="exploration-evidence-title">
+    <div class="dialog-heading"><h2 id="exploration-evidence-title">Saved exploration evidence</h2><button class="dialog-close" type="button" data-close-dialog="exploration-evidence-dialog" aria-label="Close saved evidence"><i data-lucide="x"></i></button></div>
+    <p>Original tool result from this run. Current files are not reread. Each result covers only its returned paths and ranges; continuations and omissions are shown below.</p>
+    <div id="exploration-evidence-content"></div>
+  </dialog>
 
   <dialog id="workspace-dialog" class="settings-dialog workspace-modal" aria-labelledby="workspace-title">
     <div class="dialog-heading">
@@ -651,7 +677,7 @@
             <input id="conversion-rate" type="number" step="any" min="0" placeholder="Not configured" disabled aria-labelledby="conversion-rate-label">
           </div>
           <div class="settings-preference-row">
-            <div class="settings-preference-copy"><span id="show-response-usage-label" class="settings-preference-label">Per-response usage</span><small id="show-response-usage-help">Token usage, response time, and estimated cost below each response.</small></div>
+            <div class="settings-preference-copy"><span id="show-response-usage-label" class="settings-preference-label">Per-response usage</span><small id="show-response-usage-help">Recorded tokens, timing, and estimated costs for replies and exploration calls.</small></div>
             <input id="show-response-usage" type="checkbox" checked aria-labelledby="show-response-usage-label" class="settings-switch" role="switch" aria-describedby="show-response-usage-help">
           </div>
           <div class="settings-preference-row">

@@ -912,6 +912,65 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:hover {
   gap: 8px;
 }
 
+.exploration-history {
+  display: grid;
+  width: 100%;
+  max-width: 860px;
+  margin: 12px auto;
+  gap: 8px;
+  color: var(--text-sub);
+  font-size: var(--font-size-body-compact);
+  line-height: var(--line-height-body-compact);
+  overflow-wrap: anywhere;
+}
+.exploration-history:empty {
+  display: none;
+}
+.exploration-history .exploration-run {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+.exploration-history .exploration-run > summary {
+  padding: 12px;
+  cursor: pointer;
+}
+.exploration-history .exploration-run > summary strong {
+  font-weight: var(--font-weight-heading);
+  font-size: var(--font-size-title-group);
+}
+.exploration-history .exploration-run-usage {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-meta);
+}
+.exploration-history .exploration-run-body {
+  padding: 0 12px 12px;
+}
+.exploration-history .exploration-run-usage[hidden],
+.exploration-history .exploration-call-usage[hidden] {
+  display: none;
+}
+.exploration-history .exploration-run-body p {
+  margin: 0 0 8px;
+}
+.exploration-history .exploration-step {
+  display: grid;
+  padding: 10px 0;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+}
+.exploration-history .exploration-step strong {
+  font-weight: var(--font-weight-label);
+  font-size: var(--font-size-label);
+}
+.exploration-history .exploration-step .quiet-btn {
+  justify-self: start;
+}
+
 .typing {
   color: var(--text-muted);
   font-size: var(--font-size-body-compact);
@@ -1385,6 +1444,46 @@ textarea::placeholder {
   margin-top: 2px;
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
+}
+.work-tools.explore-selected > summary {
+  color: var(--accent);
+}
+.tools-popover .explore-choice {
+  display: flex;
+  align-items: center;
+  padding: 12px 0 0;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+}
+.tools-popover .explore-choice input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+.tools-popover .explore-choice strong,
+.tools-popover .explore-choice small {
+  display: block;
+}
+.tools-popover .explore-choice strong {
+  color: var(--text-main);
+  font-weight: var(--font-weight-label);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-compact);
+}
+.tools-popover .explore-choice small {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+}
+.tools-popover .explore-choice:has(input:disabled) {
+  opacity: 0.5;
+  cursor: default;
+}
+.tools-popover #explore-workspace {
+  overflow-wrap: anywhere;
 }
 
 .model-picker {
@@ -1860,6 +1959,67 @@ textarea::placeholder {
 }
 .settings-dialog input:focus {
   border-color: var(--border-focus);
+}
+
+.exploration-settings {
+  width: min(540px, calc(100vw - 32px));
+}
+.exploration-settings fieldset {
+  min-width: 0;
+  margin: 0 0 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.exploration-settings legend {
+  color: var(--text-main);
+  font-weight: var(--font-weight-heading);
+  font-size: var(--font-size-title-group);
+  line-height: var(--line-height-heading);
+}
+.exploration-settings #exploration-scope {
+  color: var(--text-sub);
+  overflow-wrap: anywhere;
+}
+
+.exploration-evidence {
+  width: min(760px, calc(100vw - 32px));
+  overflow-wrap: anywhere;
+}
+.exploration-evidence pre {
+  max-height: 360px;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-app);
+  color: var(--text-sub);
+  font-size: var(--font-size-code-block);
+  line-height: var(--line-height-code-block);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.exploration-evidence .evidence-references {
+  max-height: 220px;
+  padding-left: 20px;
+  overflow-y: auto;
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-meta);
+}
+.exploration-evidence .evidence-references li {
+  margin-bottom: 8px;
+}
+.exploration-evidence .evidence-references small {
+  display: block;
+  color: var(--text-muted);
+  font-size: inherit;
+}
+.exploration-evidence summary {
+  color: var(--text-sub);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-description);
+  cursor: pointer;
 }
 
 .preferences-dialog {
@@ -3787,7 +3947,11 @@ button svg,
 
 @media (prefers-reduced-motion: reduce) {
   .action-dialog,
-  .action-dialog::backdrop {
+  .action-dialog::backdrop,
+  .exploration-settings,
+  .exploration-settings::backdrop,
+  .exploration-evidence,
+  .exploration-evidence::backdrop {
     animation: none;
   }
   .message-actions,

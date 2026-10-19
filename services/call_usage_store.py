@@ -289,6 +289,13 @@ class CallUsageStore:
         clause = " WHERE " + " AND ".join(conditions) if conditions else ""
         return clause, parameters, zone, lower
 
+    def get_record(self, call_id: str) -> dict | None:
+        """Read one content-free call record for its owning work activity."""
+        row = self.connection.execute(
+            "SELECT data FROM usage_calls WHERE id=?", (call_id,),
+        ).fetchone()
+        return json.loads(row[0]) if row else None
+
     def records(
         self, *, conversation_id: str | None = None, kind: str | None = None,
         timezone_name: str = "UTC", start_date: date | None = None,

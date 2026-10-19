@@ -7,7 +7,7 @@ import { calendarDate, formatMessageTimestamp, getTimezone } from './timezone.js
 import { createDisclosure } from './disclosure.js';
 import { showActionDialog } from './dialogs.js';
 
-export function createChat({ getActiveProfileId, getAttachmentSelection, restoreAttachments, onAttachmentsSaved, getWorkspaceContext = () => ({}), onAttachmentMetadata, clearFocusFiles, onGeneratingChange, onConversationChange, openSettings }) {
+export function createChat({ getActiveProfileId, getAttachmentSelection, restoreAttachments, onAttachmentsSaved, getWorkspaceContext = () => ({}), onAttachmentMetadata, clearFocusFiles, onGeneratingChange, onConversationChange, openSettings, exploration }) {
   const state = {
     conversationId: null,
     conversationVersion: null,
@@ -138,6 +138,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
   function setResponseUsageVisibility(visible) {
     const wasNearBottom = isNearBottom();
     state.showResponseUsage = visible;
+    exploration?.setUsageVisibility(visible);
     chat.querySelectorAll('.message-usage').forEach(el => {
       if (!visible) usageDisclosures.get(el)?.finish();
       el.hidden = !visible;
@@ -396,7 +397,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     };
     actionsEl.append(copy);
 
-    const next = feedbackRegion.parentElement === chat ? feedbackRegion : usageFooter.parentElement === chat ? usageFooter : null;
+    const next = chat.querySelector('.exploration-history') || (feedbackRegion.parentElement === chat ? feedbackRegion : usageFooter.parentElement === chat ? usageFooter : null);
     chat.insertBefore(el, next);
     refreshIcons();
     if (shouldScroll) scrollDown(smooth);
@@ -481,6 +482,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     state.conversationId = data.id;
     state.conversationVersion = data.version;
     if (!preserveScroll) {
+      exploration?.resetChoice();
       const latestUser = data.messages.findLast(message => message.role === 'user');
       restoreAttachments(latestUser?.attachment_sources || []);
     }
@@ -496,6 +498,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
         : null;
       appendMessage(message.role, message.content, index, false, false, message, regeneration);
     });
+    exploration?.show(data.id);
     renderRequestFeedback();
     updateConversationUsage();
     onConversationChange(state.conversationId);
@@ -514,6 +517,8 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     onConversationChange(null);
     state.requestFeedback.delete(null);
     clearFocusFiles();
+    exploration?.resetChoice();
+    exploration?.show(null);
     footerDisclosure.finish();
     disposeMessageDisclosures();
     chat.innerHTML = emptyChatMarkup;
@@ -562,7 +567,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     form.innerHTML = `
       <label for="message-edit-content">Edit message</label>
       <textarea id="message-edit-content" rows="5" aria-describedby="message-edit-help message-edit-error"></textarea>
-      <p id="message-edit-help">Saving removes all following messages and generates a new response. Enter saves and regenerates; Shift+Enter adds a new line.</p>
+      <p id="message-edit-help">Saving removes all following messages and generates a new response using the current Tools selection. Enter saves and regenerates; Shift+Enter adds a new line.</p>
       <p id="message-edit-error" role="alert" hidden></p>
       <div class="dialog-actions"><button type="button" class="quiet">Cancel</button><button type="submit" class="primary-btn">Save &amp; regenerate</button></div>
     `;
@@ -665,7 +670,11 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     const text = options.prompt ?? prompt.value.trim();
     if (!text || state.generating) return;
     let workspaceContext;
-    try { workspaceContext = options.recoveryId ? {} : getWorkspaceContext(); }
+    let explorationContext;
+    try {
+      workspaceContext = options.recoveryId ? {} : getWorkspaceContext();
+      explorationContext = options.recoveryId ? {} : exploration?.selection() || {};
+    }
     catch (error) {
       toast(error.message || 'Review the workspace structure settings before sending.', 'error');
       if (options.preserveDraft && state.conversationId) await openConversation(state.conversationId, true);
@@ -680,6 +689,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
       autoResize();
     }
     const requestConversationId = state.conversationId;
+    const requestViewVersion = state.conversationLoadVersion;
     setGenerating(true);
     const assistant = appendMessage('assistant', '');
     assistant.el.querySelector('.message-text').innerHTML = '<span class="typing">Thinking</span>';
@@ -696,6 +706,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
           conversation_id: state.conversationId,
           ...(options.recoveryId ? {} : getAttachmentSelection({ regenerating: options.regenerateMessageIndex != null })),
           ...workspaceContext,
+          ...explorationContext,
           profile_id: getActiveProfileId(),
           regenerate_message_index: options.regenerateMessageIndex,
           expected_conversation_version: options.expectedConversationVersion,
@@ -724,9 +735,10 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
             requestStarted = true;
             requestFeedback.conversationId = event.conversation_id;
             requestFeedback.sourceCreatedAt = event.user_created_at || requestFeedback.sourceCreatedAt;
-            if (!options.preserveDraft || state.conversationId === requestConversationId) onStart(event);
+            if (requestViewVersion === state.conversationLoadVersion) onStart(event);
             if (event.user_created_at) user?.setMeta({ created_at: event.user_created_at });
           }
+          if (state.conversationId === requestFeedback.conversationId) exploration?.progress(event);
           if (event.type === 'context_policy') contextPolicy = event;
           if (event.type === 'attachments' && Array.isArray(event.files)) {
             onAttachmentMetadata(event.files);
@@ -773,7 +785,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
       if (error.name === 'AbortError') {
         onAbort(assistant, answer);
       } else {
-        if (!requestStarted && !options.preserveDraft && state.conversationId === requestConversationId && !prompt.value) {
+        if (!requestStarted && !options.preserveDraft && requestViewVersion === state.conversationLoadVersion && state.conversationId === requestConversationId && !prompt.value) {
           prompt.value = text;
           autoResize();
         }
@@ -785,7 +797,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     } finally {
       state.controller = null;
       try {
-        if (state.conversationId && (!options.preserveDraft || state.conversationId === requestConversationId)) {
+        if (state.conversationId && state.conversationId === requestFeedback.conversationId) {
           await openConversation(state.conversationId, true);
         } else {
           loadConversations();
@@ -803,7 +815,8 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     if (!await showActionDialog({ title: 'Regenerate response?',
       description: (hasFollowing ? 'Once successful, the new response will replace this response and remove all following messages.'
         : 'Once successful, the new response will replace this response.')
-        + ' Uses the original attachments unless you changed the selection in Attach or removed a file from the composer.',
+        + ' Uses the original attachments unless you changed the selection in Attach or removed a file from the composer.'
+        + ` ${exploration?.describeSelection() || 'Work tools are off for this response.'}`,
       confirmLabel: 'Regenerate', danger: hasFollowing })) return;
     if (state.generating || state.conversationId !== conversationId || state.conversationVersion !== version) return;
     // The server keeps the original branch until regeneration completes successfully.

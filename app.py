@@ -59,7 +59,9 @@ from services.conversation_service import (
 )
 from services.context_policy import ContextPolicy
 from services.call_usage_store import CallUsageStore
-from services.work_run_store import ACTIVE_STATES, WorkRunStore
+from services.work_run_store import (
+    ACTIVE_STATES, WorkContextUnavailableError, WorkRunStore,
+)
 from services.folder_picker_service import (
     FolderPickerService,
     PickerReconnectingError,
@@ -705,6 +707,64 @@ async def rename_conversation(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found.")
     return conversation.to_dict(include_messages=False)
+
+
+def require_work_run(conversation_id: str, run_id: str) -> dict:
+    """Require an existing conversation and its own run before returning saved work."""
+    if not conversation_manager.get(conversation_id):
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    try:
+        return work_run_store.get(run_id, conversation_id)
+    except WorkContextUnavailableError as exc:
+        raise HTTPException(status_code=404, detail="Work run not found.") from exc
+
+
+@app.get("/api/conversations/{conversation_id}/work-runs")
+async def work_history(conversation_id: str, before: int | None = None):
+    """Return lightweight saved work, including unsuccessful and replaced attempts."""
+    conversation = conversation_manager.get(conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    try:
+        page = work_run_store.history(conversation_id, before=before)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    adopted = {
+        message.run_id for message in conversation.messages if message.run_id
+    }
+    for run in page["runs"]:
+        run["adopted"] = run["id"] in adopted
+        run["usage"] = work_run_store.usage(run["id"], call_usage_store)
+    return page
+
+
+@app.get("/api/conversations/{conversation_id}/work-runs/{run_id}")
+async def work_activity(conversation_id: str, run_id: str, offset: int = 0):
+    """Return one bounded activity page without private provider reasoning or output."""
+    run = require_work_run(conversation_id, run_id)
+    try:
+        page = work_run_store.activity(run_id, offset=offset)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    for step in page["steps"]:
+        if step["kind"] == "model":
+            step["record"] = call_usage_store.get_record(step["call_id"])
+    return {
+        **page, "run": work_run_store.public_metadata(run),
+        "usage": work_run_store.usage(run_id, call_usage_store),
+    }
+
+
+@app.get("/api/conversations/{conversation_id}/work-runs/{run_id}/evidence")
+async def work_evidence(
+    conversation_id: str, run_id: str, response_id: str, call_id: str,
+):
+    """Open exact persisted evidence without reading current files or starting tools."""
+    require_work_run(conversation_id, run_id)
+    try:
+        return work_run_store.evidence(run_id, response_id, call_id)
+    except WorkContextUnavailableError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.delete("/api/conversations/{conversation_id}")

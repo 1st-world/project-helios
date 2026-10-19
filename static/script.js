@@ -6,10 +6,16 @@ import { createWorkspace } from './workspace.js';
 import { initializeUI } from './ui.js';
 import { initializeSettings } from './settings.js';
 import { createUsage } from './usage.js';
+import { createExploration } from './exploration.js';
 
 const workspace = createWorkspace({ getActiveProfileId: () => profiles.getActiveProfileId() });
 const profiles = createProfiles({ isGenerating: () => chat.isGenerating() });
+const exploration = createExploration({
+  getWorkspace: workspace.getWorkspaceInfo,
+  renderContent: render => chat.renderUsageContent(render)
+});
 const chat = createChat({
+  exploration,
   getActiveProfileId: profiles.getActiveProfileId,
   getAttachmentSelection: workspace.getAttachmentSelection,
   restoreAttachments: workspace.restoreAttachments,
@@ -23,6 +29,7 @@ const chat = createChat({
     workspace.setGenerating(value);
     profiles.setGenerating(value);
     usage.setGenerating(value);
+    exploration.setGenerating(value);
   }
 });
 const usage = createUsage({ footer: chat.usageFooter, renderFooter: chat.renderUsageContent });

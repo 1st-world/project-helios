@@ -281,6 +281,101 @@ class WorkRunStore:
             "WHERE run_id=? ORDER BY position", (run_id,),
         )]
 
+    def history(self, conversation_id: str, *, before: int | None = None,
+                limit: int = 20) -> dict:
+        """Page run metadata without loading any provider output or tool results."""
+        if (not 1 <= limit <= 50
+                or (before is not None and not 1 <= before < 2 ** 63)):
+            raise ValueError("Invalid work history page.")
+        rows = self.connection.execute(
+            "SELECT rowid, data FROM work_runs WHERE conversation_id=? "
+            "AND (? IS NULL OR rowid < ?) ORDER BY rowid DESC LIMIT ?",
+            (conversation_id, before, before, limit + 1),
+        ).fetchall()
+        return {
+            "runs": [
+                self.public_metadata(json.loads(raw))
+                for _, raw in rows[:limit]
+            ],
+            "next_before": rows[limit - 1][0] if len(rows) > limit else None,
+        }
+
+    @staticmethod
+    def public_metadata(run: dict) -> dict:
+        """Project display metadata while omitting the host root and internal policies."""
+        snapshot = run.get("snapshot", {})
+        root = snapshot.get("workspace", {}).get("root")
+        profile = snapshot.get("profile", {})
+        workspace_name = (
+            root.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+            if root else None
+        )
+        return {
+            **{key: run.get(key) for key in (
+                "id", "conversation_id", "status", "kind", "started_at",
+                "finished_at", "recovered_at", "reason", "user_index",
+            )},
+            "workspace_name": workspace_name,
+            "profile": {
+                key: profile.get(key) for key in ("id", "name", "deployment")
+            },
+            "goals": snapshot.get("goals", {}),
+        }
+
+    def activity(self, run_id: str, *, offset: int = 0, limit: int = 30) -> dict:
+        """Page ordered model and tool facts without returning opaque model content."""
+        self.get(run_id)
+        if not 1 <= limit <= 50 or not 0 <= offset < 2 ** 63:
+            raise ValueError("Invalid work activity page.")
+        rows = self.connection.execute(
+            "SELECT kind, call_id, status, response_id FROM ("
+            "SELECT 'model' AS kind, call_id, status, response_id, "
+            "position AS model_position, -1 AS tool_position "
+            "FROM model_steps WHERE run_id=? UNION ALL "
+            "SELECT 'tool', t.call_id, t.status, t.response_id, "
+            "m.position, t.position "
+            "FROM tool_steps t JOIN model_steps m ON m.run_id=t.run_id "
+            "AND m.response_id=t.response_id WHERE t.run_id=?"
+            ") ORDER BY model_position, tool_position LIMIT ? OFFSET ?",
+            (run_id, run_id, limit + 1, offset),
+        ).fetchall()
+        names = {
+            "helios_project_list_files", "helios_project_search_text",
+            "helios_project_read_file",
+        }
+        steps = []
+        for kind, call_id, status, response_id in rows[:limit]:
+            name, available = None, False
+            if kind == "tool":
+                name, available = self.connection.execute(
+                    "SELECT json_extract(data, '$.name'), "
+                    "json_type(data, '$.output')='text' FROM tool_steps "
+                    "WHERE run_id=? AND response_id=? AND call_id=?",
+                    (run_id, response_id, call_id),
+                ).fetchone()
+            steps.append({
+                "kind": kind, "call_id": call_id, "status": status,
+                "response_id": response_id,
+                "name": name if name in names else None,
+                "result_available": bool(available),
+            })
+        return {
+            "steps": steps,
+            "next_offset": offset + limit if len(rows) > limit else None,
+        }
+
+    def evidence(self, run_id: str, response_id: str, call_id: str) -> dict:
+        """Return one saved tool result, never resolve a model-supplied filesystem path."""
+        self.get(run_id)
+        row = self.connection.execute(
+            "SELECT data FROM tool_steps WHERE run_id=? AND response_id=? AND call_id=?",
+            (run_id, response_id, call_id),
+        ).fetchone()
+        data = json.loads(row[0]) if row else {}
+        if data.get("output") is None:
+            raise WorkContextUnavailableError("This saved tool result is unavailable.")
+        return {"output": data["output"], "references": data.get("references", [])}
+
     def model_call_count(self, run_id: str) -> int:
         """Count submitted model steps without loading their stored response bodies."""
         self.get(run_id)
