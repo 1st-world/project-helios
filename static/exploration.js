@@ -2,6 +2,7 @@
 
 import { $, refreshIcons } from './ui.js';
 import { formatMessageTimestamp } from './timezone.js';
+import { showActionDialog } from './dialogs.js';
 
 const toolLabels = { helios_project_list_files: 'List files', helios_project_search_text: 'Search text', helios_project_read_file: 'Read file' };
 const activeStates = new Set(['preparing', 'model', 'tools', 'ready']);
@@ -28,7 +29,7 @@ function rangeText(reference) {
   return `${reference.path} · ${reference.start_line}:${reference.start_column}–${reference.end_line}:${reference.end_column}`;
 }
 
-export function createExploration({ getWorkspace, renderContent = render => render() }) {
+export function createExploration({ getWorkspace, chooseWorkspace, renderContent = render => render() }) {
   const choice = $('#explore-project');
   const tools = $('#work-tools');
   const settings = $('#exploration-settings-dialog');
@@ -50,13 +51,17 @@ export function createExploration({ getWorkspace, renderContent = render => rend
 
   function updateChoice() {
     const workspace = getWorkspace();
-    choice.disabled = busy || !workspace.root;
+    choice.disabled = busy;
     $('#exploration-goals').disabled = busy;
-    $('#explore-workspace').textContent = workspace.root ? `Workspace: ${workspace.root.split(/[/\\]/).filter(Boolean).pop()}` : 'Choose a workspace to explore.';
     $('#exploration-scope').textContent = workspace.root ? `Workspace: ${workspace.root}` : 'Choose a workspace from the sidebar before enabling exploration.';
-    $('#work-tools-label').textContent = choice.checked ? 'Explore' : 'Tools';
-    $('#work-tools-trigger').setAttribute('aria-label', choice.checked ? 'Work tools: Explore project selected' : 'Work tools');
-    tools.classList.toggle('explore-selected', choice.checked);
+
+    const count = tools.querySelectorAll('input[data-work-tool]:checked').length;
+    const badge = $('#work-tools-count');
+    badge.textContent = String(count);
+    badge.hidden = count === 0;
+    $('#work-tools-trigger').setAttribute('aria-label', count
+      ? `Work tools: ${count} ${count === 1 ? 'tool' : 'tools'} selected for the next response` : 'Work tools: no tools selected');
+    tools.classList.toggle('tools-selected', count > 0);
   }
 
   function resetChoice() {
@@ -322,7 +327,22 @@ export function createExploration({ getWorkspace, renderContent = render => rend
     if (card.details.open && !card.loading && !card.loaded) loadActivity(card);
   }
 
-  choice.onchange = updateChoice;
+  tools.addEventListener('change', async event => {
+    if (!event.target.matches('input[data-work-tool]')) return;
+    if (event.target === choice && choice.checked && !getWorkspace().root) {
+      resetChoice();
+      tools.open = false;
+      const accepted = await showActionDialog({ title: 'Choose a workspace?',
+        description: 'Explore project needs a workspace to find and read project files. Would you like to choose one?',
+        confirmLabel: 'Choose workspace' });
+      if (accepted && !busy && await chooseWorkspace() && !busy) choice.checked = true;
+      updateChoice();
+      $('#work-tools-trigger').focus({ preventScroll: true });
+      return;
+    }
+    updateChoice();
+  });
+
   $('#explore-settings').onclick = () => { tools.open = false; updateChoice(); settings.showModal(); };
   $('#exploration-goals-form').onsubmit = event => {
     event.preventDefault();

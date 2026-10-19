@@ -1383,6 +1383,28 @@ textarea::placeholder {
 .work-tools > summary::-webkit-details-marker {
   display: none;
 }
+.work-tools.tools-selected > summary {
+  color: var(--accent);
+}
+.work-tools .work-tools-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  min-height: 18px;
+  padding: 2px 5px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: var(--font-weight-label);
+  font-size: var(--font-size-badge);
+  line-height: var(--line-height-control);
+  font-variant-numeric: tabular-nums;
+}
+.work-tools .work-tools-count[hidden] {
+  display: none;
+}
+
 .tools-popover {
   z-index: 20;
   position: absolute;
@@ -1410,7 +1432,8 @@ textarea::placeholder {
   font-size: var(--font-size-body-compact);
   line-height: var(--line-height-body-compact);
 }
-.tools-popover button {
+.tools-popover button,
+.tools-popover .work-tool-choice {
   display: flex;
   align-items: center;
   width: 100%;
@@ -1424,66 +1447,83 @@ textarea::placeholder {
 .tools-popover button:last-child {
   padding-bottom: 0;
 }
-.tools-popover button > svg {
+.tools-popover button > svg,
+.tools-popover .work-tool-choice > svg {
   flex: none;
 }
-.tools-popover button > span:first-of-type {
+.tools-popover button > span:first-of-type,
+.tools-popover .work-tool-copy {
   flex: 1;
   min-width: 0;
 }
 .tools-popover button strong,
-.tools-popover button small {
+.tools-popover button small,
+.tools-popover .work-tool-copy strong,
+.tools-popover .work-tool-copy small {
   display: block;
 }
-.tools-popover button strong {
+.tools-popover button strong,
+.tools-popover .work-tool-copy strong {
   font-weight: var(--font-weight-label);
   font-size: var(--font-size-label);
   line-height: var(--line-height-compact);
 }
-.tools-popover button small {
+.tools-popover button small,
+.tools-popover .work-tool-copy small {
   margin-top: 2px;
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
 }
-.work-tools.explore-selected > summary {
-  color: var(--accent);
-}
-.tools-popover .explore-choice {
-  display: flex;
-  align-items: center;
-  padding: 12px 0 0;
-  gap: 10px;
-  border-top: 1px solid var(--border);
+.tools-popover .work-tool-choice {
   cursor: pointer;
 }
-.tools-popover .explore-choice input {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent);
-}
-.tools-popover .explore-choice strong,
-.tools-popover .explore-choice small {
-  display: block;
-}
-.tools-popover .explore-choice strong {
+.tools-popover .work-tool-copy strong {
   color: var(--text-main);
-  font-weight: var(--font-weight-label);
-  font-size: var(--font-size-label);
-  line-height: var(--line-height-compact);
 }
-.tools-popover .explore-choice small {
-  margin-top: 2px;
-  color: var(--text-muted);
-  font-size: var(--font-size-description);
-  line-height: var(--line-height-description);
+.tools-popover .work-tool-choice:has(input:checked) > svg {
+  color: var(--accent);
 }
-.tools-popover .explore-choice:has(input:disabled) {
-  opacity: 0.5;
+.tools-popover .work-tool-switch {
+  display: grid;
+  appearance: none;
+  flex: none;
+  align-items: center;
+  width: 40px;
+  height: 24px;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--bg-element);
+  color: var(--text-sub);
+  cursor: inherit;
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-easing-default),
+    border-color var(--motion-duration-fast) var(--motion-easing-default);
+}
+.tools-popover .work-tool-switch::before {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+  transition: transform var(--motion-duration) var(--motion-easing);
+}
+.tools-popover .work-tool-switch:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+.tools-popover .work-tool-switch:checked::before {
+  transform: translateX(16px);
+}
+.tools-popover .work-tool-switch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.tools-popover .work-tool-choice:has(input:disabled) {
   cursor: default;
-}
-.tools-popover #explore-workspace {
-  overflow-wrap: anywhere;
+  opacity: 0.5;
 }
 
 .model-picker {
@@ -1499,6 +1539,9 @@ textarea::placeholder {
   list-style: none;
   cursor: pointer;
 }
+.model-trigger > svg {
+  flex: none;
+}
 .model-trigger::-webkit-details-marker {
   display: none;
 }
@@ -1508,7 +1551,6 @@ textarea::placeholder {
   white-space: nowrap;
 }
 .model-chevron {
-  flex: none;
   width: 12px;
   height: 12px;
   color: var(--text-tertiary);
@@ -3497,8 +3539,8 @@ textarea::placeholder {
 }
 .workspace-modal .attachment-uploads .upload-selection {
   display: grid;
-  flex: 1;
   grid-template-columns: 16px minmax(0, 1fr);
+  flex: 1;
   align-items: center;
   min-width: 0;
   padding: 8px;
@@ -3668,6 +3710,7 @@ button svg,
 .composer-control > svg,
 .avatar svg,
 .tree-entry svg,
+.tools-popover .work-tool-choice > svg,
 .workspace-card-icon svg,
 .context-chip > svg {
   width: 15px;
@@ -3783,7 +3826,7 @@ button svg,
     left: 0;
     width: min(320px, calc(100vw - 72px));
   }
-  .composer-control:not(.model-trigger) > span,
+  .composer-control:not(.model-trigger) > span:not(.work-tools-count),
   .composer-caption .hint {
     display: none;
   }
@@ -3961,6 +4004,8 @@ button svg,
   .preferences-dialog .usage-call-history .usage-call-chevron,
   .preferences-dialog .settings-preference-row .settings-switch,
   .preferences-dialog .settings-preference-row .settings-switch::before,
+  .tools-popover .work-tool-switch,
+  .tools-popover .work-tool-switch::before,
   .preferences-dialog .settings-disclosure-header,
   .preferences-dialog .settings-disclosure-chevron {
     transition: none;
@@ -3983,21 +4028,25 @@ button svg,
 
 @media (forced-colors: active) {
   /* Use platform colors because high-contrast mode replaces the normal design palette. */
-  .preferences-dialog .settings-preference-row .settings-switch {
+  .preferences-dialog .settings-preference-row .settings-switch,
+  .tools-popover .work-tool-switch {
     border-color: ButtonText;
     background: Canvas;
     color: ButtonText;
   }
-  .preferences-dialog .settings-preference-row .settings-switch:checked {
+  .preferences-dialog .settings-preference-row .settings-switch:checked,
+  .tools-popover .work-tool-switch:checked {
     border-color: Highlight;
     background: Highlight;
     color: HighlightText;
   }
-  .preferences-dialog .settings-preference-row .settings-switch::before {
+  .preferences-dialog .settings-preference-row .settings-switch::before,
+  .tools-popover .work-tool-switch::before {
     /* Keep the thumb visible using inherited system colors in high-contrast mode. */
     forced-color-adjust: none;
   }
-  .preferences-dialog .settings-preference-row .settings-switch:focus-visible {
+  .preferences-dialog .settings-preference-row .settings-switch:focus-visible,
+  .tools-popover .work-tool-switch:focus-visible {
     outline-color: Highlight;
   }
 }

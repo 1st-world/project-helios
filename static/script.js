@@ -12,6 +12,7 @@ const workspace = createWorkspace({ getActiveProfileId: () => profiles.getActive
 const profiles = createProfiles({ isGenerating: () => chat.isGenerating() });
 const exploration = createExploration({
   getWorkspace: workspace.getWorkspaceInfo,
+  chooseWorkspace: workspace.chooseWorkspace,
   renderContent: render => chat.renderUsageContent(render)
 });
 const chat = createChat({

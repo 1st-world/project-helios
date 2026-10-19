@@ -367,6 +367,13 @@ export function createWorkspace({ getActiveProfileId }) {
     $('#workspace-dialog').showModal();
   }
 
+  function chooseWorkspace() {
+    return new Promise(resolve => {
+      $('#workspace-dialog').addEventListener('close', () => resolve(Boolean(state.workspaceRoot)), { once: true });
+      openWorkspaceDialog();
+    });
+  }
+
   async function openFileDialog() {
     ++state.fileDialogVersion;
     invalidateInspection();
@@ -711,7 +718,7 @@ export function createWorkspace({ getActiveProfileId }) {
   }
 
   return {
-    init, load: loadWorkspace, clearFocusFiles, setGenerating, beforeDialogClose,
+    init, load: loadWorkspace, clearFocusFiles, setGenerating, beforeDialogClose, chooseWorkspace,
     restorePicker: picker.restore, getAttachmentSelection, restoreAttachments, getWorkspaceContext, updateAttachmentMetadata,
     getWorkspaceInfo() { return { root: state.workspaceRoot, revision: state.workspaceRevision, sessionId: state.workspaceSessionId }; },
     markAttachmentsSaved() { state.selectionEdited = false; }

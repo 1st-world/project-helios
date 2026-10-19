@@ -81,12 +81,11 @@
         <div class="composer-actions">
           <button id="load-file" class="quiet composer-control" type="button" aria-label="Attach files" title="Attach files"><i data-lucide="paperclip"></i><span>Attach</span></button>
           <details id="work-tools" class="work-tools">
-            <summary class="quiet composer-control" aria-label="Work tools" id="work-tools-trigger"><i data-lucide="tool-case"></i><span id="work-tools-label">Tools</span></summary>
+            <summary class="quiet composer-control" aria-label="Work tools: no tools selected" id="work-tools-trigger"><i data-lucide="tool-case"></i><span id="work-tools-label">Tools</span><span id="work-tools-count" class="work-tools-count" aria-hidden="true" hidden>0</span></summary>
             <div class="tools-popover">
               <strong>Work tools</strong>
               <p>Choose tools for the next response.</p>
-              <label class="explore-choice"><input id="explore-project" type="checkbox" aria-describedby="explore-workspace"><span><strong>Explore project</strong><small>Read-only · repeated model calls</small></span></label>
-              <p id="explore-workspace" role="status">Choose a workspace to explore.</p>
+              <label class="work-tool-choice" for="explore-project"><i data-lucide="folder-search" aria-hidden="true"></i><span class="work-tool-copy"><strong id="explore-project-label">Explore project</strong><small id="explore-project-description">Read-only · repeated model calls</small></span><input id="explore-project" class="work-tool-switch" type="checkbox" role="switch" data-work-tool aria-labelledby="explore-project-label" aria-describedby="explore-project-description"></label>
               <button id="explore-settings" type="button"><i data-lucide="sliders-horizontal"></i><span><strong>Scope &amp; goals</strong><small>Read permissions, repeated calls and cost</small></span></button>
               <button type="button" disabled><i data-lucide="git-compare-arrows"></i><span><strong>Propose changes</strong><small>Review changes across files</small></span><span class="planned-badge">Planned</span></button>
               <button type="button" disabled><i data-lucide="file-check"></i><span><strong>Apply changes</strong><small>Apply edits after your review</small></span><span class="planned-badge">Planned</span></button>
