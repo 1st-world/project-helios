@@ -34,6 +34,8 @@ class FolderPickerService:
     """Manage tab-owned picker sessions with a grace period for browser reconnection."""
 
     RECONNECT_GRACE = 5
+    WORKER_NAME = "folder_picker_worker.py"
+    RESULT_ERROR = "Folder picker exited unexpectedly. Try Browse again or enter the path manually."
 
     def __init__(self):
         """Initialize the session registry and shutdown state."""
@@ -63,7 +65,7 @@ class FolderPickerService:
             return session
         if not start:
             return None
-        worker = Path(__file__).with_name("folder_picker_worker.py")
+        worker = Path(__file__).with_name(self.WORKER_NAME)
         process = subprocess.Popen(
             [sys.executable, str(worker), initial_dir],
             stdin=subprocess.DEVNULL,
@@ -87,17 +89,19 @@ class FolderPickerService:
             result = json.loads(output)
             if result.get("status") not in {"selected", "cancelled", "error"}:
                 raise ValueError("Invalid picker result")
-            if result["status"] == "selected" and not isinstance(
-                result.get("path"), str
-            ):
+            if result["status"] == "selected" and not self._valid_selection(result):
                 raise ValueError("Invalid picker path")
         except Exception:
             result = {
                 "status": "error",
-                "detail": "Folder picker exited unexpectedly. Try Browse again or enter the path manually.",
+                "detail": self.RESULT_ERROR,
             }
         if not session.cancelling:
             session.result = result
+
+    def _valid_selection(self, result: dict) -> bool:
+        """Require the folder worker to return a path string."""
+        return isinstance(result.get("path"), str)
 
     async def cancel(self, session: PickerSession) -> None:
         """Stop the owned process and acknowledge cancellation after its reader finishes."""

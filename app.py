@@ -63,6 +63,7 @@ from services.call_usage_store import CallUsageStore
 from services.work_run_store import (
     ACTIVE_STATES, WorkContextUnavailableError, WorkRunStore,
 )
+from services.file_picker_service import FilePickerService
 from services.folder_picker_service import (
     FolderPickerService,
     PickerReconnectingError,
@@ -132,6 +133,7 @@ attachment_service = AttachmentService(
     limits=application_settings.attachment_limits(), store=attachment_store,
 )
 folder_picker_service = FolderPickerService()
+file_picker_service = FilePickerService(attachment_service)
 context_recovery = ContextRecoveryRegistry()
 workspace_operations: dict[object, str] = {}
 usage_service = UsageService()
@@ -182,6 +184,7 @@ async def lifespan(_: FastAPI):
     logger.info("Helios started")
     yield
     await folder_picker_service.close()
+    await file_picker_service.close()
     await ai_service.close()
     logger.info("Helios stopped")
 
@@ -1130,7 +1133,27 @@ async def preview_workspace_context(
 
 @app.websocket("/api/workspace/picker/{token}")
 async def workspace_picker(websocket: WebSocket, token: UUID):
-    """Relay picker state and commands for a same-origin browser tab."""
+    """Relay native folder selection without changing its tab-owned lifecycle."""
+    await relay_native_picker(
+        websocket, token, folder_picker_service, "folder",
+        "Could not connect to folder picker. Enter the path manually.",
+    )
+
+
+@app.websocket("/api/attachments/picker/{token}")
+async def attachment_picker(websocket: WebSocket, token: UUID):
+    """Add host-selected attachment copies without accepting browser-supplied paths."""
+    await relay_native_picker(
+        websocket, token, file_picker_service, "file",
+        "Could not connect to file picker. Try Choose files again.",
+    )
+
+
+async def relay_native_picker(
+    websocket: WebSocket, token: UUID, service: FolderPickerService,
+    label: str, connection_error: str,
+):
+    """Relay same-origin picker sessions using the selected conversation's start folder."""
     # Reject cross-origin pages before allowing access to native dialogs.
     origin = websocket.headers.get("origin", "")
     if urlsplit(origin).netloc != websocket.headers.get("host"):
@@ -1144,12 +1167,16 @@ async def workspace_picker(websocket: WebSocket, token: UUID):
         if command.get("action") not in {"start", "resume"}:
             await websocket.close(code=1008)
             return
-        picker_workspace = resolve_workspace(
-            command.get("conversation_id"), command.get("workspace_session_id"),
-        )
-        session = folder_picker_service.attach(
-            key,
-            str(picker_workspace.root) if picker_workspace.root is not None else "",
+        initial_dir = ""
+        if command["action"] == "start":
+            picker_workspace = resolve_workspace(
+                command.get("conversation_id"), command.get("workspace_session_id"),
+            )
+            if picker_workspace.root is not None:
+                initial_dir = str(picker_workspace.root)
+        # A tab must still be able to cancel its owned picker after its conversation is removed.
+        session = service.attach(
+            key, initial_dir,
             start=command["action"] == "start",
         )
         if session is None:
@@ -1168,13 +1195,13 @@ async def workspace_picker(websocket: WebSocket, token: UUID):
                 continue
             if command.get("action") == "cancel":
                 try:
-                    await folder_picker_service.cancel(session)
+                    await service.cancel(session)
                 except Exception:
-                    logger.exception("Could not cancel folder picker")
+                    logger.exception("Could not cancel %s picker", label)
                     await websocket.send_json(
                         {
                             "status": "cancel-error",
-                            "detail": "Could not close folder picker. Try Cancel again.",
+                            "detail": f"Could not close {label} picker. Try Cancel again.",
                         }
                     )
     except PickerReconnectingError:
@@ -1184,19 +1211,19 @@ async def workspace_picker(websocket: WebSocket, token: UUID):
     except (asyncio.TimeoutError, ValueError):
         await websocket.close(code=1008)
     except Exception:
-        logger.exception("Folder picker connection failed")
+        logger.exception("%s picker connection failed", label.capitalize())
         try:
             await websocket.send_json(
                 {
                     "status": "error",
-                    "detail": "Could not connect to folder picker. Enter the path manually.",
+                    "detail": connection_error,
                 }
             )
         except (RuntimeError, WebSocketDisconnect):
             pass
     finally:
         if session is not None:
-            folder_picker_service.detach(key, session)
+            service.detach(key, session)
         try:
             await websocket.close()
         except (RuntimeError, WebSocketDisconnect):

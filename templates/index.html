@@ -194,43 +194,37 @@
     </form>
   </dialog>
 
-  <dialog id="file-dialog" class="settings-dialog workspace-modal" aria-labelledby="file-dialog-title">
+  <dialog id="file-dialog" class="settings-dialog attachment-modal" aria-labelledby="file-dialog-title">
     <div class="dialog-heading">
       <div><i data-lucide="paperclip"></i><h2 id="file-dialog-title">Attach files</h2></div>
       <button class="dialog-close" type="button" data-close-dialog="file-dialog" aria-label="Close"><i data-lucide="x"></i></button>
     </div>
-    <section class="attachment-uploads" aria-labelledby="uploaded-files-title">
-      <h3 id="uploaded-files-title">Uploaded files</h3>
-      <div class="upload-actions">
-        <input id="upload-file-input" type="file" multiple hidden>
-        <button id="choose-upload-files" class="quiet sm-btn" type="button"><i data-lucide="upload"></i>Choose files</button>
-        <button id="refresh-uploads" class="quiet sm-btn" type="button" aria-label="Refresh uploaded files"><i data-lucide="refresh-cw"></i>Refresh</button>
-        <button id="cancel-upload" class="quiet sm-btn" type="button" hidden>Stop upload</button>
-      </div>
-      <p id="upload-status" class="field-hint" role="status">Choose files from your device. No workspace is needed.</p>
-      <ul id="uploaded-files" aria-label="Reusable uploaded files"></ul>
-      <p class="field-hint">Originals stay on the computer running Helios until deleted, including after deselection or conversation deletion. The trash button deletes the stored original.</p>
-    </section>
-    <section class="attachment-workspace" aria-labelledby="workspace-files-title">
-      <h3 id="workspace-files-title">Workspace files</h3>
-      <div class="file-source-row"><i data-lucide="folder"></i><span id="file-source-name">No workspace</span><button id="attachment-workspace-settings" class="quiet sm-btn" type="button">Manage workspace</button></div>
-      <label class="sr-only" for="file-search">Search workspace files</label>
-      <div class="file-search-row">
-        <input id="file-search" type="search" placeholder="Search files by name or path" autocomplete="off">
-        <button id="refresh-workspace" class="quiet sm-btn" type="button" aria-label="Refresh files" title="Refresh files"><i data-lucide="refresh-cw"></i><span>Refresh</span></button>
-      </div>
-      <div id="workspace-tree" class="workspace-tree modal-tree" aria-label="Workspace files"></div>
-    </section>
-    <p class="field-hint attachment-help">Supports UTF-8 text, PNG, JPEG, WebP, static GIF, PDF, DOCX, XLSX, and PPTX. Images and PDFs are sent as originals; Office files contribute extracted text. Attachments stay included in each message until removed.</p>
-    <section id="attachment-inspection" class="attachment-inspection" aria-labelledby="attachment-inspection-title" hidden>
-      <h3 id="attachment-inspection-title">Selection check</h3>
-      <p id="attachment-inspection-status" role="status"></p>
-      <ul id="attachment-inspection-files" tabindex="0" aria-label="Checked attachment details"></ul>
-    </section>
+    <div class="attachment-body">
+      <section class="attachment-selection" aria-labelledby="attachment-selection-title">
+        <div class="attachment-group-heading">
+          <h3 id="attachment-selection-title">Selected files</h3>
+          <button id="choose-attachment-files" class="quiet-btn" type="button"><i id="attachment-picker-add-icon" data-lucide="plus" aria-hidden="true"></i><i id="attachment-picker-stop-icon" data-lucide="square" aria-hidden="true" hidden></i><span id="attachment-picker-label">Add files</span></button>
+        </div>
+        <div class="attachment-group-body attachment-selection-body">
+          <div id="attachment-selection-empty" class="attachment-empty-state"><i data-lucide="inbox" aria-hidden="true"></i><span>No files selected.</span></div>
+          <p id="attachment-selection-notice" class="field-hint" role="status" hidden></p>
+          <ul id="selected-attachments" aria-label="Selected attachments"></ul>
+        </div>
+      </section>
+      <p id="attachment-file-status" class="field-hint" role="status">Choose files on the computer running Helios. A workspace is optional.</p>
+      <p class="field-hint">Included with each new message until removed.</p>
+      <section id="attachment-inspection" class="attachment-inspection" aria-labelledby="attachment-inspection-title">
+        <div class="attachment-group-heading"><h3 id="attachment-inspection-title">Selection check</h3></div>
+        <div class="attachment-group-body"><p id="attachment-inspection-status" role="status">Add files to review their delivery and local preparation.</p></div>
+      </section>
+      <p class="field-hint attachment-help">Supported: UTF-8 text, PNG, JPEG, WebP, static GIF, PDF, DOCX, XLSX, and PPTX.</p>
+    </div>
     <div class="dialog-actions file-dialog-actions">
       <span id="selected-file-label" role="status">No files selected</span>
-      <button class="quiet" type="button" data-close-dialog="file-dialog">Cancel</button>
-      <button id="attach-selected-file" class="primary-btn" type="button" disabled>Check selection</button>
+      <div class="dialog-actions-right">
+        <button class="quiet" type="button" data-close-dialog="file-dialog"><i data-lucide="x" aria-hidden="true"></i><span>Cancel</span></button>
+        <button id="attach-selected-file" class="primary-btn" type="button" disabled><i data-lucide="check" aria-hidden="true"></i><span id="attach-selected-file-label">Check files</span></button>
+      </div>
     </div>
   </dialog>
 

@@ -54,6 +54,7 @@ const settings = initializeSettings({
 initializeUI({
   beforeDialogClose(dialog) {
     if (dialog.id === 'workspace-dialog') return workspace.beforeDialogClose();
+    if (dialog.id === 'file-dialog') return workspace.beforeAttachmentDialogClose();
     if (dialog.id === 'settings-dialog') return settings.beforeDialogClose();
     return true;
   }

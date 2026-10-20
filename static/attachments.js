@@ -6,7 +6,7 @@ export function attachmentKey(file) {
 }
 
 export function attachmentSourceLabel(file) {
-  return (file.reference || file).source === 'upload' ? 'Uploaded' : 'Workspace';
+  return (file.reference || file).source === 'upload' ? 'Attachment copy' : 'Workspace file';
 }
 
 export function attachmentIcon(path, kind = '') {
@@ -15,6 +15,14 @@ export function attachmentIcon(path, kind = '') {
   if (kind === 'xlsx' || extension === 'xlsx') return 'sheet';
   if (kind === 'pptx' || extension === 'pptx') return 'presentation';
   return 'file-text';
+}
+
+export function attachmentSize(bytes) {
+  if (!Number.isSafeInteger(bytes) || bytes < 0) return '';
+  if (bytes < 1024) return `${bytes.toLocaleString()} bytes`;
+  const unit = bytes < 1024 ** 2 ? 'KiB' : bytes < 1024 ** 3 ? 'MiB' : 'GiB';
+  const divisor = unit === 'KiB' ? 1024 : unit === 'MiB' ? 1024 ** 2 : 1024 ** 3;
+  return `${(bytes / divisor).toLocaleString(undefined, { maximumFractionDigits: 1 })} ${unit}`;
 }
 
 export function attachmentSummary(file) {

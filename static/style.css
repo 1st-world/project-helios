@@ -548,80 +548,6 @@ footer {
   color: var(--text-main);
 }
 
-/* Workspace File Tree Components */
-.workspace-tree {
-  max-height: 190px;
-  padding: 0 7px 4px;
-  overflow-y: auto;
-  color: var(--text-muted);
-  font-size: var(--font-size-control);
-}
-.tree-entry {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  min-height: 34px;
-  padding: 5px 4px;
-  overflow: hidden;
-  gap: 6px;
-  border-radius: 4px;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.tree-entry span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.tree-entry svg {
-  flex: none;
-  color: var(--text-muted);
-}
-.tree-entry.file:hover,
-.tree-entry.file.selected {
-  background: var(--bg-surface-active);
-  color: var(--accent);
-}
-.tree-entry.file.selected svg {
-  color: var(--accent);
-}
-.tree-folder {
-  color: var(--text-sub);
-}
-.tree-folder::before {
-  width: 10px;
-  transform: rotate(0deg);
-  content: "›";
-}
-details[open] > .tree-folder::before {
-  transform: rotate(90deg);
-}
-.tree-folder::-webkit-details-marker {
-  display: none;
-}
-.tree-entry.file {
-  padding-left: 20px;
-}
-.tree-children {
-  padding-left: 13px;
-}
-
-.workspace-empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 24px 16px;
-  gap: 6px;
-  color: var(--text-muted);
-  font-family: var(--font-sans);
-  text-align: center;
-}
-
 /* Sidebar Collapsed State */
 body.sidebar-collapsed:not(.mobile-layout) .sidebar {
   width: 64px;
@@ -3602,201 +3528,193 @@ textarea::placeholder {
   overflow-wrap: anywhere;
 }
 
-.workspace-modal .attachment-uploads {
-  margin-bottom: 20px;
+.attachment-modal {
+  --attachment-content-spacing: 16px;
+
+  width: min(600px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+}
+.attachment-modal[open] {
+  display: flex;
+  flex-direction: column;
+}
+.attachment-modal > .dialog-heading,
+.attachment-modal > .file-dialog-actions {
+  flex: none;
+}
+.attachment-modal .attachment-body {
+  flex: 1;
+  min-height: 0;
   padding-bottom: 16px;
-  border-bottom: 1px solid var(--border);
+  overflow-y: auto;
 }
-.workspace-modal .attachment-uploads h3,
-.workspace-modal .attachment-workspace h3 {
-  margin: 0 0 10px;
-  font-weight: var(--font-weight-heading);
-  font-size: var(--font-size-title-group);
-  line-height: var(--line-height-heading);
+.attachment-modal .attachment-body > .field-hint {
+  margin: 8px 0 0;
+  white-space: pre-line;
 }
-.workspace-modal .attachment-uploads .upload-actions {
+.attachment-modal #attachment-file-status[data-state="error"] {
+  color: var(--danger-text);
+}
+.attachment-modal .file-dialog-actions svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.attachment-modal .attachment-selection,
+.attachment-modal .attachment-inspection {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+.attachment-modal .attachment-inspection {
+  margin-top: 16px;
+}
+.attachment-modal .attachment-group-heading {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 10px var(--attachment-content-spacing);
+  gap: 12px;
 }
-.workspace-modal .attachment-uploads .upload-actions [hidden] {
-  display: none;
-}
-.workspace-modal .attachment-uploads p {
-  margin: 8px 0 0;
-  white-space: pre-line;
-}
-.workspace-modal .attachment-uploads ul {
-  display: grid;
-  max-height: 180px;
-  margin: 8px 0 0;
-  padding: 0;
-  overflow-y: auto;
-  gap: 4px;
-  list-style: none;
-}
-.workspace-modal .attachment-uploads ul:empty {
-  display: none;
-}
-.workspace-modal .attachment-uploads li {
-  display: flex;
+.attachment-modal .attachment-group-heading h3 {
   min-width: 0;
-  gap: 6px;
+  margin: 0;
+  font-weight: var(--font-weight-heading);
+  font-size: var(--font-size-title-section);
+  line-height: var(--line-height-heading);
+  overflow-wrap: anywhere;
 }
-.workspace-modal .attachment-uploads .upload-selection {
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr);
-  flex: 1;
-  align-items: center;
-  min-width: 0;
-  padding: 8px;
-  gap: 4px 8px;
-  border-radius: 6px;
-  background: var(--bg-app);
-  color: var(--text-sub);
-  line-height: var(--line-height-compact);
-  text-align: left;
-  cursor: pointer;
-}
-.workspace-modal .attachment-uploads .upload-selection[aria-pressed="true"] {
-  background: var(--bg-element);
-  color: var(--text-main);
-}
-.workspace-modal .attachment-uploads .upload-selection:hover {
-  background: var(--bg-element-hover);
-}
-.workspace-modal .attachment-uploads .upload-selection > span {
+.attachment-modal .quiet-btn {
+  height: 28px;
   font-size: var(--font-size-control);
-  overflow-wrap: anywhere;
 }
-.workspace-modal .attachment-uploads .upload-selection > small {
-  grid-column: 2;
-  color: var(--text-muted);
-  font-size: var(--font-size-meta);
-  line-height: var(--line-height-meta);
-  overflow-wrap: anywhere;
-}
-.workspace-modal .attachment-uploads .upload-delete {
+.attachment-modal .attachment-group-heading .quiet-btn {
   flex: none;
-  align-self: center;
-  width: 36px;
-  height: 36px;
-  padding: 8px;
+  margin-left: auto;
 }
-.workspace-modal .attachment-uploads svg {
-  width: 16px;
-  height: 16px;
-}
-
-.workspace-modal .attachment-workspace[data-connected="false"] .file-search-row {
-  display: none;
-}
-.workspace-modal .attachment-workspace[data-connected="false"] .modal-tree {
-  height: auto;
-}
-
-.file-source-row {
-  display: flex;
-  align-items: center;
-  margin: 0 0 10px;
-  gap: 6px;
-  color: var(--text-muted);
-  font-size: var(--font-size-control);
-}
-.file-source-row > svg {
+.attachment-modal .quiet-btn svg {
   flex: none;
   width: 15px;
   height: 15px;
-  color: var(--accent);
 }
-.workspace-modal .file-source-row button {
-  margin-left: auto;
+.attachment-modal .attachment-group-body {
+  min-width: 0;
+  padding: var(--attachment-content-spacing);
+  border-top: 1px solid var(--border);
 }
-
-.file-search-row {
+.attachment-modal .attachment-selection-body {
+  max-height: calc(178px + var(--attachment-content-spacing) * 2 + 1px);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+.attachment-modal .attachment-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 18px 12px;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: var(--font-size-control);
+  text-align: center;
+}
+.attachment-modal .attachment-empty-state svg {
+  width: 20px;
+  height: 20px;
+  color: var(--text-tertiary);
+}
+.attachment-modal [hidden] {
+  display: none;
+}
+.attachment-modal #attachment-selection-notice {
+  margin: 0 0 8px;
+}
+.attachment-modal #selected-attachments {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  gap: 6px;
+  list-style: none;
+}
+.attachment-modal #selected-attachments:empty {
+  display: none;
+}
+.attachment-modal #selected-attachments > li {
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-.file-search-row input {
-  flex: 1;
   min-width: 0;
-}
-
-#file-source-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workspace-tree.modal-tree {
-  height: clamp(140px, 32vh, 320px);
-  max-height: none;
-  margin: 12px 0;
-  padding: 6px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-app);
-}
-
-.settings-dialog .attachment-help {
-  margin: 0;
-}
-
-.workspace-modal .attachment-inspection {
-  margin-top: 12px;
-  padding: 12px;
+  padding: 8px 10px;
+  gap: 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-surface);
+}
+.attachment-modal #selected-attachments > li > svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+}
+.attachment-modal .attachment-file-copy {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 4px;
   overflow-wrap: anywhere;
 }
-.workspace-modal .attachment-inspection h3 {
-  margin: 0;
-  font-weight: var(--font-weight-heading);
-  font-size: var(--font-size-title-group);
-  line-height: var(--line-height-heading);
+.attachment-modal .attachment-file-copy strong {
+  font-weight: var(--font-weight-label);
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-compact);
 }
-.workspace-modal .attachment-inspection p {
-  margin: 8px 0 0;
+.attachment-modal .attachment-file-copy small {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-meta);
+}
+.attachment-modal .attachment-file-copy p {
+  margin: 0;
+  color: var(--warning-text);
   font-size: var(--font-size-body-compact);
   line-height: var(--line-height-body-compact);
 }
-.workspace-modal .attachment-inspection [role="status"] {
-  white-space: pre-line;
+.attachment-modal #selected-attachments [data-unavailable="true"] strong {
+  color: var(--warning-text);
 }
-.workspace-modal .attachment-inspection[data-state="error"] [role="status"] {
+.attachment-modal .attachment-remove {
+  flex: none;
+  justify-content: center;
+  width: 28px;
+  padding: 0;
+}
+.attachment-modal .attachment-body > .attachment-help {
+  margin-top: 16px;
+}
+.attachment-modal .attachment-inspection p {
+  margin: 0;
+  font-size: var(--font-size-body-compact);
+  line-height: var(--line-height-body-compact);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.attachment-modal .attachment-inspection[data-state="error"] p {
   color: var(--danger-text);
 }
-.workspace-modal .attachment-inspection[data-state="warning"] [role="status"] {
+.attachment-modal .attachment-inspection[data-state="warning"] p {
   color: var(--warning-text);
 }
-.workspace-modal .attachment-inspection ul {
-  display: grid;
-  max-height: min(240px, 30vh);
-  margin: 12px 0 0;
-  padding: 0;
-  overflow-y: auto;
-  gap: 10px;
-  list-style: none;
-}
-.workspace-modal .attachment-inspection ul:empty {
-  display: none;
-}
-.workspace-modal .attachment-inspection li {
-  min-width: 0;
-  padding-top: 10px;
+.attachment-modal .file-dialog-actions {
+  margin-top: 0;
+  padding-top: 12px;
   border-top: 1px solid var(--border);
 }
-.workspace-modal .attachment-inspection li strong {
-  font-size: var(--font-size-control);
-}
-.workspace-modal .attachment-inspection .attachment-processing-note {
-  color: var(--warning-text);
-}
-
-#selected-file-label {
+.attachment-modal #selected-file-label {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -3805,9 +3723,13 @@ textarea::placeholder {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.file-dialog-actions button {
+.attachment-modal .file-dialog-actions button {
   flex: none;
+}
+.attachment-modal .dialog-actions-right {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 100%;
 }
 
 /* ========================================
@@ -3816,7 +3738,6 @@ textarea::placeholder {
 button svg,
 .composer-control > svg,
 .avatar svg,
-.tree-entry svg,
 .tools-popover .work-tool-choice > svg,
 .workspace-card-icon svg,
 .context-chip > svg {
@@ -3943,10 +3864,10 @@ button svg,
   .settings-dialog {
     padding: 20px;
   }
-  .file-dialog-actions {
+  .attachment-modal .file-dialog-actions {
     flex-wrap: wrap;
   }
-  #selected-file-label {
+  .attachment-modal #selected-file-label {
     flex-basis: 100%;
   }
 }
