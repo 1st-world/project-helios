@@ -10,6 +10,7 @@ from contextlib import aclosing, asynccontextmanager
 from dataclasses import asdict, replace
 from datetime import date
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import ClassVar, Literal
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -73,6 +74,7 @@ from services.memory_service import (
 )
 from services.local_work import check_local_cancelled, run_local
 from services.prompt_builder import PromptBuilder
+from services.project_context import build_project_overview
 from services.project_exploration import (
     EXPLORATION_INSTRUCTIONS, ExplorationError, ExplorationLimits,
     ProjectExplorer, project_function_tools,
@@ -390,6 +392,16 @@ class WorkspaceStructurePreviewRequest(WorkspaceStructureRequest):
 
     workspace_revision: int | None = Field(default=None, ge=0, strict=True)
     conversation_id: str | None = None
+    workspace_session_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class WorkspaceContextPreviewRequest(BaseModel):
+    """Pin the automatic project overview preview to the browser's selected workspace."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    conversation_id: str | None = None
+    workspace_revision: int | None = Field(default=None, ge=0, strict=True)
     workspace_session_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
@@ -963,6 +975,22 @@ def build_workspace_structure(
     )
 
 
+def project_protected_paths() -> list[Path]:
+    """Use the same host runtime exclusions for automatic overview and explicit exploration."""
+    return [
+        profile_service.storage_path, settings_service.storage_path,
+        settings.conversations_root, settings.logs_root,
+        getattr(
+            settings, "attachments_root",
+            settings.profiles_path.parent / "data" / "attachments",
+        ),
+        getattr(
+            settings, "work_runs_path",
+            settings.profiles_path.parent / "data" / "work_runs.sqlite3",
+        ),
+    ]
+
+
 def chat_uses_workspace(payload: ChatRequest) -> bool:
     """Distinguish explicit project input from a folder-independent chat request."""
     return bool(
@@ -1069,6 +1097,33 @@ async def preview_workspace_structure(
         }
     except WorkspaceAccessError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        release()
+
+
+@app.post("/api/workspace/context")
+async def preview_workspace_context(
+    payload: WorkspaceContextPreviewRequest, request: Request = None,
+):
+    """Preview the same bounded overview used by chat without starting model or MCP work."""
+    live_workspace = resolve_workspace(
+        payload.conversation_id, payload.workspace_session_id,
+    )
+    require_workspace_revision(
+        payload.workspace_revision, payload.workspace_session_id, live_workspace,
+    )
+    workspace = copy(live_workspace)
+    release = claim_workspace(workspace)
+    try:
+        context = await until_disconnect(
+            request, run_local, build_project_overview,
+            workspace, project_protected_paths(),
+        )
+        require_workspace_root(workspace.root, workspace.revision, live_workspace)
+        return {
+            "context": context, "revision": workspace.revision,
+            "session_id": workspace.session_id,
+        }
     finally:
         release()
 
@@ -1539,7 +1594,9 @@ async def chat(payload: ChatRequest, request: Request = None):
         )
         workspace_bound = (
             data.get("workspace_bound", data.get("workspace_root") is not None)
-            if ticket is not None else chat_uses_workspace(payload)
+            if ticket is not None else (
+                chat_uses_workspace(payload) or live_workspace.root is not None
+            )
         )
         if workspace_bound:
             operation.release_workspace = claim_workspace(live_workspace)
@@ -1601,7 +1658,9 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
     request_workspace = copy(live_workspace)
     workspace_bound = (
         data.get("workspace_bound", data.get("workspace_root") is not None)
-        if data else chat_uses_workspace(payload)
+        if data else (
+            chat_uses_workspace(payload) or request_workspace.root is not None
+        )
     )
     request_attachments.workspace = request_workspace
     request_budget = context_budget
@@ -1662,11 +1721,14 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
             selected_files.append(payload.workspace_file)
 
         def prepare_local_inputs():
-            """Prepare only explicitly selected structure and files from a fixed root."""
-            workspace_context = (
-                build_workspace_structure(request_workspace, payload.workspace_structure)
-                if payload.workspace_structure is not None else ""
+            """Pin the automatic overview and explicitly selected files to one request root."""
+            workspace_context = build_project_overview(
+                request_workspace, project_protected_paths(),
             )
+            if payload.workspace_structure is not None:
+                workspace_context += "\n\n" + build_workspace_structure(
+                    request_workspace, payload.workspace_structure,
+                )
             if payload.attachment_sources is None:
                 attachments = request_attachments.prepare(payload.attachment_files)
             else:
@@ -1984,11 +2046,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                     check_authority=exploration_authority, policy=policy,
                     visual_tokens=attachments.visual_tokens,
                     limits=payload.exploration_limits,
-                    protected=[
-                        profile_service.storage_path, settings_service.storage_path,
-                        settings.conversations_root, settings.logs_root,
-                        settings.attachments_root, settings.work_runs_path,
-                    ],
+                    protected=project_protected_paths(),
                     on_assessment=exploration_assessment,
                 )
                 source = explorer.stream(profile_id)

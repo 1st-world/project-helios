@@ -683,7 +683,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
       attachmentSelection = options.recoveryId ? {} : getAttachmentSelection({ regenerating: options.regenerateMessageIndex != null });
     }
     catch (error) {
-      toast(error.message || 'Review the workspace structure settings before sending.', 'error');
+      toast(error.message || 'Review the workspace before sending.', 'error');
       if (options.preserveDraft && state.conversationId) await openConversation(state.conversationId, true);
       return;
     }

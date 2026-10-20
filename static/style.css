@@ -2117,7 +2117,6 @@ textarea::placeholder {
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  scrollbar-gutter: stable;
 }
 .preferences-dialog .settings-panel[hidden] {
   display: none;
@@ -2351,7 +2350,6 @@ textarea::placeholder {
 
 .preferences-dialog .settings-editor-panel {
   overflow: hidden;
-  scrollbar-gutter: auto;
 }
 .preferences-dialog .settings-editor-form {
   display: flex;
@@ -2366,7 +2364,6 @@ textarea::placeholder {
   min-height: 0;
   padding-bottom: 16px;
   overflow-y: auto;
-  scrollbar-gutter: stable;
 }
 .preferences-dialog .settings-editor-footer {
   container-name: settings-actions;
@@ -2920,7 +2917,7 @@ textarea::placeholder {
 }
 .dialog-actions .quiet,
 .dialog-actions .primary-btn,
-.dialog-actions .delete-btn {
+.dialog-actions .danger-btn {
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
@@ -2959,12 +2956,12 @@ textarea::placeholder {
 .dialog-actions .primary-btn:not(:disabled):hover {
   filter: brightness(1.05);
 }
-.dialog-actions .delete-btn {
+.dialog-actions .danger-btn {
   border: 1px solid var(--danger-border);
   background: var(--danger-subtle);
   color: var(--danger-text);
 }
-.dialog-actions .delete-btn:not(:disabled):hover {
+.dialog-actions .danger-btn:not(:disabled):hover {
   background: var(--danger-hover);
   color: var(--danger);
 }
@@ -3401,18 +3398,99 @@ textarea::placeholder {
   max-height: calc(100dvh - 32px);
 }
 
-.workspace-folder-bar {
-  padding: 0;
+.workspace-manager {
+  overflow: hidden;
+}
+.workspace-manager[open] {
+  display: flex;
+  flex-direction: column;
+}
+.workspace-manager > .dialog-heading {
+  flex: none;
+}
+.workspace-manager .workspace-form {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.workspace-manager .workspace-body {
+  flex: 1;
+  min-height: 0;
+  padding-bottom: 16px;
+  overflow-y: auto;
+}
+.workspace-manager .workspace-group {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+.workspace-manager .workspace-group + .workspace-group {
+  margin-top: 20px;
+}
+.workspace-manager .workspace-group-heading {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 10px 16px;
+}
+.workspace-manager .workspace-group-heading h3 {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-main);
+  font-weight: var(--font-weight-heading);
+  font-size: var(--font-size-title-section);
+  line-height: var(--line-height-heading);
+  overflow-wrap: anywhere;
+}
+.workspace-manager .workspace-group-body {
+  min-width: 0;
+  padding: 16px;
+  border-top: 1px solid var(--border);
+}
+.workspace-manager .workspace-group-body > label:first-child {
+  margin-top: 0;
+}
+.workspace-manager .workspace-footer {
+  container-name: workspace-actions;
+  container-type: inline-size;
+  flex: none;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.workspace-manager .workspace-footer .dialog-actions {
+  flex-wrap: nowrap;
+  margin-top: 0;
+}
+.workspace-manager .workspace-footer .dialog-actions button {
+  flex: none;
+  white-space: nowrap;
+}
+.workspace-manager .workspace-footer .dialog-actions svg,
+.workspace-manager .workspace-body .sm-btn svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
 }
 
-.path-input-group {
+.workspace-manager .path-input-group {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.path-input-group input {
+.workspace-manager .path-input-group input {
   flex: 1;
   min-width: 0;
+  line-height: var(--line-height-input);
+}
+.workspace-manager .path-input-group input,
+.workspace-manager .path-input-group .sm-btn {
+  height: calc(var(--font-size-control) * var(--line-height-input) + 20px);
+  min-height: 36px;
 }
 
 .sm-btn {
@@ -3427,61 +3505,90 @@ textarea::placeholder {
   line-height: var(--line-height-control);
 }
 
-#workspace-path-help {
+.workspace-manager #workspace-path-help {
   display: block;
   margin-top: 8px;
+  overflow-wrap: anywhere;
 }
 
-.workspace-modal .workspace-structure {
-  margin-top: 20px;
-  padding-top: 16px;
+.workspace-manager .workspace-project-context p {
+  margin: 0;
+}
+.workspace-manager .workspace-context-disclosure {
+  min-width: 0;
+  margin-top: 16px;
   border-top: 1px solid var(--border);
 }
-.workspace-modal .workspace-structure h3 {
-  margin: 0 0 12px;
+.workspace-manager .workspace-disclosure-header {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 10px 0;
+  gap: 8px;
+  list-style: none;
+  cursor: pointer;
+  transition: background-color var(--motion-duration-fast) var(--motion-easing-default);
+  user-select: none;
+}
+.workspace-manager .workspace-disclosure-header::-webkit-details-marker {
+  display: none;
+}
+.workspace-manager .workspace-disclosure-header:hover {
+  background: var(--bg-element-hover);
+}
+.workspace-manager .workspace-disclosure-header:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+}
+.workspace-manager .workspace-disclosure-header[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.workspace-manager .workspace-disclosure-header[aria-disabled="true"]:hover {
+  background: transparent;
+}
+.workspace-manager .workspace-disclosure-title {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  gap: 6px;
+  color: var(--text-sub);
   font-weight: var(--font-weight-heading);
   font-size: var(--font-size-title-group);
   line-height: var(--line-height-heading);
+  overflow-wrap: anywhere;
 }
-.workspace-modal .workspace-structure .workspace-structure-toggle {
-  display: flex;
-  align-items: center;
-  margin: 0;
-  gap: 8px;
-  font-weight: var(--font-weight-regular);
-  line-height: var(--line-height-description);
-}
-.workspace-modal .workspace-structure-toggle input {
+.workspace-manager .workspace-disclosure-title svg,
+.workspace-manager .workspace-disclosure-chevron {
   flex: none;
-  width: 16px;
-  height: 16px;
-  margin: 0;
+  width: 14px;
+  height: 14px;
 }
-.workspace-modal .workspace-structure p {
-  margin: 8px 0 12px;
+.workspace-manager .workspace-disclosure-title svg {
+  color: var(--accent);
 }
-.workspace-modal .workspace-structure fieldset {
+.workspace-manager .workspace-disclosure-chevron {
+  color: var(--text-muted);
+  transition: transform var(--motion-duration) var(--motion-easing);
+}
+.workspace-manager .workspace-context-disclosure[open]:not([data-expanded="false"]) > summary .workspace-disclosure-chevron {
+  transform: rotate(180deg);
+}
+.workspace-manager .workspace-context-preview-body {
   min-width: 0;
-  margin: 16px 0 0;
-  padding: 0;
-  border: 0;
 }
-.workspace-modal .workspace-structure-limits {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-top: 12px;
-  gap: 12px;
+.workspace-manager .workspace-context-preview-body > p {
+  margin: 0 0 12px;
+  overflow-wrap: anywhere;
 }
-.workspace-modal .workspace-structure-preview-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  margin-top: 12px;
-  gap: 8px;
+.workspace-manager .workspace-context-preview-body > p:empty {
+  display: none;
 }
-.workspace-modal .workspace-structure pre {
+.workspace-manager .workspace-project-context pre {
   max-height: 200px;
-  margin: 12px 0 0;
+  margin: 0;
   padding: 12px;
   overflow: auto;
   border: 1px solid var(--border);
@@ -3980,6 +4087,20 @@ button svg,
   }
 }
 
+@container workspace-actions (max-width: 480px) {
+  .workspace-manager .workspace-footer .dialog-actions button {
+    min-width: 32px;
+    padding: 0 8px;
+  }
+  .workspace-manager .workspace-footer .dialog-actions .workspace-leading-action {
+    width: 32px;
+    padding: 0;
+  }
+  .workspace-manager .workspace-footer .workspace-action-label {
+    display: none;
+  }
+}
+
 @media (hover: none) {
   .message-actions,
   .message-footer .message-usage-toggle {
@@ -4007,7 +4128,9 @@ button svg,
   .tools-popover .work-tool-switch,
   .tools-popover .work-tool-switch::before,
   .preferences-dialog .settings-disclosure-header,
-  .preferences-dialog .settings-disclosure-chevron {
+  .preferences-dialog .settings-disclosure-chevron,
+  .workspace-manager .workspace-disclosure-header,
+  .workspace-manager .workspace-disclosure-chevron {
     transition: none;
   }
   .sidebar,

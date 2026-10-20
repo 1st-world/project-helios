@@ -10,7 +10,7 @@ The current version is **`0.2.0`, an alpha release**. By default, chat leaves in
 
 - Save multiple connection profiles and select a profile for responses.
 - Stream replies with Markdown and syntax highlighting; save, rename, and delete conversations; edit messages and regenerate replies.
-- Optionally connect or disconnect a Workspace and include project structure; attach text, images, PDFs, and Office files with or without a Workspace.
+- Optionally connect or disconnect a Workspace with automatic project context; attach text, images, PDFs, and Office files with or without a Workspace.
 - Let Explore project list, search, and partially read relevant files; inspect run activity, usage, and saved evidence.
 - Optionally configure input token budgets, output limits, conversation summaries, and one-time summary recovery.
 - Record usage for replies, regenerations, and summaries; estimate costs from profile-specific prices; filter records by date and call type.
@@ -129,15 +129,17 @@ When "Summarize once & retry…" is available after a context-limit rejection, r
 
 ## Workspace and attachments
 
-New chats start with **no Workspace selected** and **project structure Off**. You can chat without a folder. The first message saves the folder selection with its conversation. Reopening a saved conversation restores its own Workspace connection, including after restart. Older conversations without connection metadata remain folder-free.
+New chats start with **no Workspace selected**. You can chat without a folder. The first message saves the folder selection with its conversation. Reopening a saved conversation restores its own Workspace connection, including after restart. Older conversations without connection metadata remain folder-free.
 
 Use **Workspace** to select or disconnect a folder on the computer running the app. Browse opens a Tk folder dialog on that computer. If it is unavailable, enter an absolute path manually. Changes are saved only to the current conversation and do not affect other conversations' folders. If the current conversation has a request in progress, use **Stop** and wait for cleanup before changing or disconnecting its folder.
 
 No default Workspace folder is created automatically. A saved folder that was moved, deleted, or cannot be accessed is shown as **Unavailable**. Choose an existing folder or disconnect it in Workspace. Plain chat without project input remains available.
 
-Connecting a folder validates its path only. The file list is retrieved when you open or refresh **Attach**. Subfolders render when expanded, and long lists continue with **Show more entries**. Search covers the full file list; the display page size does not limit which files you can attach. Closing Attach cancels an unfinished listing request.
+Connecting a folder validates its path only. Preparing a message in a connected conversation automatically includes a small overview of the project name and top-level files and folders. There is no separate structure-sharing toggle. Expand **Workspace → Preview context** to inspect the overview. It includes at most 32 direct entries and 8KiB in total; bounded listing work can also leave partial coverage. It uses the same project `.gitignore`, hidden-path, link, and app-storage exclusions as Explore.
 
-Selecting a folder does not send its absolute host path, structure, or file contents to the model. Turn on structure sharing to choose a relative scope, depth, and maximum entry count, and preview what is included or omitted. The absolute path is included only when separately selected. With structure Off, explicitly attached files are still sent; paths already mentioned in saved conversation history or memory are not removed.
+The overview refreshes for each new message and regeneration request, then stays fixed across subsequent model calls within that request. It is included in input estimation and budget checks. One-time summary recovery reuses the failed request's overview. The overview does not recursively traverse subfolders or automatically send file contents or absolute host paths. Use explicitly selected **Explore project** or file attachments for additional structure and contents. Disconnecting a folder does not remove project information already mentioned in conversation history or memory.
+
+The full file list for attachment selection is retrieved separately when you open or refresh **Attach**. Subfolders render when expanded, and long lists continue with **Show more entries**. Search covers the full file list; the display page size does not limit which files you can attach. Closing Attach cancels an unfinished listing request.
 
 Use **Attach → Choose files** to pick files from the device running your browser, with or without a Workspace. Reuse retained originals under **Uploaded files**, or select project files under **Workspace files** in the same dialog. Use **Check selection → Apply selection** to review delivery and source information before applying. The check verifies local preparation, not model acceptance.
 
@@ -176,7 +178,7 @@ Oversized file content causes a selection error instead of being silently trunca
 
 ### Explore project
 
-Connect a Workspace and select **Tools → Explore project** to authorize read-only exploration for the next response once. The selection clears when the request starts, the Workspace changes, or you create or open another conversation. Folder selection, structure sharing, and attachments do not enable exploration. Regeneration and responses after message edits use the current Tools selection without restoring a previous run's permission.
+Connect a Workspace and select **Tools → Explore project** to authorize read-only exploration for the next response once. The selection clears when the request starts, the Workspace changes, or you create or open another conversation. Folder selection, basic context, and attachments do not enable exploration. Regeneration and responses after message edits use the current Tools selection without restoring a previous run's permission.
 
 **Scope & goals** explains read scope, exclusions, repeated model-call costs, and optional response-call, time, and estimated-cost goals. Goals are empty by default. Time and cost goals do not interrupt in-flight calls or impose a billing cap. Memory summaries follow separate settings and accounting. **Stop** ends further work while retaining records and costs of calls already made.
 
@@ -274,7 +276,9 @@ Provisional local resource limits are 64KiB per result, 256KiB per stdio message
 
 ### Project exploration API
 
-Explicitly select read-only exploration with `explore_project: true` in the development `POST /api/chat` API. For a new chat, create an independent draft with `POST /api/workspace`, then select a folder with `PUT /api/workspace/root`, passing the returned `session_id` as `workspace_session_id`. The first chat request with this identity saves the connection to its conversation. For a saved conversation, query `GET /api/workspace?conversation_id=<id>&include_entries=false` and pass `conversation_id` with its current `workspace_revision` and `workspace_session_id` to chat, folder changes, structure previews, file reads, and attachment inspections. A Workspace is required; structure sharing remains independent. No file tree or absolute root is automatically inserted into model input. The temporary Workspace used by legacy API requests without identifiers is separate from browser conversations' selections.
+Explicitly select read-only exploration with `explore_project: true` in the development `POST /api/chat` API. For a new chat, create an independent draft with `POST /api/workspace`, then select a folder with `PUT /api/workspace/root`, passing the returned `session_id` as `workspace_session_id`. The first chat request with this identity saves the connection to its conversation. For a saved conversation, query `GET /api/workspace?conversation_id=<id>&include_entries=false` and pass `conversation_id` with its current `workspace_revision` and `workspace_session_id` to chat, folder changes, context and structure previews, file reads, and attachment inspections. A Workspace is required, and its basic project overview is automatic. Additional tool exploration remains an explicit choice. Full trees, file contents, and absolute roots are not automatically inserted into model input. The temporary Workspace used by legacy API requests without identifiers is separate from browser conversations' selections.
+
+Send the same scope fields to `POST /api/workspace/context` to preview the automatic overview locally without model calls or MCP processes. Existing `workspace_structure` and `POST /api/workspace/structure` remain available for explicit additional structure requests in the development API. Their depth, entry-count, and absolute-path options apply only to that additional request; `workspace_structure: null` does not disable the basic overview. Disconnect the Workspace to chat without project context.
 
 ```json
 {"prompt":"Explain how this project loads settings.","explore_project":true,"workspace_revision":0,"workspace_session_id":"<current session>","exploration_limits":null}

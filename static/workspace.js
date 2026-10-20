@@ -1,10 +1,12 @@
-/* Coordinate workspace browsing and mixed attachment selections, inspection, and restoration. */
+/* Coordinate workspace setup, local context previews, and mixed attachment selection and restoration. */
 
 import { $, closeMobileSidebar, refreshIcons, toast } from './ui.js';
 import { createWorkspacePicker } from './workspace-picker.js';
 import { attachmentIcon, attachmentKey, attachmentSourceLabel, attachmentSummary, attachmentWarnings } from './attachments.js';
 import { createUploads } from './uploads.js';
 import { describeRequestError } from './chat-feedback.js';
+import { createDisclosure } from './disclosure.js';
+import { showActionDialog } from './dialogs.js';
 
 export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
   // This bounds rendered rows per branch, without limiting file selection or model input.
@@ -22,7 +24,7 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
     workspaceController: null,
     workspaceLoadingEntries: false,
     changingWorkspace: false,
-    structureController: null,
+    contextController: null,
     pendingFiles: [],
     attachingFile: false,
     generating: false,
@@ -35,7 +37,9 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
     inspectionController: null
   };
 
-  const picker = createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot: () => state.workspaceRoot, getWorkspaceScope: workspaceScope });
+  let contextDisclosure = null;
+  const picker = createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot: () => state.workspaceRoot, getWorkspaceScope: workspaceScope,
+    onStateChange: updateWorkspaceControls, onCloseRequested: requestWorkspaceDialogClose });
 
   const uploads = createUploads({
     isBusy: () => state.attachingFile || state.generating,
@@ -234,12 +238,7 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
       state.pendingFiles = state.pendingFiles.filter(file => file.reference.source === 'upload');
       if (hadWorkspaceFiles) state.selectionEdited = true;
       invalidateInspection();
-      $('#workspace-structure-enabled').checked = false;
-      $('#workspace-structure-path').value = '';
-      $('#workspace-structure-depth').value = '1';
-      $('#workspace-structure-entries').value = '';
-      $('#workspace-structure-absolute').checked = false;
-      resetStructurePreview();
+      resetContextPreview();
     }
     if (data.entries_loaded !== false) {
       state.workspaceEntries = Array.isArray(data.entries) ? data.entries : [];
@@ -247,7 +246,7 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
     }
     const folderName = data.root?.split(/[/\\]/).filter(Boolean).pop() || 'No workspace';
     $('#workspace-folder-name').textContent = folderName;
-    $('#workspace-file-count').textContent = data.root ? 'Folder connected · Structure off' : 'Optional · Chat without a folder';
+    $('#workspace-file-count').textContent = data.root ? 'Folder connected' : 'Optional · Chat without a folder';
     $('#workspace-card').title = data.root ? `Manage workspace: ${data.root}` : 'Choose an optional workspace';
     $('#composer-workspace-name').textContent = folderName;
     $('#file-source-name').textContent = folderName;
@@ -257,7 +256,7 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
     renderAttachments();
     updateSelection();
     renderFileList();
-    updateStructureControls();
+    updateWorkspaceControls();
   }
 
   async function loadWorkspace({ includeEntries = false } = {}) {
@@ -419,7 +418,7 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
     catch { toast('Could not load workspace. Open a new chat to try again.', 'error'); return false; }
     closeMobileSidebar();
     $('#workspace-path-input').value = state.workspaceRoot || '';
-    updateStructureControls();
+    updateWorkspaceControls();
     $('#workspace-dialog').showModal();
     return true;
   }
@@ -452,33 +451,23 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
       if (el) el.disabled = value;
     });
     $('.context-bar').querySelectorAll('.context-chip.file button').forEach((button) => { button.disabled = value; });
-    if (value) resetStructurePreview();
-    updateStructureControls();
+    if (value) resetContextPreview();
+    updateWorkspaceControls();
     updateSelection();
   }
 
-  function resetStructurePreview() {
-    state.structureController?.abort();
-    state.structureController = null;
-    $('#workspace-structure-preview').hidden = true;
-    $('#workspace-structure-preview').textContent = '';
-    $('#workspace-structure-status').textContent = '';
+  function clearContextPreview() {
+    state.contextController?.abort();
+    state.contextController = null;
+    $('#workspace-context-preview').hidden = true;
+    $('#workspace-context-preview').textContent = '';
+    $('#workspace-context-status').textContent = '';
+    $('.workspace-context-preview-body').setAttribute('aria-busy', 'false');
   }
 
-  function structureOptions() {
-    const limit = (id) => {
-      const input = $(`#${id}`);
-      if (!input.value.trim()) return null;
-      const value = Number(input.value);
-      if (!Number.isSafeInteger(value) || value < 1) throw new Error('Structure depth and entry limits must be positive whole numbers or blank.');
-      return value;
-    };
-    return {
-      path: $('#workspace-structure-path').value.trim(),
-      max_depth: limit('workspace-structure-depth'),
-      max_entries: limit('workspace-structure-entries'),
-      include_absolute_path: $('#workspace-structure-absolute').checked
-    };
+  function resetContextPreview() {
+    contextDisclosure?.finish(false);
+    clearContextPreview();
   }
 
   async function getWorkspaceContext() {
@@ -487,66 +476,63 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
     if (!state.workspaceSessionId) throw new Error('Could not load workspace. Reopen this conversation or start a new chat.');
     return {
       workspace_revision: state.workspaceRevision ?? undefined,
-      workspace_session_id: state.workspaceSessionId ?? undefined,
-      workspace_structure: state.workspaceRoot && $('#workspace-structure-enabled').checked ? structureOptions() : null
+      workspace_session_id: state.workspaceSessionId ?? undefined
     };
   }
 
-  function updateStructureControls() {
+  function updateWorkspaceControls() {
     const busy = state.generating || state.changingWorkspace || picker.isPicking() || !state.workspaceSessionId;
     const connected = Boolean(state.workspaceRoot);
-    const enabled = connected && $('#workspace-structure-enabled').checked;
     $('#workspace-path-input').disabled = busy;
     $('#browse-workspace-btn').disabled = busy;
     $('#apply-workspace').disabled = busy;
     $('#disconnect-workspace').disabled = busy || !connected;
-    $('#workspace-structure-enabled').disabled = busy || !connected;
-    $('#workspace-structure-options').disabled = busy || !enabled;
-    $('#workspace-structure-options').hidden = !enabled;
-    $('#preview-workspace-structure').disabled = busy || !enabled || Boolean(state.structureController);
-    $('#composer-workspace-sub').textContent = enabled ? 'Structure on' : 'Structure off';
-    $('#workspace-context-chip').title = enabled ? 'Selected project structure is included with messages. Open Workspace to review the scope.'
-      : 'Project structure is off. Open Workspace to choose a folder or structure scope.';
+    $('#preview-workspace-context').setAttribute('aria-disabled', String(busy || !connected));
+    $('#preview-workspace-context').title = connected ? 'Preview the connected workspace context' : 'Connect a workspace to preview its context';
+    $('.workspace-context-preview-body').setAttribute('aria-busy', String(Boolean(state.contextController)));
+    $('#composer-workspace-sub').hidden = !connected;
+    $('#composer-workspace-sub').textContent = state.workspaceAvailable ? 'Project context' : 'Unavailable';
+    $('#workspace-context-chip').title = connected ? 'Project context is included with messages. Open Workspace to preview it or change folders.'
+      : 'Chat without a project, or choose a Workspace to add project context.';
     if (connected) {
       const count = state.workspaceFileCount;
       const files = count === null ? 'Folder connected' : `${count} file${count === 1 ? '' : 's'}`;
-      $('#workspace-file-count').textContent = state.workspaceAvailable ? `${files} · Structure ${enabled ? 'on' : 'off'}` : 'Folder unavailable · Choose another folder';
-      if (!state.workspaceAvailable) $('#composer-workspace-sub').textContent = 'Unavailable';
+      $('#workspace-file-count').textContent = state.workspaceAvailable ? files : 'Folder unavailable · Choose another folder';
     }
   }
 
-  async function previewStructure() {
-    if (state.generating || state.changingWorkspace || !state.workspaceRoot || !$('#workspace-structure-enabled').checked) return;
-    resetStructurePreview();
-    let options;
-    try { options = structureOptions(); }
-    catch (error) { toast(error.message, 'error'); return; }
+  async function previewProjectContext() {
+    if (state.generating || state.changingWorkspace || picker.isPicking() || !state.workspaceRoot) {
+      resetContextPreview();
+      return;
+    }
+    clearContextPreview();
     const revision = state.workspaceRevision;
     const sessionId = state.workspaceSessionId;
     const controller = new AbortController();
-    state.structureController = controller;
-    $('#workspace-structure-status').textContent = 'Reading selected structure locally...';
-    updateStructureControls();
+    state.contextController = controller;
+    $('#workspace-context-status').textContent = 'Preparing project context locally...';
+    updateWorkspaceControls();
     try {
-      const response = await fetch('/api/workspace/structure', {
+      const response = await fetch('/api/workspace/context', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...options, ...workspaceScope(), workspace_revision: revision ?? undefined, workspace_session_id: sessionId ?? undefined }), signal: controller.signal
+        body: JSON.stringify({ ...workspaceScope(), workspace_revision: revision ?? undefined, workspace_session_id: sessionId ?? undefined }), signal: controller.signal
       });
       const data = await response.json();
       if (!response.ok) {
-        const feedback = describeRequestError(data, 'Could not preview the selected structure.');
+        const feedback = describeRequestError(data, 'Could not preview project context.');
         throw new Error(feedback.message);
       }
-      if (state.structureController !== controller || revision !== state.workspaceRevision || sessionId !== state.workspaceSessionId) return;
-      $('#workspace-structure-preview').textContent = data.context;
-      $('#workspace-structure-preview').hidden = false;
-      $('#workspace-structure-status').textContent = 'Local preview. Files may change before sending.';
+      if (state.contextController !== controller || revision !== state.workspaceRevision || sessionId !== state.workspaceSessionId) return;
+      $('#workspace-context-preview').textContent = data.context;
+      $('#workspace-context-preview').hidden = false;
+      $('#workspace-context-status').textContent = 'Local preview of the connected workspace. Refreshed when you send a message.';
     } catch (error) {
-      if (error.name !== 'AbortError' && state.structureController === controller) $('#workspace-structure-status').textContent = error.message;
+      if (error.name !== 'AbortError' && state.contextController === controller) $('#workspace-context-status').textContent = error.message;
     } finally {
-      if (state.structureController === controller) {
-        state.structureController = null;
-        updateStructureControls();
+      if (state.contextController === controller) {
+        state.contextController = null;
+        updateWorkspaceControls();
       }
     }
   }
@@ -555,9 +541,9 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
     if (state.generating || state.changingWorkspace || picker.isPicking()) return;
     state.changingWorkspace = true;
     const request = ++state.workspaceRequest;
-    resetStructurePreview();
+    resetContextPreview();
     invalidateInspection();
-    updateStructureControls();
+    updateWorkspaceControls();
     try {
       const response = await fetch('/api/workspace/root', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -577,15 +563,27 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
       toast(error.message || 'Could not change the workspace.', 'error');
     } finally {
       state.changingWorkspace = false;
-      updateStructureControls();
+      updateWorkspaceControls();
       updateSelection();
     }
   }
 
   function beforeDialogClose() {
-    if (!picker.isPicking()) return true;
-    picker.cancel();
-    return false;
+    if (state.changingWorkspace) {
+      toast('Wait for the Workspace change to finish before closing.', 'info');
+      return false;
+    }
+    if (picker.isPicking()) {
+      picker.cancel();
+      return false;
+    }
+    if ($('#workspace-path-input').value.trim() === (state.workspaceRoot || '')) return true;
+    return showActionDialog({ title: 'Discard Workspace changes?', description: 'Your unapplied folder path will be lost. The workspace selection for this conversation will stay unchanged.',
+      confirmLabel: 'Discard changes', cancelLabel: 'Keep editing', danger: true });
+  }
+
+  async function requestWorkspaceDialogClose() {
+    if (await beforeDialogClose()) $('#workspace-dialog').close();
   }
 
   function inspectionIsCurrent() {
@@ -630,7 +628,7 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
     if (policy.legacy_input_policy) text.push('Previous input policy: review the budget in Settings.');
     if (Number.isSafeInteger(policy.declared_model_input_limit)) text.push(`Declared model input limit: ${policy.declared_model_input_limit.toLocaleString()} tokens.`);
     if (policy.mode === 'off') text.push('Context token estimation is off.');
-    text.push('This check covers attachments only. The question, selected structure, and conversation history are checked when you send a message.');
+    text.push('This check covers attachments only. The question, project context, and conversation history are checked when you send a message.');
     if (files.some(file => file.delivery === 'native')) text.push('Image and PDF support is checked when you send a message.');
     status.textContent = text.join('\n');
     for (const file of files) {
@@ -737,14 +735,20 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
       openWorkspaceDialog();
     };
     $('#disconnect-workspace').onclick = () => changeWorkspace(null);
-    $('#preview-workspace-structure').onclick = previewStructure;
-    ['workspace-structure-enabled', 'workspace-structure-path', 'workspace-structure-depth', 'workspace-structure-entries', 'workspace-structure-absolute'].forEach((id) => {
-      $(`#${id}`).addEventListener('input', () => {
-        resetStructurePreview();
-        updateStructureControls();
-      });
+
+    const preview = $('#workspace-context-disclosure');
+    $('#preview-workspace-context').addEventListener('click', event => {
+      if ($('#preview-workspace-context').getAttribute('aria-disabled') !== 'true' || preview.open) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }, { capture: true });
+    contextDisclosure = createDisclosure(preview, $('.workspace-context-preview-body'));
+    preview.addEventListener('toggle', () => {
+      if (preview.open) previewProjectContext();
+      else clearContextPreview();
     });
-    $('#workspace-dialog').addEventListener('close', () => { if (!$('#workspace-dialog').open) resetStructurePreview(); });
+    $('#workspace-dialog').addEventListener('close', () => { if (!$('#workspace-dialog').open) resetContextPreview(); });
+
     $('#file-search').oninput = renderFileList;
     $('#attach-selected-file').onclick = checkOrApplySelection;
     $('#file-dialog').addEventListener('close', () => {

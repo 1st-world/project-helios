@@ -65,7 +65,7 @@
         <button id="workspace-context-chip" class="context-chip workspace" type="button" title="Manage workspace context">
           <i data-lucide="folder"></i>
           <span id="composer-workspace-name">Workspace</span>
-          <span class="chip-sub" id="composer-workspace-sub">Structure off</span>
+          <span class="chip-sub" id="composer-workspace-sub" hidden></span>
         </button>
         <template id="file-chip-template">
           <div class="context-chip file" title="Attachments are included with each message until removed">
@@ -125,7 +125,7 @@
   <dialog id="exploration-settings-dialog" class="settings-dialog exploration-settings" aria-labelledby="exploration-settings-title">
     <div class="dialog-heading"><h2 id="exploration-settings-title">Explore project</h2><button class="dialog-close" type="button" data-close-dialog="exploration-settings-dialog" aria-label="Close exploration settings"><i data-lucide="x"></i></button></div>
     <p id="exploration-scope"></p>
-    <p>For the next response, the model may list, search and read allowed UTF-8 file ranges in this workspace. Selected content is sent to your model provider. Structure sharing is a separate choice. Files stay unchanged and commands are unavailable.</p>
+    <p>For the next response, the model may list, search and read allowed UTF-8 file ranges in this workspace, beyond the basic project overview. Selected content is sent to your model provider. Files stay unchanged and commands are unavailable.</p>
     <p>Automatic exploration excludes hidden/system paths, case-sensitive .gitignore matches, links and Helios runtime data. Explicit attachments use their own selection and processing rules.</p>
     <p>Exploration can make repeated paid model calls and reuse growing tool results. Stop ends further work; calls already made can still incur cost. No exploration goal is set by default.</p>
     <form id="exploration-goals-form">
@@ -146,46 +146,52 @@
     <div id="exploration-evidence-content"></div>
   </dialog>
 
-  <dialog id="workspace-dialog" class="settings-dialog workspace-modal" aria-labelledby="workspace-title">
+  <dialog id="workspace-dialog" class="settings-dialog workspace-modal workspace-manager" aria-labelledby="workspace-title">
     <div class="dialog-heading">
       <div><i data-lucide="folder"></i><h2 id="workspace-title">Workspace</h2></div>
       <button class="dialog-close" type="button" data-close-dialog="workspace-dialog" aria-label="Close"><i data-lucide="x"></i></button>
     </div>
-    <div class="info-callout">
-      <i data-lucide="info"></i>
-      <p>Chat with or without a workspace. Connecting a folder sets the boundary for selected files; it does not send folder paths or file contents automatically.</p>
-    </div>
-    <form id="workspace-form" class="workspace-folder-bar">
-      <label for="workspace-path-input">Folder path</label>
-      <div class="path-input-group">
-        <input id="workspace-path-input" required placeholder="C:/Users/Projects/my-project" aria-describedby="workspace-path-help">
-        <button id="browse-workspace-btn" class="quiet sm-btn" type="button"><i data-lucide="folder-open"></i><span>Browse</span></button>
+    <form id="workspace-form" class="workspace-form">
+      <div class="workspace-body">
+        <div class="info-callout">
+          <i data-lucide="info" aria-hidden="true"></i>
+          <p>Folder connections are saved with this conversation. To chat without a workspace, leave the folder unselected or disconnect the current workspace.</p>
+        </div>
+        <section class="workspace-group" aria-labelledby="workspace-folder-title">
+          <div class="workspace-group-heading"><h3 id="workspace-folder-title">Workspace folder</h3></div>
+          <div class="workspace-group-body">
+            <label for="workspace-path-input">Folder path</label>
+            <div class="path-input-group">
+              <input id="workspace-path-input" required placeholder="C:/Users/Projects/my-project" aria-describedby="workspace-path-help">
+              <button id="browse-workspace-btn" class="quiet sm-btn" type="button"><i data-lucide="folder-open" aria-hidden="true"></i><span>Browse</span></button>
+            </div>
+            <span id="workspace-path-help" class="field-hint" role="status">Enter a path or browse on the computer running Helios, then apply.</span>
+          </div>
+        </section>
+        <section class="workspace-group workspace-project-context" aria-labelledby="workspace-project-context-title">
+          <div class="workspace-group-heading"><h3 id="workspace-project-context-title">Project context</h3></div>
+          <div class="workspace-group-body">
+            <p class="field-hint">When connected, messages include the project name and a small overview of top-level files and folders. Subfolders, file contents, and absolute paths are not included in this overview. Use Explore project or attach files for more detail.</p>
+            <details id="workspace-context-disclosure" class="workspace-context-disclosure">
+              <summary id="preview-workspace-context" class="workspace-disclosure-header" aria-disabled="true"><h4 class="workspace-disclosure-title"><i data-lucide="file-text" aria-hidden="true"></i>Preview context</h4><i data-lucide="chevron-down" class="workspace-disclosure-chevron" aria-hidden="true"></i></summary>
+              <div class="workspace-context-preview-body">
+                <p id="workspace-context-status" class="field-hint" role="status"></p>
+                <pre id="workspace-context-preview" tabindex="0" aria-label="Project context preview" hidden></pre>
+              </div>
+            </details>
+          </div>
+        </section>
       </div>
-      <span id="workspace-path-help" class="field-hint" role="status">Choose a folder on the computer running Helios, then apply. The folder selection belongs to this conversation.</span>
-      <div class="dialog-actions">
-        <button id="disconnect-workspace" class="quiet" type="button" disabled>Disconnect</button>
-        <button class="quiet" type="button" data-close-dialog="workspace-dialog">Cancel</button>
-        <button id="apply-workspace" class="primary-btn" type="submit">Apply</button>
+      <div class="workspace-footer">
+        <div class="dialog-actions">
+          <button id="disconnect-workspace" class="danger-btn workspace-leading-action" type="button" title="Disconnect this conversation's workspace" aria-label="Disconnect workspace" disabled><i data-lucide="unplug" aria-hidden="true"></i><span class="workspace-action-label">Disconnect</span></button>
+          <div class="dialog-actions-right">
+            <button class="quiet" type="button" data-close-dialog="workspace-dialog"><i data-lucide="x" aria-hidden="true"></i><span>Cancel</span></button>
+            <button id="apply-workspace" class="primary-btn" type="submit"><i data-lucide="check" aria-hidden="true"></i><span>Apply</span></button>
+          </div>
+        </div>
       </div>
     </form>
-    <section class="workspace-structure" aria-labelledby="workspace-structure-title">
-      <h3 id="workspace-structure-title">Structure with messages</h3>
-      <label class="workspace-structure-toggle" for="workspace-structure-enabled"><input id="workspace-structure-enabled" type="checkbox" disabled>Include folder and file names</label>
-      <p class="field-hint">Off by default. This selection applies to new messages and regenerated answers. Past conversation and memory may still contain earlier project information.</p>
-      <fieldset id="workspace-structure-options" disabled hidden>
-        <label for="workspace-structure-path">Relative folder</label>
-        <input id="workspace-structure-path" placeholder="Workspace root" aria-describedby="workspace-structure-scope-help">
-        <span id="workspace-structure-scope-help" class="field-hint">Leave blank to start at the workspace root.</span>
-        <div class="workspace-structure-limits">
-          <div><label for="workspace-structure-depth">Folder depth</label><input id="workspace-structure-depth" type="number" min="1" step="1" value="1" placeholder="All depths" aria-describedby="workspace-structure-limit-help"></div>
-          <div><label for="workspace-structure-entries">Maximum entries</label><input id="workspace-structure-entries" type="number" min="1" step="1" placeholder="All entries" aria-describedby="workspace-structure-limit-help"></div>
-        </div>
-        <p id="workspace-structure-limit-help" class="field-hint">Depth 1 includes direct children. A blank limit includes all depths or entries in the chosen folder.</p>
-        <label class="workspace-structure-toggle" for="workspace-structure-absolute"><input id="workspace-structure-absolute" type="checkbox">Also include the absolute workspace path</label>
-        <div class="workspace-structure-preview-actions"><button id="preview-workspace-structure" class="quiet sm-btn" type="button">Preview structure</button><span id="workspace-structure-status" class="field-hint" role="status"></span></div>
-        <pre id="workspace-structure-preview" tabindex="0" aria-label="Structure preview" hidden></pre>
-      </fieldset>
-    </section>
   </dialog>
 
   <dialog id="file-dialog" class="settings-dialog workspace-modal" aria-labelledby="file-dialog-title">
@@ -652,7 +658,7 @@
         <div class="settings-editor-footer">
           <p id="profile-settings-status" class="settings-editor-status" role="status"></p>
           <div class="dialog-actions">
-            <button id="delete-profile-btn" class="delete-btn settings-leading-action hidden" type="button" title="Delete the selected profile" aria-label="Delete"><i data-lucide="trash-2" aria-hidden="true"></i><span class="settings-action-label">Delete</span></button>
+            <button id="delete-profile-btn" class="danger-btn settings-leading-action hidden" type="button" title="Delete the selected profile" aria-label="Delete"><i data-lucide="trash-2" aria-hidden="true"></i><span class="settings-action-label">Delete</span></button>
             <div class="dialog-actions-right">
               <button id="discard-profile-edit" class="quiet" type="button" title="Discard unsaved changes to this profile" aria-label="Discard changes" disabled><i data-lucide="undo-2" aria-hidden="true"></i><span class="settings-action-label">Discard changes</span><span class="settings-action-short" aria-hidden="true">Discard</span></button>
               <button id="save-profile-btn" class="primary-btn" type="submit" title="Save changes to this profile" aria-label="Save changes" disabled><i data-lucide="save" aria-hidden="true"></i><span id="save-profile-label" class="settings-action-label">Save changes</span><span class="settings-action-short" aria-hidden="true">Save</span></button>

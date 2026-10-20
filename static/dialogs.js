@@ -48,7 +48,7 @@ export function showActionDialog({ title, description, confirmLabel, cancelLabel
   dialog.querySelector('#action-dialog-description').textContent = description;
   cancel.textContent = cancelLabel;
   confirm.textContent = confirmLabel;
-  confirm.className = danger ? 'delete-btn' : 'primary-btn';
+  confirm.className = danger ? 'danger-btn' : 'primary-btn';
   if (field) {
     dialog.querySelector('.action-dialog-field').hidden = false;
     input.setAttribute('aria-label', field.label);
