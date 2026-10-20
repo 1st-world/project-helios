@@ -39,20 +39,21 @@ export function createFilePicker({ getWorkspaceScope, isBusy, onSelected, onChan
     }
     picker.socket?.close();
     const status = $('#attachment-file-status');
+    status.hidden = false;
     status.dataset.state = ['error', 'disconnected', 'missing'].includes(result.status) ? 'error' : 'ready';
     if (result.status === 'selected' && !picker.cancelRequested && $('#file-dialog').open) {
       if (!Array.isArray(result.files) || !result.files.length || result.files.some(file => file.reference?.source !== 'upload'
           || typeof file.reference.attachment_id !== 'string' || typeof file.filename !== 'string')) {
-        status.textContent = 'Could not read the file selection. Choose the files again.';
+        status.textContent = 'Could not read the file selection. Use Add files to try again.';
         status.dataset.state = 'error';
       } else {
         onSelected(result.files.map(file => ({ ...file.inspection, path: file.filename, reference: file.reference, size_bytes: file.size_bytes, available: true })));
-        status.textContent = `${result.files.length} file${result.files.length === 1 ? '' : 's'} added. Check the selection before attaching.`;
+        status.textContent = `${result.files.length} file${result.files.length === 1 ? '' : 's'} added to this selection.`;
       }
     } else if (result.status === 'cancelled' || (result.status === 'missing' && picker.cancelRequested)) {
       status.textContent = 'File selection cancelled. Your previous selection is kept.';
     } else {
-      status.textContent = result.detail || 'The previous file picker has closed. Choose files again.';
+      status.textContent = result.detail || 'The previous file picker has closed. Use Add files to select files again.';
     }
     onChange();
     update();
@@ -67,7 +68,7 @@ export function createFilePicker({ getWorkspaceScope, isBusy, onSelected, onChan
       if (current !== picker) return;
       picker.cancelRequested = true;
       remember(picker);
-      finish(picker, { status: 'disconnected', detail: 'Connection lost. Choose files again to check and close the previous picker.' });
+      finish(picker, { status: 'disconnected', detail: 'Connection lost. Use Add files to check and close the previous picker.' });
     }, 10000);
   }
 
@@ -119,6 +120,7 @@ export function createFilePicker({ getWorkspaceScope, isBusy, onSelected, onChan
     const picker = { token: saved?.token || crypto.randomUUID(), scope: saved?.scope || {}, socket: null,
       cancelRequested: Boolean(saved), closeOnCancel: false, restart: Boolean(saved) && !recovering, retry: null, timer: null };
     current = picker;
+    $('#attachment-file-status').hidden = false;
     $('#attachment-file-status').dataset.state = 'busy';
     $('#attachment-file-status').textContent = saved ? 'Closing the previous file picker…' : 'Opening file picker on the computer running Helios…';
     onChange();

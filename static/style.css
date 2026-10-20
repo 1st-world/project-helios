@@ -3360,9 +3360,12 @@ textarea::placeholder {
 }
 .workspace-manager .workspace-group-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
   min-height: 48px;
   padding: 10px 16px;
+  gap: 12px;
 }
 .workspace-manager .workspace-group-heading h3 {
   min-width: 0;
@@ -3372,6 +3375,20 @@ textarea::placeholder {
   font-size: var(--font-size-title-section);
   line-height: var(--line-height-heading);
   overflow-wrap: anywhere;
+}
+.workspace-manager .workspace-group-heading .quiet-btn {
+  flex: none;
+  height: 28px;
+  margin-left: auto;
+  font-size: var(--font-size-control);
+}
+.workspace-manager .workspace-group-heading .quiet-btn svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+}
+.workspace-manager [hidden] {
+  display: none;
 }
 .workspace-manager .workspace-group-body {
   min-width: 0;
@@ -3396,27 +3413,16 @@ textarea::placeholder {
   flex: none;
   white-space: nowrap;
 }
-.workspace-manager .workspace-footer .dialog-actions svg,
-.workspace-manager .workspace-body .sm-btn svg {
+.workspace-manager .workspace-footer .dialog-actions svg {
   flex: none;
   width: 14px;
   height: 14px;
 }
 
-.workspace-manager .path-input-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.workspace-manager .path-input-group input {
-  flex: 1;
-  min-width: 0;
-  line-height: var(--line-height-input);
-}
-.workspace-manager .path-input-group input,
-.workspace-manager .path-input-group .sm-btn {
+.workspace-manager #workspace-path-input {
   height: calc(var(--font-size-control) * var(--line-height-input) + 20px);
   min-height: 36px;
+  line-height: var(--line-height-input);
 }
 
 .sm-btn {
@@ -3549,10 +3555,6 @@ textarea::placeholder {
   padding-bottom: 16px;
   overflow-y: auto;
 }
-.attachment-modal .attachment-body > .field-hint {
-  margin: 8px 0 0;
-  white-space: pre-line;
-}
 .attachment-modal #attachment-file-status[data-state="error"] {
   color: var(--danger-text);
 }
@@ -3608,7 +3610,7 @@ textarea::placeholder {
   border-top: 1px solid var(--border);
 }
 .attachment-modal .attachment-selection-body {
-  max-height: calc(178px + var(--attachment-content-spacing) * 2 + 1px);
+  max-height: 178px;
   overflow-y: auto;
   overscroll-behavior-y: contain;
 }
@@ -3628,11 +3630,26 @@ textarea::placeholder {
   height: 20px;
   color: var(--text-tertiary);
 }
+.attachment-modal .attachment-empty-state strong {
+  color: var(--text-sub);
+  font-weight: var(--font-weight-label);
+  line-height: var(--line-height-compact);
+}
+.attachment-modal .attachment-empty-state p {
+  margin: 0;
+}
+.attachment-modal .attachment-selection-guidance {
+  display: flex;
+  flex-direction: column;
+  padding: 12px var(--attachment-content-spacing);
+  gap: 8px;
+  border-top: 1px solid var(--border);
+}
+.attachment-modal .attachment-selection-guidance p {
+  margin: 0;
+}
 .attachment-modal [hidden] {
   display: none;
-}
-.attachment-modal #attachment-selection-notice {
-  margin: 0 0 8px;
 }
 .attachment-modal #selected-attachments {
   display: flex;
@@ -3693,9 +3710,6 @@ textarea::placeholder {
   width: 28px;
   padding: 0;
 }
-.attachment-modal .attachment-body > .attachment-help {
-  margin-top: 16px;
-}
 .attachment-modal .attachment-inspection p {
   margin: 0;
   font-size: var(--font-size-body-compact);
@@ -3703,10 +3717,15 @@ textarea::placeholder {
   white-space: pre-line;
   overflow-wrap: anywhere;
 }
-.attachment-modal .attachment-inspection[data-state="error"] p {
+.attachment-modal .attachment-inspection .field-hint {
+  margin: 8px 0 0;
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+}
+.attachment-modal .attachment-inspection[data-state="error"] #attachment-inspection-status {
   color: var(--danger-text);
 }
-.attachment-modal .attachment-inspection[data-state="warning"] p {
+.attachment-modal .attachment-inspection[data-state="warning"] #attachment-inspection-status {
   color: var(--warning-text);
 }
 .attachment-modal .file-dialog-actions {

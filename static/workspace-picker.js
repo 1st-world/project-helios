@@ -2,10 +2,19 @@
 
 import { $, toast } from './ui.js';
 
-export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, getWorkspaceScope = () => ({}), onStateChange = () => {}, onCloseRequested = () => $('#workspace-dialog').close() }) {
+export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, getWorkspaceScope = () => ({}), isBusy = () => false, onStateChange = () => {}, onCloseRequested = () => $('#workspace-dialog').close() }) {
   const pickerStorageKey = 'helios.workspacePicker';
   let workspacePicker = null;
   let pickerPageLeaving = false;
+
+  function update() {
+    const picking = Boolean(workspacePicker);
+    $('#browse-workspace-btn').disabled = picking ? Boolean(workspacePicker.cancelRequested && !workspacePicker.cancelFailed) : isBusy();
+    $('#workspace-picker-browse-icon').toggleAttribute('hidden', picking);
+    $('#workspace-picker-stop-icon').toggleAttribute('hidden', !picking);
+    $('#workspace-picker-label').textContent = picking ? 'Stop' : 'Browse';
+    $('#workspace-path-help').setAttribute('aria-busy', String(picking));
+  }
 
   function disconnectWorkspacePicker(picker) {
     if (!picker || workspacePicker !== picker) return;
@@ -32,6 +41,7 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
     if (result.status !== 'disconnected') {
       sessionStorage.removeItem(pickerStorageKey);
       sessionStorage.removeItem(pickerStorageKey + '.cancel');
+      sessionStorage.removeItem(pickerStorageKey + '.close');
       sessionStorage.removeItem(pickerStorageKey + '.path');
     }
     picker.socket?.close();
@@ -39,12 +49,18 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
     $('#workspace-path-help').textContent = picker.help;
     if (!picker.closeOnCancel && result.status === 'selected' && $('#workspace-dialog').open) {
       $('#workspace-path-input').value = result.path;
+      $('#workspace-path-help').textContent = 'Folder selected. Apply to connect it to this conversation.';
+    } else if (result.status === 'cancelled' || (result.status === 'missing' && picker.cancelRequested)) {
+      $('#workspace-path-help').textContent = 'Folder selection cancelled. Your folder path is unchanged.';
     } else if (!picker.closeOnCancel && (result.status === 'error' || result.status === 'missing')) {
-      toast(result.detail || 'The previous folder picker has closed. Browse again to choose a folder.', 'warning');
+      const message = result.detail || 'The previous folder picker has closed. Use Browse to choose a folder again.';
+      $('#workspace-path-help').textContent = message;
+      toast(message, 'warning');
     }
     onStateChange();
+    update();
     if (picker.closeOnCancel) onCloseRequested();
-    else if ($('#workspace-dialog').open) $('#workspace-path-input').focus();
+    else if ($('#workspace-dialog').open) (result.status === 'selected' ? $('#workspace-path-input') : $('#browse-workspace-btn')).focus({ preventScroll: true });
     if (picker.restartAfterCancel && ['cancelled', 'missing'].includes(result.status)) beginWorkspacePicker();
   }
 
@@ -69,13 +85,16 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
         clearTimeout(picker.connectionTimer);
         picker.connectionTimer = null;
         $('#workspace-path-help').textContent = picker.cancelRequested
-          ? 'Closing folder picker…'
-          : 'Choose a folder in the picker, or use Cancel here to close it.';
+          ? 'Stopping folder selection…'
+          : 'Choose a folder on the computer running Helios, or use Stop to cancel selection.';
       } else if (result.status === 'cancel-error') {
-        $('#workspace-path-help').textContent = result.detail;
-        toast(result.detail, 'warning');
+        picker.cancelFailed = true;
+        const message = result.detail || 'Could not stop folder selection. Try Stop again.';
+        $('#workspace-path-help').textContent = message;
+        toast(message, 'warning');
+        update();
       } else if (picker.cancelRequested && !['cancelled', 'missing'].includes(result.status)) {
-        // A selected result can race with Cancel. Wait for cancellation acknowledgement.
+        // A selected result can race with cancellation. Wait for acknowledgement.
         socket.send(JSON.stringify({ action: 'cancel' }));
       } else {
         finishWorkspacePicker(picker, result);
@@ -84,13 +103,13 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
     socket.onclose = () => {
       if (workspacePicker !== picker || picker.socket !== socket || pickerPageLeaving) return;
       waitForPickerConnection(picker);
-      $('#workspace-path-help').textContent = 'Reconnecting to folder picker… You can use Cancel to leave this dialog.';
+      $('#workspace-path-help').textContent = 'Reconnecting to folder picker… Use Stop to cancel selection, or close Workspace to leave.';
       picker.retry = setTimeout(() => connectWorkspacePicker(picker), 1000);
     };
   }
 
   function beginWorkspacePicker(token = null, resume = false) {
-    if (workspacePicker) return;
+    if (workspacePicker || (!resume && isBusy())) return;
     const savedToken = sessionStorage.getItem(pickerStorageKey);
     token = token || savedToken || crypto.randomUUID();
     const pendingCancel = sessionStorage.getItem(pickerStorageKey + '.cancel') === token;
@@ -98,29 +117,35 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
     resume = resume || token === savedToken;
     sessionStorage.setItem(pickerStorageKey, token);
     sessionStorage.setItem(pickerStorageKey + '.path', $('#workspace-path-input').value);
-    const controls = Array.from($('#workspace-dialog').querySelectorAll('#browse-workspace-btn, #apply-workspace, #disconnect-workspace, input'));
+    const controls = Array.from($('#workspace-dialog').querySelectorAll('#apply-workspace, #disconnect-workspace, input'));
     const picker = {
       token, controls, disabled: controls.map((control) => control.disabled),
       help: $('#workspace-path-help').textContent,
-      cancelRequested: pendingCancel, closeOnCancel: pendingCancel && !restartAfterCancel,
+      cancelRequested: pendingCancel, closeOnCancel: sessionStorage.getItem(pickerStorageKey + '.close') === token && !restartAfterCancel,
+      cancelFailed: false,
       restartAfterCancel, socket: null, retry: null, connectionTimer: null, cancelTimer: null
     };
+    if (!picker.closeOnCancel) sessionStorage.removeItem(pickerStorageKey + '.close');
     workspacePicker = picker;
     controls.forEach((control) => { control.disabled = true; });
     $('#workspace-path-help').textContent = resume ? 'Reconnecting to folder picker…' : 'Opening folder picker…';
     onStateChange();
+    update();
     connectWorkspacePicker(picker, !resume);
     if (pendingCancel) picker.cancelTimer = setTimeout(() => disconnectWorkspacePicker(picker), 5000);
   }
 
-  function cancelWorkspacePicker() {
+  function cancelWorkspacePicker({ close = false } = {}) {
     const picker = workspacePicker;
     if (!picker) return;
     picker.cancelRequested = true;
-    picker.closeOnCancel = true;
+    picker.closeOnCancel ||= close;
+    picker.cancelFailed = false;
     picker.restartAfterCancel = false;
     sessionStorage.setItem(pickerStorageKey + '.cancel', picker.token);
-    $('#workspace-path-help').textContent = 'Closing folder picker…';
+    if (picker.closeOnCancel) sessionStorage.setItem(pickerStorageKey + '.close', picker.token);
+    $('#workspace-path-help').textContent = 'Stopping folder selection…';
+    update();
     if (picker.socket?.readyState === WebSocket.OPEN) {
       picker.socket.send(JSON.stringify({ action: 'cancel' }));
       if (!picker.cancelTimer) picker.cancelTimer = setTimeout(() => disconnectWorkspacePicker(picker), 5000);
@@ -149,7 +174,7 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
   }
 
   function init() {
-    $('#browse-workspace-btn').onclick = () => beginWorkspacePicker();
+    $('#browse-workspace-btn').onclick = () => workspacePicker ? cancelWorkspacePicker() : beginWorkspacePicker();
     window.addEventListener('pagehide', () => {
       pickerPageLeaving = true;
       if (workspacePicker) {
@@ -171,5 +196,5 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
     });
   }
 
-  return { init, cancel: cancelWorkspacePicker, restore: restoreWorkspacePicker, isPicking: () => workspacePicker !== null };
+  return { init, update, cancel: cancelWorkspacePicker, restore: restoreWorkspacePicker, isPicking: () => workspacePicker !== null };
 }

@@ -155,23 +155,23 @@
       <div class="workspace-body">
         <div class="info-callout">
           <i data-lucide="info" aria-hidden="true"></i>
-          <p>Folder connections are saved with this conversation. To chat without a workspace, leave the folder unselected or disconnect the current workspace.</p>
+          <p>Workspace connections are saved with this conversation. Leave the folder unselected or disconnect to chat without a workspace.</p>
         </div>
         <section class="workspace-group" aria-labelledby="workspace-folder-title">
-          <div class="workspace-group-heading"><h3 id="workspace-folder-title">Workspace folder</h3></div>
+          <div class="workspace-group-heading">
+            <h3 id="workspace-folder-title">Workspace folder</h3>
+            <button id="browse-workspace-btn" class="quiet-btn" type="button"><i id="workspace-picker-browse-icon" data-lucide="folder-open" aria-hidden="true"></i><i id="workspace-picker-stop-icon" data-lucide="square" aria-hidden="true" hidden></i><span id="workspace-picker-label">Browse</span></button>
+          </div>
           <div class="workspace-group-body">
             <label for="workspace-path-input">Folder path</label>
-            <div class="path-input-group">
-              <input id="workspace-path-input" required placeholder="C:/Users/Projects/my-project" aria-describedby="workspace-path-help">
-              <button id="browse-workspace-btn" class="quiet sm-btn" type="button"><i data-lucide="folder-open" aria-hidden="true"></i><span>Browse</span></button>
-            </div>
-            <span id="workspace-path-help" class="field-hint" role="status">Enter a path or browse on the computer running Helios, then apply.</span>
+            <input id="workspace-path-input" required placeholder="C:/Users/Projects/my-project" aria-describedby="workspace-path-help">
+            <span id="workspace-path-help" class="field-hint" role="status">Enter a folder path or use Browse to select one on the computer running Helios, then apply.</span>
           </div>
         </section>
         <section class="workspace-group workspace-project-context" aria-labelledby="workspace-project-context-title">
           <div class="workspace-group-heading"><h3 id="workspace-project-context-title">Project context</h3></div>
           <div class="workspace-group-body">
-            <p class="field-hint">When connected, messages include the project name and a small overview of top-level files and folders. Subfolders, file contents, and absolute paths are not included in this overview. Use Explore project or attach files for more detail.</p>
+            <p class="field-hint">Connected messages include the project name and a small top-level file and folder overview. Subfolders, file contents, and absolute paths are excluded. Use Explore project or attach files for more detail. Apply folder changes before previewing them.</p>
             <details id="workspace-context-disclosure" class="workspace-context-disclosure">
               <summary id="preview-workspace-context" class="workspace-disclosure-header" aria-disabled="true"><h4 class="workspace-disclosure-title"><i data-lucide="file-text" aria-hidden="true"></i>Preview context</h4><i data-lucide="chevron-down" class="workspace-disclosure-chevron" aria-hidden="true"></i></summary>
               <div class="workspace-context-preview-body">
@@ -200,24 +200,35 @@
       <button class="dialog-close" type="button" data-close-dialog="file-dialog" aria-label="Close"><i data-lucide="x"></i></button>
     </div>
     <div class="attachment-body">
+      <div class="info-callout">
+        <i data-lucide="info" aria-hidden="true"></i>
+        <p>Add files from the computer running Helios. A workspace is optional. Later changes to the originals do not update attached copies.</p>
+      </div>
       <section class="attachment-selection" aria-labelledby="attachment-selection-title">
         <div class="attachment-group-heading">
           <h3 id="attachment-selection-title">Selected files</h3>
           <button id="choose-attachment-files" class="quiet-btn" type="button"><i id="attachment-picker-add-icon" data-lucide="plus" aria-hidden="true"></i><i id="attachment-picker-stop-icon" data-lucide="square" aria-hidden="true" hidden></i><span id="attachment-picker-label">Add files</span></button>
         </div>
-        <div class="attachment-group-body attachment-selection-body">
-          <div id="attachment-selection-empty" class="attachment-empty-state"><i data-lucide="inbox" aria-hidden="true"></i><span>No files selected.</span></div>
+        <div class="attachment-group-body">
+          <div class="attachment-selection-body">
+            <div id="attachment-selection-empty" class="attachment-empty-state"><i data-lucide="inbox" aria-hidden="true"></i><strong>No files selected</strong><p class="field-hint">Use Add files to choose attachments.</p></div>
+            <ul id="selected-attachments" aria-label="Selected attachments"></ul>
+          </div>
+        </div>
+        <div class="attachment-selection-guidance">
           <p id="attachment-selection-notice" class="field-hint" role="status" hidden></p>
-          <ul id="selected-attachments" aria-label="Selected attachments"></ul>
+          <p id="attachment-file-status" class="field-hint" role="status" hidden></p>
+          <p class="field-hint">Attached files are included with new messages until removed.</p>
+          <p class="field-hint">Supported: UTF-8 text, PNG, JPEG, WebP, static GIF, PDF, DOCX, XLSX, and PPTX.</p>
         </div>
       </section>
-      <p id="attachment-file-status" class="field-hint" role="status">Choose files on the computer running Helios. A workspace is optional.</p>
-      <p class="field-hint">Included with each new message until removed.</p>
       <section id="attachment-inspection" class="attachment-inspection" aria-labelledby="attachment-inspection-title">
         <div class="attachment-group-heading"><h3 id="attachment-inspection-title">Selection check</h3></div>
-        <div class="attachment-group-body"><p id="attachment-inspection-status" role="status">Add files to review their delivery and local preparation.</p></div>
+        <div class="attachment-group-body">
+          <p id="attachment-inspection-status" role="status">Add files to review their delivery and local preparation.</p>
+          <p class="field-hint">Checks run locally. The full message and model compatibility are checked when you send.</p>
+        </div>
       </section>
-      <p class="field-hint attachment-help">Supported: UTF-8 text, PNG, JPEG, WebP, static GIF, PDF, DOCX, XLSX, and PPTX.</p>
     </div>
     <div class="dialog-actions file-dialog-actions">
       <span id="selected-file-label" role="status">No files selected</span>

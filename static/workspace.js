@@ -37,6 +37,7 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
 
   let contextDisclosure = null;
   const picker = createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot: () => state.workspaceRoot, getWorkspaceScope: workspaceScope,
+    isBusy: () => state.generating || state.changingWorkspace || !state.workspaceSessionId,
     onStateChange: updateWorkspaceControls, onCloseRequested: requestWorkspaceDialogClose });
 
   const filePicker = createFilePicker({
@@ -349,6 +350,7 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
     catch { toast('Could not load workspace. Open a new chat to try again.', 'error'); return false; }
     closeMobileSidebar();
     $('#workspace-path-input').value = state.workspaceRoot || '';
+    if (!picker.isPicking()) $('#workspace-path-help').textContent = 'Enter a folder path or use Browse to select one on the computer running Helios, then apply.';
     updateWorkspaceControls();
     $('#workspace-dialog').showModal();
     return true;
@@ -369,7 +371,8 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
     state.pendingFiles = [...state.attachments];
     state.visiblePending = selectionPageSize;
     if (!filePicker.isPicking()) {
-      $('#attachment-file-status').textContent = 'Choose files on the computer running Helios. A workspace is optional.';
+      $('#attachment-file-status').textContent = '';
+      $('#attachment-file-status').hidden = true;
       $('#attachment-file-status').dataset.state = 'ready';
     }
     $('#attachment-selection-notice').hidden = true;
@@ -421,7 +424,7 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
     const busy = state.generating || state.changingWorkspace || picker.isPicking() || !state.workspaceSessionId;
     const connected = Boolean(state.workspaceRoot);
     $('#workspace-path-input').disabled = busy;
-    $('#browse-workspace-btn').disabled = busy;
+    picker.update();
     $('#apply-workspace').disabled = busy;
     $('#disconnect-workspace').disabled = busy || !connected;
     $('#preview-workspace-context').setAttribute('aria-disabled', String(busy || !connected));
@@ -523,7 +526,7 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
       return false;
     }
     if (picker.isPicking()) {
-      picker.cancel();
+      picker.cancel({ close: true });
       return false;
     }
     if ($('#workspace-path-input').value.trim() === (state.workspaceRoot || '')) return true;
@@ -575,7 +578,6 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
     if (policy.legacy_input_policy) text.push('Previous input policy: review the budget in Settings.');
     if (Number.isSafeInteger(policy.declared_model_input_limit)) text.push(`Declared model input limit: ${policy.declared_model_input_limit.toLocaleString()} tokens.`);
     if (policy.mode === 'off') text.push('Context token estimation is off.');
-    text.push('Checked locally. The full message and model compatibility are checked when you send.');
     status.textContent = text.join('\n');
   }
 
