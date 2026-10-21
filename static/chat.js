@@ -680,7 +680,8 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
       workspaceContext = options.recoveryId ? {} : await getWorkspaceContext();
       if (state.generating || workspaceViewVersion !== state.conversationLoadVersion) return;
       explorationContext = options.recoveryId ? {} : exploration?.selection() || {};
-      attachmentSelection = options.recoveryId ? {} : getAttachmentSelection({ regenerating: options.regenerateMessageIndex != null });
+      attachmentSelection = options.recoveryId ? {} : await getAttachmentSelection({ regenerating: options.regenerateMessageIndex != null });
+      if (state.generating || workspaceViewVersion !== state.conversationLoadVersion) return;
     }
     catch (error) {
       toast(error.message || 'Review the workspace before sending.', 'error');

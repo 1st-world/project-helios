@@ -1,4 +1,4 @@
-"""Retain immutable uploaded originals outside caches, with atomic publication and explicit deletion.
+"""Retain immutable attachment copies while messages, drafts, or requests reference them.
 
 Only app-issued UUIDs address stored files; client filenames never determine disk paths.
 """
@@ -6,6 +6,7 @@ Only app-issued UUIDs address stored files; client filenames never determine dis
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import sqlite3
 from collections.abc import Callable
@@ -13,23 +14,36 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
+from time import time
 from uuid import UUID, uuid4
 
 from services.attachment_errors import AttachmentError
 from services.local_work import check_local_cancelled
 
+logger = logging.getLogger(__name__)
+
 
 class AttachmentStore:
     """Manage durable originals and process-local read leases without open database handles."""
 
-    SCHEMA_VERSION = "0.1"
+    SCHEMA_VERSION = "0.2"
+    DRAFT_TTL = 24 * 60 * 60
 
-    def __init__(self, root: Path) -> None:
+    def __init__(
+        self, root: Path, *, references: Callable[[], set[str]] | None = None,
+        referenced: Callable[[str], bool] | None = None,
+    ) -> None:
         """Defer filesystem work until uploads or existing records are accessed."""
         self.root = root
+        self.references = references or set
+        self.referenced = referenced or (lambda identity: identity in self.references())
+        self.on_change: Callable[[set[str] | None], None] | None = None
         self._lock = RLock()
         self._ready = False
         self._busy: dict[str, int] = {}
+        self._released: set[str] = set()
+        self._reconciled = False
+        self._retry_files: dict[str, tuple[float, int]] = {}
 
     def _initialize(self) -> None:
         """Validate the manifest before cleaning interrupted staging and orphaned blobs."""
@@ -53,7 +67,7 @@ class AttachmentStore:
                 if "store_metadata" in tables else []
             )
             if tables and (
-                versions != [(self.SCHEMA_VERSION,)]
+                versions not in ([("0.1",)], [(self.SCHEMA_VERSION,)])
                 or not {"uploads", "store_metadata"} <= tables
             ):
                 raise AttachmentError(
@@ -62,14 +76,38 @@ class AttachmentStore:
             db.execute(
                 "CREATE TABLE IF NOT EXISTS uploads ("
                 "id TEXT PRIMARY KEY, filename TEXT NOT NULL, size_bytes INTEGER NOT NULL, "
-                "sha256 TEXT NOT NULL, created_at TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0)"
+                "sha256 TEXT NOT NULL, created_at TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, "
+                "unclaimed_until REAL NOT NULL)"
+            )
+            if versions == [("0.1",)]:
+                # Give existing unowned copies a full grace period during the first upgrade.
+                db.execute("ALTER TABLE uploads ADD COLUMN unclaimed_until REAL NOT NULL DEFAULT 0")
+                db.execute("UPDATE uploads SET unclaimed_until=?", (time() + self.DRAFT_TTL,))
+                db.execute("UPDATE store_metadata SET schema_version=?", (self.SCHEMA_VERSION,))
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS attachment_drafts ("
+                "draft_id TEXT NOT NULL, attachment_id TEXT NOT NULL, expires_at REAL NOT NULL, "
+                "PRIMARY KEY (draft_id, attachment_id))"
             )
             if not tables:
                 db.execute("CREATE TABLE store_metadata (schema_version TEXT NOT NULL)")
                 db.execute("INSERT INTO store_metadata VALUES (?)", (self.SCHEMA_VERSION,))
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS uploads_expiry ON uploads(unclaimed_until) "
+                "WHERE deleted=0 AND unclaimed_until>0"
+            )
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS drafts_expiry ON attachment_drafts(expires_at)"
+            )
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS drafts_attachment "
+                "ON attachment_drafts(attachment_id, expires_at)"
+            )
             retained = {row[0] for row in db.execute("SELECT id FROM uploads WHERE deleted=0")}
             db.commit()
-        for path in self.root.iterdir():
+        paths = list(self.root.iterdir())
+        self._ready = True
+        for path in paths:
             if path.suffix not in {".part", ".blob"}:
                 continue
             try:
@@ -77,8 +115,9 @@ class AttachmentStore:
             except ValueError:
                 continue
             if path.suffix == ".part" or identity not in retained:
-                path.unlink(missing_ok=True)
-        self._ready = True
+                self._remove_file(path.name)
+        if self._retry_files:
+            self._changed()
 
     @staticmethod
     def validate_filename(filename: str) -> str:
@@ -124,7 +163,7 @@ class AttachmentStore:
         }
 
     def list(self) -> list[dict]:
-        """List retained uploads independently of workspace and conversation membership."""
+        """List copies still retained by ownership or the temporary selection grace period."""
         with self._lock:
             if not self.root.exists():
                 return []
@@ -179,6 +218,9 @@ class AttachmentStore:
                     self._busy[identity] -= 1
                     if not self._busy[identity]:
                         del self._busy[identity]
+                        self._released.add(identity)
+                if identities:
+                    self._changed(identities)
 
         return release
 
@@ -187,16 +229,148 @@ class AttachmentStore:
         identity = str(UUID(attachment_id))
         with self._lock:
             self._initialize()
-            if self._busy.get(identity):
-                raise AttachmentError(
-                    "attachment_in_use", "This attachment is in use. Stop the request and wait for cleanup before deleting it.", identity, 409,
-                )
             with closing(sqlite3.connect(self.root / "manifest.sqlite3")) as db:
                 if not db.execute("SELECT 1 FROM uploads WHERE id=?", (identity,)).fetchone():
                     raise AttachmentError("attachment_source_missing", "Uploaded attachment not found.", identity, 410)
+                if self._is_protected(identity, db):
+                    raise AttachmentError(
+                        "attachment_in_use", "This attachment is used by a conversation, draft, or request. Remove those references before deleting it.", identity, 409,
+                    )
                 db.execute("UPDATE uploads SET deleted=1 WHERE id=?", (identity,))
                 db.commit()
-            (self.root / f"{identity}.blob").unlink(missing_ok=True)
+            self._remove_file(f"{identity}.blob")
+            self._changed()
+
+    def _is_protected(self, identity: str, db: sqlite3.Connection) -> bool:
+        """Check one copy's committed, active-reader, and live-draft owners."""
+        return bool(
+            self._busy.get(identity) or self.referenced(identity)
+            or db.execute(
+                "SELECT 1 FROM attachment_drafts WHERE attachment_id=? AND expires_at>? LIMIT 1",
+                (identity, time()),
+            ).fetchone()
+        )
+
+    def replace_draft(
+        self, draft_id: str, attachment_ids: list[str],
+        released_attachment_ids: list[str] | None = None,
+    ) -> None:
+        """Renew one tab's selection and make released copies eligible for cleanup."""
+        draft_id = str(UUID(draft_id))
+        identities = {str(UUID(value)) for value in attachment_ids}
+        released = {str(UUID(value)) for value in released_attachment_ids or []} - identities
+        with self._lock:
+            self._initialize()
+            with closing(sqlite3.connect(self.root / "manifest.sqlite3")) as db:
+                previous = {row[0] for row in db.execute(
+                    "SELECT attachment_id FROM attachment_drafts WHERE draft_id=?", (draft_id,),
+                )}
+                for identity in identities - previous:
+                    self.get(identity)
+                if identities == previous:
+                    db.execute(
+                        "UPDATE attachment_drafts SET expires_at=? WHERE draft_id=?",
+                        (time() + self.DRAFT_TTL, draft_id),
+                    )
+                else:
+                    db.execute("DELETE FROM attachment_drafts WHERE draft_id=?", (draft_id,))
+                    db.executemany(
+                        "INSERT INTO attachment_drafts VALUES (?,?,?)",
+                        [(draft_id, identity, time() + self.DRAFT_TTL) for identity in identities],
+                    )
+                    db.executemany(
+                        "UPDATE uploads SET unclaimed_until=0 WHERE id=?",
+                        [(identity,) for identity in identities - previous],
+                    )
+                db.commit()
+            removed = (previous - identities) | released
+            try:
+                if removed:
+                    self.collect(removed)
+            finally:
+                self._changed()
+
+    def collect(self, candidates: set[str] | None = None) -> list[str]:
+        """Collect affected or newly expired copies; reconcile all eligible records only once."""
+        with self._lock:
+            if not self.root.exists():
+                self._released.clear()
+                self._reconciled = True
+                return []
+            self._initialize()
+            now = time()
+            pending = {str(UUID(identity)) for identity in (candidates or set()) | self._released}
+            with closing(sqlite3.connect(self.root / "manifest.sqlite3")) as db:
+                pending.update(row[0] for row in db.execute(
+                    "SELECT attachment_id FROM attachment_drafts WHERE expires_at<=?", (now,),
+                ))
+                pending.update(row[0] for row in db.execute(
+                    "SELECT id FROM uploads WHERE deleted=0 "
+                    "AND unclaimed_until>0 AND unclaimed_until<=?", (now,),
+                ))
+                if not self._reconciled:
+                    pending.update(row[0] for row in db.execute(
+                        "SELECT id FROM uploads WHERE deleted=0 AND unclaimed_until=0",
+                    ))
+                db.execute("DELETE FROM attachment_drafts WHERE expires_at<=?", (now,))
+                db.executemany(
+                    "UPDATE uploads SET unclaimed_until=0 WHERE id=?",
+                    [(identity,) for identity in pending],
+                )
+                db.commit()
+                # Persist release intent before ownership verification can defer deletion.
+                self._released.update(pending)
+                identities = {
+                    identity for identity in pending
+                    if db.execute("SELECT 1 FROM uploads WHERE id=? AND deleted=0", (identity,)).fetchone()
+                    and not self._is_protected(identity, db)
+                }
+                db.executemany(
+                    "UPDATE uploads SET deleted=1 WHERE id=?",
+                    [(identity,) for identity in identities],
+                )
+                db.commit()
+            self._released.clear()
+            self._reconciled = True
+            retry = {name for name, (due, _) in self._retry_files.items() if due <= now}
+            for name in retry | {f"{identity}.blob" for identity in identities}:
+                self._remove_file(name)
+            return list(identities)
+
+    def next_cleanup_at(self) -> float | None:
+        """Return the earliest actual expiry or failed-file retry without a polling interval."""
+        with self._lock:
+            if not self.root.exists():
+                return None
+            self._initialize()
+            if self._released:
+                return time()
+            with closing(sqlite3.connect(self.root / "manifest.sqlite3")) as db:
+                deadlines = [
+                    db.execute(
+                        "SELECT MIN(unclaimed_until) FROM uploads "
+                        "WHERE deleted=0 AND unclaimed_until>0"
+                    ).fetchone()[0],
+                    db.execute("SELECT MIN(expires_at) FROM attachment_drafts").fetchone()[0],
+                    *(due for due, _ in self._retry_files.values()),
+                ]
+            return min((due for due in deadlines if due is not None), default=None)
+
+    def _remove_file(self, name: str) -> None:
+        """Retry only failed owned paths with exponential delay capped at five minutes."""
+        try:
+            (self.root / name).unlink(missing_ok=True)
+        except OSError:
+            attempts = self._retry_files.get(name, (0, 0))[1] + 1
+            self._retry_files[name] = (time() + min(2 ** min(attempts - 1, 9), 300), attempts)
+            logger.warning("Could not remove an unused attachment copy; a targeted retry was scheduled.", exc_info=True)
+        else:
+            self._retry_files.pop(name, None)
+
+    def _changed(self, identities: set[str] | None = None) -> None:
+        """Wake the cleanup scheduler after a deadline or owning request changes."""
+        if self.on_change is not None:
+            self.on_change(identities)
 
 
 class StagedUpload:
@@ -244,11 +418,12 @@ class StagedUpload:
             self.path.replace(self.store.root / f"{self.id}.blob")
             with closing(sqlite3.connect(self.store.root / "manifest.sqlite3")) as db:
                 db.execute(
-                    "INSERT INTO uploads (id,filename,size_bytes,sha256,created_at) VALUES (?,?,?,?,?)",
-                    (self.id, self.filename, self.size, self.digest.hexdigest(), created_at),
+                    "INSERT INTO uploads (id,filename,size_bytes,sha256,created_at,unclaimed_until) VALUES (?,?,?,?,?,?)",
+                    (self.id, self.filename, self.size, self.digest.hexdigest(), created_at, time() + self.store.DRAFT_TTL),
                 )
                 db.commit()
             self.published = True
+            self.store._changed()
             return self.store.get(self.id)
 
     def abort(self, *, discard: bool = False) -> None:
@@ -256,8 +431,11 @@ class StagedUpload:
         if self._file is not None:
             self._file.close()
             self._file = None
-        self.path.unlink(missing_ok=True)
-        if self.published and discard:
-            self.store.delete(self.id)
-        if not self.published:
-            (self.store.root / f"{self.id}.blob").unlink(missing_ok=True)
+        with self.store._lock:
+            self.store._remove_file(self.path.name)
+            if self.published and discard:
+                self.store.delete(self.id)
+            if not self.published:
+                self.store._remove_file(f"{self.id}.blob")
+            if self.store._retry_files:
+                self.store._changed()

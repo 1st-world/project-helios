@@ -149,7 +149,9 @@ Attachment copies remain included with new messages until removed. Later edits o
 
 Workspace path references in older conversations retain their original live-file behavior. Changing or disconnecting a folder removes only those path attachments. Restored stale references display **Unavailable**; a same-named file in another folder is never substituted. Select them again or remove them.
 
-Copies currently stay on the computer running the app; selection removal and conversation deletion do not automatically remove them. The UI does not expose a reusable-file library. Explicit original deletion remains available through the development attachment API. Automatic cleanup based on conversation and draft ownership is a subsequent change.
+Copies stay on the computer running the app while conversation messages, the composer, or an Attach files selection reference them. Conversation deletion, branch replacement, selection removal/discard, and request completion check only affected copies for cleanup. Attachments used by earlier messages remain after composer removal; other conversations, drafts, running requests, and valid retry receipts retain their copies. Original source files are never deleted.
+
+Tabs periodically renew their selections; unchanged selections update only their expiry. Abandoned drafts and undelivered selection results receive a 24-hour grace period. Cleanup reconciles the full state once at startup, then runs on ownership changes and the nearest actual expiry, without scanning files every minute. Failed deletions retry only their own paths with increasing delays. Committed references use an index updated after successful transcript writes. Unreadable conversations at startup defer automatic deletion; restore the affected files and restart the app to revalidate them.
 
 | Format | Content sent to the model |
 | --- | --- |
@@ -205,7 +207,7 @@ Costs are estimates using the prices saved at call time and the reported usage. 
 | `profiles.json` | Connection profiles, API keys, pricing, profile policies, and the active profile. |
 | `settings.json` | App defaults for input, output, summaries, and attachments. |
 | `conversation/*.json` | Saved original messages, memory summaries, and reply usage. |
-| `data/attachments/` | Reusable originals and the SQLite manifest for independent uploads, retained separately from caches and rotating logs. |
+| `data/attachments/` | Attachment copies and the SQLite manifest, retained or cleaned according to conversation, draft, and request references. |
 | `data/work_runs.sqlite3` | Exploration states, model responses, original tool results, and per-call usage references. Failed and replaced runs remain stored without automatic expiration. |
 | `logs/usage_calls.sqlite3` | Per-call usage, status, pricing snapshots, and the aggregation ledger. |
 | `logs/summary_usage.sqlite3` | Summary usage storage, used alongside the call ledger. |
@@ -241,7 +243,7 @@ This MINOR/PATCH distinction is Helios's alpha policy. A release-preparation com
 The run database and optional message run references each use independent string schema `"0.1"`. New message references record `run_schema_version` and `run_id`. Existing conversations without these references remain readable without automatic rewriting. Unsupported versions are preserved without overwriting their originals.
 
 - The current app version is **`0.2.0`**, and the settings/profile storage schema is **the string `"0.1"`**. It is not a JSON decimal: `"0.1"` and `"0.10"` are distinct identifiers.
-- The independent attachment manifest and optional message attachment references each use string schema `"0.1"`. Existing conversations without attachments remain readable; new references record `attachment_schema_version` and `attachment_sources`. Unsupported attachment formats are preserved without overwriting or automatic migration.
+- The attachment manifest uses string schema `"0.2"`; optional message attachment references remain `"0.1"`. Existing `"0.1"` manifests upgrade transactionally with a 24-hour cleanup grace for unused copies. Conversations are not rewritten; new references record `attachment_schema_version` and `attachment_sources`. Unsupported versions are neither overwritten nor cleaned. Back up copies, the manifest, and conversation JSON together.
 - Existing formats without a version field are identified internally as `0`. Their original bytes are backed up before the first explicit save. The migration record's `from_schema_version: 0` and the backup name's `v0` identify that origin; new documents do not write a numeric `schema_version: 0`.
 - Invalid or unsupported settings/profile versions produce an error without overwriting the originals. Preserve the affected files and backups while investigating.
 - Alpha features and formats are not a permanent compatibility contract for later stages. **At the end of alpha, including a transition to beta**, support ends for alpha legacy migration code, deprecated API field aliases, and unreviewed legacy input policies. Normal execution after alpha will not automatically interpret or recover alpha legacy formats.
@@ -316,7 +318,7 @@ Pass the returned reference in `attachment_sources` to `POST /api/attachments/in
 
 A Workspace reference is `{"source":"workspace","path":"notes.txt"}`; inspection also returns its Workspace revision and session ID. Both sources share file count, total byte, and format processing policies. Legacy inspection `paths` and chat `attachment_files`, `workspace_file`, and `workspace_files` remain supported and require a selected Workspace.
 
-`GET /api/attachments/uploads` lists retained originals and their availability; `GET /api/attachments/uploads/{id}` returns metadata for an available original. Originals do not expire automatically and remain reusable after deselection or conversation deletion. Delete them explicitly with `DELETE /api/attachments/uploads/{id}`. In-use originals return `409`; deleted or missing IDs return `410` with a reselection instruction. Back up the originals and manifest together.
+`GET /api/attachments/uploads` lists retained copies and their availability; `GET /api/attachments/uploads/{id}` returns metadata for an available copy. API clients retain draft selections with `PUT /api/attachments/drafts/{UUID}` and `{"attachment_ids":["<upload UUID>"]}`, renewing within 24 hours. An empty list releases that draft's references. Optional `released_attachment_ids` also releases removed copies whose initial registration never reached the server; it does not override other owners or the retained selection. New unclaimed uploads receive a 24-hour grace period; released copies are cleaned when no longer used. `DELETE /api/attachments/uploads/{id}` explicitly deletes only unreferenced copies. Conversations, drafts, running requests, and valid retry receipts return `409` while retaining a copy; deleted or missing IDs return `410`. The UI does not expose a reusable-file library.
 
 Chat saves new references on the user message. Regeneration restores them when `attachment_sources` is omitted; `[]` clears the selection. Changed references are saved atomically with a successful replacement reply. Legacy path fields continue using the current request selection for regeneration. One-time recovery reuses the failed request's prepared payload, which is discarded if its original is deleted. Image/PDF bytes and extracted bodies are not copied into conversation JSON.
 

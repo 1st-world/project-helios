@@ -47,6 +47,7 @@ from services.attachment_service import (
     AttachmentError, AttachmentService, PreparedAttachments,
 )
 from services.attachment_store import AttachmentStore
+from services.attachment_cleanup import AttachmentCleanup
 from services.context_budget import (
     ContextBudget,
     ContextBudgetExceeded,
@@ -127,7 +128,7 @@ workspace_service = WorkspaceService(settings.workspace_root)
 conversation_workspaces = ConversationWorkspaces(conversation_manager)
 attachment_store = AttachmentStore(getattr(
     settings, "attachments_root", settings.profiles_path.parent / "data" / "attachments",
-))
+), referenced=lambda identity: conversation_manager.attachment_is_referenced(identity) or context_recovery.attachment_is_referenced(identity))
 attachment_service = AttachmentService(
     workspace_service,
     limits=application_settings.attachment_limits(), store=attachment_store,
@@ -135,6 +136,10 @@ attachment_service = AttachmentService(
 folder_picker_service = FolderPickerService()
 file_picker_service = FilePickerService(attachment_service)
 context_recovery = ContextRecoveryRegistry()
+attachment_cleanup = AttachmentCleanup(attachment_store, context_recovery)
+attachment_store.on_change = attachment_cleanup.notify
+conversation_manager.on_attachments_released = attachment_cleanup.notify
+context_recovery.on_attachments_changed = attachment_cleanup.notify
 workspace_operations: dict[object, str] = {}
 usage_service = UsageService()
 summary_usage_store = SummaryUsageStore(
@@ -180,13 +185,26 @@ memory_service = ConversationMemoryService(
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """Log application startup and close picker and AI resources on shutdown."""
+    """Collect unused attachment copies and close background resources on shutdown."""
     logger.info("Helios started")
-    yield
-    await folder_picker_service.close()
-    await file_picker_service.close()
-    await ai_service.close()
-    logger.info("Helios stopped")
+    cleanup = asyncio.create_task(attachment_cleanup.run())
+    try:
+        yield
+    finally:
+        cleanup.cancel()
+        await asyncio.gather(cleanup, return_exceptions=True)
+        await folder_picker_service.close()
+        await file_picker_service.close()
+        await ai_service.close()
+        logger.info("Helios stopped")
+
+
+async def collect_attachments(candidates: set[str] | None = None) -> None:
+    """Defer cleanup when storage or any saved reference cannot be verified safely."""
+    try:
+        await run_local(attachment_store.collect, candidates)
+    except (OSError, sqlite3.Error, ValueError, KeyError, TypeError):
+        logger.warning("Attachment cleanup was deferred because stored references could not be verified.", exc_info=True)
 
 
 # Serve WOFF2 consistently when the host does not register its MIME type.
@@ -459,6 +477,14 @@ class AttachmentSelectionRequest(ContextRequestOptions):
         if not self.paths and not self.attachment_sources:
             raise ValueError("Select at least one attachment.")
         return self
+
+
+class AttachmentDraftRequest(BaseModel):
+    """Retain opaque upload identifiers used by one browser tab's current selection."""
+
+    model_config = ConfigDict(extra="forbid")
+    attachment_ids: list[UUID] = Field(default_factory=list)
+    released_attachment_ids: list[UUID] = Field(default_factory=list)
 
 
 class RenameConversationRequest(BaseModel):
@@ -794,6 +820,11 @@ async def work_evidence(
 @app.delete("/api/conversations/{conversation_id}")
 async def delete_conversation(conversation_id: str):
     """Delete a conversation from memory and disk, reporting storage failures."""
+    conversation = conversation_manager.get(conversation_id)
+    candidates = {
+        source["attachment_id"] for message in conversation.messages
+        for source in message.attachment_sources if source["source"] == "upload"
+    } if conversation else set()
     try:
         deleted = conversation_manager.delete(conversation_id)
     except OSError:
@@ -804,6 +835,8 @@ async def delete_conversation(conversation_id: str):
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found.")
     conversation_workspaces.forget(conversation_id)
+    context_recovery.forget_conversation(conversation_id)
+    await collect_attachments(candidates)
     return {"deleted": True}
 
 
@@ -1408,7 +1441,9 @@ async def attachment_storage_work(request, action, *args):
     """Run storage access off the event loop and sanitize operating-system failures."""
     try:
         return await until_disconnect(request, run_local, action, *args)
-    except (OSError, sqlite3.Error):
+    except AttachmentError:
+        raise
+    except (OSError, sqlite3.Error, ValueError, KeyError, TypeError):
         raise AttachmentError(
             "attachment_storage_unavailable", "Attachment storage could not be accessed. Check local storage and try again.", "", 500,
         ) from None
@@ -1459,6 +1494,19 @@ async def list_uploaded_attachments(request: Request = None):
     return {"uploads": await attachment_storage_work(request, attachment_store.list)}
 
 
+@app.put("/api/attachments/drafts/{draft_id}")
+async def retain_attachment_draft(
+    draft_id: UUID, payload: AttachmentDraftRequest, request: Request = None,
+):
+    """Renew a tab's selected copies or release them after removal or discard."""
+    await attachment_storage_work(
+        request, attachment_store.replace_draft, str(draft_id),
+        [str(identity) for identity in payload.attachment_ids],
+        [str(identity) for identity in payload.released_attachment_ids],
+    )
+    return {"retained": True}
+
+
 @app.get("/api/attachments/uploads/{attachment_id}")
 async def get_uploaded_attachment(attachment_id: UUID, request: Request = None):
     """Return one live upload's metadata using an opaque identifier."""
@@ -1467,7 +1515,7 @@ async def get_uploaded_attachment(attachment_id: UUID, request: Request = None):
 
 @app.delete("/api/attachments/uploads/{attachment_id}")
 async def delete_uploaded_attachment(attachment_id: UUID, request: Request = None):
-    """Delete an idle original and discard recovery payloads that reference it."""
+    """Delete an unreferenced copy; conversations, drafts, and requests retain theirs."""
     await attachment_storage_work(request, attachment_store.delete, str(attachment_id))
     context_recovery.invalidate_attachment(str(attachment_id))
     return {"deleted": True}

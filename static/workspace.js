@@ -4,6 +4,7 @@ import { $, closeMobileSidebar, refreshIcons, toast } from './ui.js';
 import { createWorkspacePicker } from './workspace-picker.js';
 import { attachmentIcon, attachmentKey, attachmentSize, attachmentSourceLabel, attachmentSummary, attachmentWarnings } from './attachments.js';
 import { createFilePicker } from './file-picker.js';
+import { createAttachmentDrafts } from './attachment-drafts.js';
 import { describeRequestError } from './chat-feedback.js';
 import { createDisclosure } from './disclosure.js';
 import { showActionDialog } from './dialogs.js';
@@ -36,6 +37,9 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
   };
 
   let contextDisclosure = null;
+  const attachmentDrafts = createAttachmentDrafts({
+    getFiles: () => [...state.attachments, ...($('#file-dialog').open ? state.pendingFiles : [])]
+  });
   const picker = createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot: () => state.workspaceRoot, getWorkspaceScope: workspaceScope,
     isBusy: () => state.generating || state.changingWorkspace || !state.workspaceSessionId,
     onStateChange: updateWorkspaceControls, onCloseRequested: requestWorkspaceDialogClose });
@@ -171,6 +175,7 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
   }
 
   function updateSelection() {
+    attachmentDrafts.update();
     const busy = state.attachingFile || state.generating || filePicker.isPicking();
     const count = state.pendingFiles.length;
     $('#selected-file-label').textContent = count ? `${count} file${count === 1 ? '' : 's'} selected` : 'No files selected';
@@ -339,7 +344,8 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
     }));
   }
 
-  function getAttachmentSelection({ regenerating = false } = {}) {
+  async function getAttachmentSelection({ regenerating = false } = {}) {
+    await attachmentDrafts.flush();
     if (regenerating && !state.selectionEdited) return {};
     if (state.attachments.some(file => file.available === false)) throw new Error('Some attachments are unavailable. Select them again or remove them before sending.');
     return { attachment_sources: state.attachments.map(file => ({ ...file.reference })) };
@@ -661,6 +667,7 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
   }
 
   function init() {
+    attachmentDrafts.init();
     filePicker.init();
     $('#workspace-card').onclick = openWorkspaceDialog;
     $('#workspace-context-chip').onclick = openWorkspaceDialog;
@@ -686,6 +693,7 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
       ++state.fileDialogVersion;
       filePicker.cancel();
       invalidateInspection();
+      state.pendingFiles = [...state.attachments];
       updateSelection();
     });
 

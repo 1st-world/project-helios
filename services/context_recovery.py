@@ -52,8 +52,7 @@ class ChatOperation:
             self.release_workspace()
             self.release_workspace = None
         if self.ticket is not None:
-            self.ticket.data = {}
-            self.ticket.weight = 0
+            self.registry.release_ticket(self.ticket)
         if self.release_attachments is not None:
             self.release_attachments()
             self.release_attachments = None
@@ -70,14 +69,50 @@ class ContextRecoveryRegistry:
         self.ttl, self.max_tickets, self.max_bytes = ttl, max_tickets, max_bytes
         self._tickets: dict[str, RecoveryTicket] = {}
         self._busy: set[str] = set()
+        self.on_attachments_changed: Callable[[set[str]], None] | None = None
 
     def _prune(self) -> None:
         """Drop expired snapshots while active operations retain their own references."""
         now = monotonic()
-        self._tickets = {
-            key: ticket for key, ticket in self._tickets.items()
-            if ticket.expires > now
+        self._discard({key for key, ticket in self._tickets.items() if ticket.expires <= now})
+
+    @staticmethod
+    def _ticket_attachment_ids(ticket: RecoveryTicket) -> set[str]:
+        """Extract upload identities without retaining or copying prepared contents."""
+        return {
+            source["attachment_id"] for source in ticket.data.get("attachment_sources") or []
+            if source.get("source") == "upload"
         }
+
+    def _discard(self, ticket_ids: set[str]) -> None:
+        """Release copies when receipts expire, are evicted, or lose their conversation."""
+        identities = set()
+        for key in ticket_ids:
+            identities.update(self._ticket_attachment_ids(self._tickets.pop(key)))
+        self._notify_attachments(identities)
+
+    def _notify_attachments(self, identities: set[str]) -> None:
+        """Wake targeted cleanup when receipt ownership changes."""
+        if identities and self.on_attachments_changed is not None:
+            self.on_attachments_changed(identities)
+
+    def release_ticket(self, ticket: RecoveryTicket) -> None:
+        """Discard used payloads and notify cleanup after their operation ends."""
+        identities = self._ticket_attachment_ids(ticket)
+        ticket.data = {}
+        ticket.weight = 0
+        self._notify_attachments(identities)
+
+    def next_attachment_expiry(self) -> float | None:
+        """Return the earliest receipt deadline that still protects attachment copies."""
+        return min(
+            (ticket.expires for ticket in self._tickets.values() if self._ticket_attachment_ids(ticket)),
+            default=None,
+        )
+
+    def prune(self) -> None:
+        """Expire scheduled receipts without waiting for another user request."""
+        self._prune()
 
     @staticmethod
     def _weight(value) -> int:
@@ -106,11 +141,12 @@ class ContextRecoveryRegistry:
             or sum(ticket.weight for ticket in self._tickets.values()) + weight
             > self.max_bytes
         ):
-            del self._tickets[next(iter(self._tickets))]
+            self._discard({next(iter(self._tickets))})
         ticket_id = str(uuid4())
         self._tickets[ticket_id] = RecoveryTicket(
             ticket_id, monotonic() + self.ttl, data, weight,
         )
+        self._notify_attachments(self._ticket_attachment_ids(self._tickets[ticket_id]))
         return ticket_id
 
     def get(self, ticket_id: str) -> RecoveryTicket:
@@ -125,13 +161,36 @@ class ContextRecoveryRegistry:
 
     def invalidate_attachment(self, attachment_id: str) -> None:
         """Discard unused prepared payloads when their retained original is deleted."""
-        self._tickets = {
-            key: ticket for key, ticket in self._tickets.items()
-            if attachment_id not in {
+        self._discard({
+            key for key, ticket in self._tickets.items()
+            if attachment_id in {
                 source.get("attachment_id")
                 for source in ticket.data.get("attachment_sources") or []
             }
+        })
+
+    def attachment_ids(self) -> set[str]:
+        """Keep originals needed by unexpired recovery receipts until their payload is released."""
+        return {
+            source["attachment_id"] for ticket in self._tickets.copy().values()
+            if ticket.expires > monotonic()
+            for source in ticket.data.get("attachment_sources") or []
+            if source.get("source") == "upload"
         }
+
+    def attachment_is_referenced(self, identity: str) -> bool:
+        """Check one copy against the bounded set of unexpired recovery receipts."""
+        return any(
+            ticket.expires > monotonic() and identity in self._ticket_attachment_ids(ticket)
+            for ticket in self._tickets.copy().values()
+        )
+
+    def forget_conversation(self, conversation_id: str) -> None:
+        """Drop retry receipts after their conversation has been deleted."""
+        self._discard({
+            key for key, ticket in self._tickets.items()
+            if getattr(ticket.data.get("conversation"), "id", None) == conversation_id
+        })
 
     def begin(
         self, conversation_id: str, *, ticket: RecoveryTicket | None = None,

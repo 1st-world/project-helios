@@ -2,9 +2,12 @@
 
 import json
 import logging
+from collections import Counter
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import RLock
 from uuid import UUID
 
 from models.conversation import Conversation
@@ -27,6 +30,11 @@ class ConversationManager:
         self._storage_root = storage_root
         self._storage_root.mkdir(parents=True, exist_ok=True)
         self._conversations: dict[str, Conversation] = {}
+        self._reference_lock = RLock()
+        self._attachment_references: dict[str, set[str]] = {}
+        self._attachment_counts: Counter[str] = Counter()
+        self._references_available = True
+        self.on_attachments_released: Callable[[set[str]], None] | None = None
         self._load()
 
     def _path_for(self, conversation_id: str) -> Path:
@@ -39,7 +47,15 @@ class ConversationManager:
 
     def _load(self) -> None:
         """Load valid conversation files while logging and skipping invalid records."""
-        for path in self._storage_root.glob("*.json"):
+        try:
+            paths = list(self._storage_root.iterdir())
+        except OSError:
+            self._references_available = False
+            logger.exception("Could not read the conversation directory.")
+            return
+        for path in paths:
+            if path.suffix != ".json":
+                continue
             try:
                 conversation = Conversation.from_dict(
                     json.loads(path.read_text(encoding="utf-8"))
@@ -49,6 +65,7 @@ class ConversationManager:
                         "Conversation file name does not match its id."
                     )
                 self._conversations[conversation.id] = conversation
+                self._index_attachments(conversation.id, self._message_attachment_ids(conversation))
             except (
                 OSError,
                 ValueError,
@@ -56,6 +73,7 @@ class ConversationManager:
                 TypeError,
                 json.JSONDecodeError,
             ):
+                self._references_available = False
                 logger.exception(
                     "Could not load conversation file: %s", path.name
                 )
@@ -79,6 +97,7 @@ class ConversationManager:
         self._require_active(conversation)
         target = self._path_for(conversation.id)
         temporary = target.with_suffix(".tmp")
+        identities = self._message_attachment_ids(conversation)
         try:
             temporary.write_text(
                 json.dumps(
@@ -86,7 +105,10 @@ class ConversationManager:
                 ),
                 encoding="utf-8",
             )
-            temporary.replace(target)
+            # Request leases protect new copies until this committed index is published.
+            with self._reference_lock:
+                temporary.replace(target)
+                released = self._index_attachments(conversation.id, identities)
         except Exception:
             try:
                 temporary.unlink(missing_ok=True)
@@ -97,6 +119,7 @@ class ConversationManager:
                     exc_info=True,
                 )
             raise
+        self._notify_attachments(released)
 
     def _commit_changes(
         self, conversation: Conversation, **changes: object
@@ -172,13 +195,17 @@ class ConversationManager:
         conversation.is_deleted = True
         conversation.version += 1
         try:
-            self._path_for(conversation_id).unlink(missing_ok=True)
+            with self._reference_lock:
+                self._path_for(conversation_id).unlink(missing_ok=True)
+                released = self._index_attachments(conversation_id, set())
+                self._attachment_references.pop(conversation_id, None)
         except OSError:
             # Keep the conversation in memory if the disk deletion did not succeed.
             conversation.is_deleted = False
             conversation.version = previous_version
             self._conversations[conversation_id] = conversation
             raise
+        self._notify_attachments(released)
         return True
 
     def edit_user_message(
@@ -243,6 +270,51 @@ class ConversationManager:
             reverse=True,
         )
         return [item.to_dict(include_messages=False) for item in ordered]
+
+    def attachment_ids(self) -> set[str]:
+        """Return committed reference identities without rereading transcript files."""
+        with self._reference_lock:
+            self._require_attachment_index()
+            return set(self._attachment_counts)
+
+    def attachment_is_referenced(self, identity: str) -> bool:
+        """Check one copy against the committed index and fail closed after an invalid startup."""
+        with self._reference_lock:
+            self._require_attachment_index()
+            return identity in self._attachment_counts
+
+    def _require_attachment_index(self) -> None:
+        """Preserve copies if startup skipped a transcript or its directory is unavailable."""
+        self._storage_root.stat()
+        if not self._references_available:
+            raise ValueError("Saved conversation references could not be verified at startup.")
+
+    @staticmethod
+    def _message_attachment_ids(conversation: Conversation) -> set[str]:
+        """Extract unique upload references from one committed transcript."""
+        return {
+            source["attachment_id"] for message in conversation.messages
+            for source in message.attachment_sources if source["source"] == "upload"
+        }
+
+    def _index_attachments(self, conversation_id: str, identities: set[str]) -> set[str]:
+        """Publish reference changes only after the matching disk mutation succeeds."""
+        previous = self._attachment_references.get(conversation_id, set())
+        for identity in previous - identities:
+            self._attachment_counts[identity] -= 1
+            if not self._attachment_counts[identity]:
+                del self._attachment_counts[identity]
+        self._attachment_counts.update(identities - previous)
+        self._attachment_references[conversation_id] = identities
+        return previous - identities
+
+    def _notify_attachments(self, identities: set[str]) -> None:
+        """Notify cleanup after commitment without rolling back a successfully saved transcript."""
+        if identities and self.on_attachments_released is not None:
+            try:
+                self.on_attachments_released(identities)
+            except Exception:
+                logger.exception("Could not schedule released attachment copies for cleanup.")
 
     def replace_reply(
         self,
