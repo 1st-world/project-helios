@@ -8,10 +8,14 @@ export function createAttachmentDrafts({ getFiles }) {
   let refresh = false;
   const observed = new Set();
 
-  function snapshot() {
-    const identities = [...new Set(getFiles().filter(file => file.reference.source === 'upload' && file.available !== false).map(file => file.reference.attachment_id))].sort();
-    identities.forEach(identity => observed.add(identity));
-    return identities;
+  function getDesiredIds() {
+    return [...new Set(getFiles().filter(file => file.reference.source === 'upload' && file.available !== false).map(file => file.reference.attachment_id))].sort();
+  }
+
+  function capture() {
+    // Remember copies immediately, even if a later selection replaces the queued snapshot.
+    desired = getDesiredIds();
+    desired.forEach(identity => observed.add(identity));
   }
 
   function releasedIds() {
@@ -19,11 +23,10 @@ export function createAttachmentDrafts({ getFiles }) {
     return [...observed].filter(identity => !retained.has(identity));
   }
 
-  async function flush() {
-    desired = snapshot();
+  async function synchronize() {
     if (running) {
       await running;
-      return flush();
+      return synchronize();
     }
     if (!refresh && JSON.stringify(desired) === saved && !releasedIds().length) return;
     running = (async () => {
@@ -45,20 +48,29 @@ export function createAttachmentDrafts({ getFiles }) {
     finally { running = null; }
   }
 
-  function update() {
-    // Remember copies immediately, even if a later selection replaces the queued snapshot.
-    desired = snapshot();
+  function flush() {
+    capture();
+    return synchronize();
+  }
+
+  function schedule() {
     // Coalesce synchronous resets and restores before releasing any existing selection.
-    queueMicrotask(() => { flush().catch(() => { /* Retry on the next change or renewal. */ }); });
+    queueMicrotask(() => { synchronize().catch(() => { /* Retry on the next change or renewal. */ }); });
+  }
+
+  function update() {
+    capture();
+    schedule();
   }
 
   function renew() {
-    refresh = snapshot().length > 0;
-    update();
+    capture();
+    refresh ||= desired.length > 0;
+    schedule();
   }
 
   function init() {
-    setInterval(renew, 60000);
+    setInterval(renew, 15 * 60 * 1000);
     window.addEventListener('pageshow', renew);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) renew(); });
     update();

@@ -5,6 +5,10 @@ import re
 from services.provider_errors import ProviderFailure
 
 
+class AttachmentReferencesUnavailableError(ValueError):
+    """A startup reference inventory needs repair and restart before safe deletion."""
+
+
 class AttachmentError(ValueError):
     """Describe a file-specific failure without exposing file contents or storage paths."""
 

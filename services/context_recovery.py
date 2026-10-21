@@ -71,10 +71,12 @@ class ContextRecoveryRegistry:
         self._busy: set[str] = set()
         self.on_attachments_changed: Callable[[set[str]], None] | None = None
 
-    def _prune(self) -> None:
+    def _prune(self, *, notify: bool = True) -> set[str]:
         """Drop expired snapshots while active operations retain their own references."""
         now = monotonic()
-        self._discard({key for key, ticket in self._tickets.items() if ticket.expires <= now})
+        return self._discard(
+            {key for key, ticket in self._tickets.items() if ticket.expires <= now}, notify=notify,
+        )
 
     @staticmethod
     def _ticket_attachment_ids(ticket: RecoveryTicket) -> set[str]:
@@ -84,12 +86,14 @@ class ContextRecoveryRegistry:
             if source.get("source") == "upload"
         }
 
-    def _discard(self, ticket_ids: set[str]) -> None:
+    def _discard(self, ticket_ids: set[str], *, notify: bool = True) -> set[str]:
         """Release copies when receipts expire, are evicted, or lose their conversation."""
         identities = set()
         for key in ticket_ids:
             identities.update(self._ticket_attachment_ids(self._tickets.pop(key)))
-        self._notify_attachments(identities)
+        if notify:
+            self._notify_attachments(identities)
+        return identities
 
     def _notify_attachments(self, identities: set[str]) -> None:
         """Wake targeted cleanup when receipt ownership changes."""
@@ -110,9 +114,9 @@ class ContextRecoveryRegistry:
             default=None,
         )
 
-    def prune(self) -> None:
-        """Expire scheduled receipts without waiting for another user request."""
-        self._prune()
+    def prune(self) -> set[str]:
+        """Return scheduled expirations directly without notifying the consuming scheduler."""
+        return self._prune(notify=False)
 
     @staticmethod
     def _weight(value) -> int:

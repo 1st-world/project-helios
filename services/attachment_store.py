@@ -9,12 +9,12 @@ import hashlib
 import logging
 import os
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
-from time import time
+from time import monotonic, time
 from uuid import UUID, uuid4
 
 from services.attachment_errors import AttachmentError
@@ -265,6 +265,7 @@ class AttachmentStore:
                 previous = {row[0] for row in db.execute(
                     "SELECT attachment_id FROM attachment_drafts WHERE draft_id=?", (draft_id,),
                 )}
+                removed = (previous - identities) | released
                 for identity in identities - previous:
                     self.get(identity)
                 if identities == previous:
@@ -282,13 +283,26 @@ class AttachmentStore:
                         "UPDATE uploads SET unclaimed_until=0 WHERE id=?",
                         [(identity,) for identity in identities - previous],
                     )
+                self._make_eligible(db, removed)
                 db.commit()
-            removed = (previous - identities) | released
-            try:
-                if removed:
-                    self.collect(removed)
-            finally:
-                self._changed()
+            self._released.update(removed)
+            self._changed(removed)
+
+    @staticmethod
+    def _batches(identities: set[str]) -> Iterator[tuple[str, ...]]:
+        """Bound SQL parameters while querying only the affected upload identities."""
+        ordered = sorted(identities)
+        for start in range(0, len(ordered), 500):
+            yield tuple(ordered[start:start + 500])
+
+    def _make_eligible(self, db: sqlite3.Connection, identities: set[str]) -> None:
+        """Persist release intent in the same transaction as its owning draft change."""
+        for batch in self._batches(identities):
+            placeholders = ",".join("?" for _ in batch)
+            db.execute(
+                "UPDATE uploads SET unclaimed_until=0 WHERE deleted=0 "
+                f"AND unclaimed_until>0 AND id IN ({placeholders})", batch,
+            )
 
     def collect(self, candidates: set[str] | None = None) -> list[str]:
         """Collect affected or newly expired copies; reconcile all eligible records only once."""
@@ -313,38 +327,45 @@ class AttachmentStore:
                         "SELECT id FROM uploads WHERE deleted=0 AND unclaimed_until=0",
                     ))
                 db.execute("DELETE FROM attachment_drafts WHERE expires_at<=?", (now,))
-                db.executemany(
-                    "UPDATE uploads SET unclaimed_until=0 WHERE id=?",
-                    [(identity,) for identity in pending],
-                )
+                self._make_eligible(db, pending)
                 db.commit()
                 # Persist release intent before ownership verification can defer deletion.
                 self._released.update(pending)
-                identities = {
-                    identity for identity in pending
-                    if db.execute("SELECT 1 FROM uploads WHERE id=? AND deleted=0", (identity,)).fetchone()
-                    and not self._is_protected(identity, db)
-                }
-                db.executemany(
-                    "UPDATE uploads SET deleted=1 WHERE id=?",
-                    [(identity,) for identity in identities],
-                )
+                identities = set()
+                for batch in self._batches(pending):
+                    placeholders = ",".join("?" for _ in batch)
+                    rows = db.execute(
+                        "SELECT id FROM uploads WHERE deleted=0 "
+                        f"AND id IN ({placeholders}) AND NOT EXISTS ("
+                        "SELECT 1 FROM attachment_drafts "
+                        "WHERE attachment_id=uploads.id AND expires_at>?)",
+                        (*batch, now),
+                    ).fetchall()
+                    identities.update(
+                        identity for (identity,) in rows
+                        if not self._busy.get(identity) and not self.referenced(identity)
+                    )
+                for batch in self._batches(identities):
+                    placeholders = ",".join("?" for _ in batch)
+                    db.execute(
+                        f"UPDATE uploads SET deleted=1 WHERE id IN ({placeholders})", batch,
+                    )
                 db.commit()
             self._released.clear()
             self._reconciled = True
-            retry = {name for name, (due, _) in self._retry_files.items() if due <= now}
+            retry = {name for name, (due, _) in self._retry_files.items() if due <= monotonic()}
             for name in retry | {f"{identity}.blob" for identity in identities}:
                 self._remove_file(name)
             return list(identities)
 
-    def next_cleanup_at(self) -> float | None:
-        """Return the earliest actual expiry or failed-file retry without a polling interval."""
+    def next_cleanup_delay(self) -> float | None:
+        """Combine persisted wall-clock expiries and monotonic retries as a wait duration."""
         with self._lock:
             if not self.root.exists():
                 return None
             self._initialize()
             if self._released:
-                return time()
+                return 0
             with closing(sqlite3.connect(self.root / "manifest.sqlite3")) as db:
                 deadlines = [
                     db.execute(
@@ -352,9 +373,10 @@ class AttachmentStore:
                         "WHERE deleted=0 AND unclaimed_until>0"
                     ).fetchone()[0],
                     db.execute("SELECT MIN(expires_at) FROM attachment_drafts").fetchone()[0],
-                    *(due for due, _ in self._retry_files.values()),
                 ]
-            return min((due for due in deadlines if due is not None), default=None)
+            delays = [max(0, due - time()) for due in deadlines if due is not None]
+            delays.extend(max(0, due - monotonic()) for due, _ in self._retry_files.values())
+            return min(delays, default=None)
 
     def _remove_file(self, name: str) -> None:
         """Retry only failed owned paths with exponential delay capped at five minutes."""
@@ -362,7 +384,7 @@ class AttachmentStore:
             (self.root / name).unlink(missing_ok=True)
         except OSError:
             attempts = self._retry_files.get(name, (0, 0))[1] + 1
-            self._retry_files[name] = (time() + min(2 ** min(attempts - 1, 9), 300), attempts)
+            self._retry_files[name] = (monotonic() + min(2 ** min(attempts - 1, 9), 300), attempts)
             logger.warning("Could not remove an unused attachment copy; a targeted retry was scheduled.", exc_info=True)
         else:
             self._retry_files.pop(name, None)

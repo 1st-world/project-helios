@@ -4,8 +4,9 @@ import asyncio
 import logging
 import sqlite3
 from threading import Lock
-from time import monotonic, time
+from time import monotonic
 
+from services.attachment_errors import AttachmentReferencesUnavailableError
 from services.attachment_store import AttachmentStore
 from services.context_recovery import ContextRecoveryRegistry
 from services.local_work import run_local
@@ -48,31 +49,37 @@ class AttachmentCleanup:
             self._loop = asyncio.get_running_loop()
             self._wake = asyncio.Event()
         first, failures, retry_at = True, 0, None
+        suspended = False
         try:
             while True:
                 self._wake.clear()
-                self.recovery.prune()
-                identities = self._take_pending()
+                identities = self.recovery.prune() | self._take_pending()
+                delay = None
                 try:
-                    due = await run_local(self.store.next_cleanup_at)
-                    if first or identities or (
-                        due is not None and due <= time()
-                        and (retry_at is None or retry_at <= time())
-                    ) or (retry_at is not None and retry_at <= time()):
-                        await run_local(self.store.collect, identities)
-                        due = await run_local(self.store.next_cleanup_at)
-                        failures, retry_at = 0, None
+                    if suspended or (retry_at is not None and retry_at > monotonic()):
+                        with self._lock:
+                            self._pending.update(identities)
+                    else:
+                        delay = await run_local(self.store.next_cleanup_delay)
+                        if first or identities or retry_at is not None or delay == 0:
+                            await run_local(self.store.collect, identities)
+                            delay = await run_local(self.store.next_cleanup_delay)
+                            failures, retry_at = 0, None
+                except AttachmentReferencesUnavailableError:
+                    with self._lock:
+                        self._pending.update(identities)
+                    suspended, retry_at, delay = True, None, None
+                    logger.warning("Automatic attachment cleanup is suspended. Repair the conversation files reported at startup and restart Helios to verify their references.")
                 except (OSError, sqlite3.Error, ValueError, KeyError, TypeError):
                     with self._lock:
                         self._pending.update(identities)
                     failures += 1
-                    retry_at = time() + min(2 ** min(failures - 1, 9), 300)
-                    due = retry_at
+                    retry_at = monotonic() + min(2 ** min(failures - 1, 9), 300)
                     logger.warning("Attachment cleanup was deferred because stored references could not be verified.", exc_info=True)
                 first = False
                 if retry_at is not None:
-                    due = retry_at
-                delays = [max(0, due - time())] if due is not None else []
+                    delay = max(0, retry_at - monotonic())
+                delays = [delay] if delay is not None else []
                 recovery_due = self.recovery.next_attachment_expiry()
                 if recovery_due is not None:
                     delays.append(max(0, recovery_due - monotonic()))

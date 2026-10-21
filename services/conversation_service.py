@@ -13,6 +13,7 @@ from uuid import UUID
 from models.conversation import Conversation
 from models.message import Message
 from models.workspace import WorkspaceBinding
+from services.attachment_errors import AttachmentReferencesUnavailableError
 from services.work_run_store import WorkRunStore
 
 logger = logging.getLogger(__name__)
@@ -285,9 +286,11 @@ class ConversationManager:
 
     def _require_attachment_index(self) -> None:
         """Preserve copies if startup skipped a transcript or its directory is unavailable."""
-        self._storage_root.stat()
         if not self._references_available:
-            raise ValueError("Saved conversation references could not be verified at startup.")
+            raise AttachmentReferencesUnavailableError(
+                "Saved conversation references could not be verified at startup."
+            )
+        self._storage_root.stat()
 
     @staticmethod
     def _message_attachment_ids(conversation: Conversation) -> set[str]:
