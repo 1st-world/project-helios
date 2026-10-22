@@ -3,6 +3,8 @@
 import { $, refreshIcons } from './ui.js';
 import { formatMessageTimestamp } from './timezone.js';
 import { showActionDialog } from './dialogs.js';
+import { renderExplorationEvidence } from './exploration-evidence.js';
+import { createDisclosure } from './disclosure.js';
 
 const toolLabels = { helios_project_list_files: 'List files', helios_project_search_text: 'Search text', helios_project_read_file: 'Read file' };
 const activeStates = new Set(['preparing', 'model', 'tools', 'ready']);
@@ -24,11 +26,6 @@ function usageText(usage) {
   return `${usage.expected_calls} response calls · ${tokens} · ${cost}${total.coverage_incomplete ? ' · incomplete records' : ''}`;
 }
 
-function rangeText(reference) {
-  if (reference.start_line == null) return `${reference.path}${reference.kind === 'directory' ? '/' : ''}`;
-  return `${reference.path} · ${reference.start_line}:${reference.start_column}–${reference.end_line}:${reference.end_column}`;
-}
-
 export function createExploration({ getWorkspace, chooseWorkspace, renderContent = render => render() }) {
   const choice = $('#explore-project');
   const tools = $('#work-tools');
@@ -45,6 +42,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, renderContent
   let historyController = null;
   let evidenceController = null;
   let evidenceOpener = null;
+  let evidenceDisclosures = [];
   let historyVisibility = true;
   let refreshTimer = null;
   let historyError = null;
@@ -129,8 +127,15 @@ export function createExploration({ getWorkspace, chooseWorkspace, renderContent
     card.usage.hidden = !historyVisibility;
   }
 
+  function clearEvidence() {
+    evidenceDisclosures.forEach(controller => controller.destroy());
+    evidenceDisclosures = [];
+    $('#exploration-evidence-content').replaceChildren();
+  }
+
   async function openEvidence(runId, step, opener) {
     evidenceController?.abort();
+    clearEvidence();
     const controller = new AbortController();
     evidenceController = controller;
     evidenceOpener = opener;
@@ -142,32 +147,16 @@ export function createExploration({ getWorkspace, chooseWorkspace, renderContent
       const query = new URLSearchParams({ response_id: step.response_id, call_id: step.call_id });
       const result = await json(`${base(id)}/${encodeURIComponent(runId)}/evidence?${query}`, controller.signal);
       if (controller !== evidenceController || !evidence.open || id !== conversationId) return;
-      target.replaceChildren();
-      const references = node('ul', null, 'evidence-references');
-      for (const reference of result.references) {
-        const item = node('li', rangeText(reference));
-        if (reference.file_version) item.append(node('small', `File revision: ${reference.file_version}`));
-        if (reference.byte_start != null) item.append(node('small', `Bytes ${reference.byte_start}–${reference.byte_end} (end exclusive)`));
-        references.append(item);
+      renderExplorationEvidence(target, result, step.name);
+      refreshIcons(target);
+      for (const details of target.querySelectorAll('.evidence-details')) {
+        evidenceDisclosures.push(createDisclosure(details, details.querySelector('.evidence-details-body')));
       }
-      if (references.childElementCount) {
-        target.append(node('p', 'Lines are 1-based; Unicode columns are 0-based. End positions are exclusive.'), references);
-      }
-      let payload;
-      try { payload = JSON.parse(result.output); } catch { payload = null; }
-      if (payload) {
-        target.append(node('p', `Scope: ${payload.scope ?? 'not available'} · ${payload.complete === true ? 'Page sequence ended' : 'Partial result'}${payload.next_cursor ? ' · continuation available' : ''}`));
-        target.append(node('p', `Omissions on this page: ${JSON.stringify(payload.omissions || {})}. Accumulated omissions: ${JSON.stringify(payload.omission_totals || {})}.`));
-        for (const item of payload.items || []) {
-          if (typeof item.text !== 'string') continue;
-          target.append(node('p', `${item.path || payload.scope || ''} · line ${item.line}, column ${item.snippet_column ?? item.column}${item.snippet_is_partial ? ' · partial snippet' : ''}`), node('pre', item.text));
-        }
-      }
-      const raw = node('details');
-      raw.append(node('summary', 'Original result (JSON): coverage, omissions and continuations'), node('pre', result.output));
-      target.append(raw);
     } catch (error) {
-      if (error.name !== 'AbortError' && controller === evidenceController) target.replaceChildren(node('p', error.message), button('Retry', () => openEvidence(runId, step, opener)));
+      if (error.name !== 'AbortError' && controller === evidenceController) {
+        clearEvidence();
+        target.replaceChildren(node('p', error.message), button('Retry', () => openEvidence(runId, step, opener)));
+      }
     }
   }
 
@@ -288,6 +277,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, renderContent
     historyController?.abort();
     historyController = new AbortController();
     evidenceController?.abort();
+    clearEvidence();
     if (evidence.open) evidence.close();
     conversationId = id;
     cards.clear();
@@ -355,7 +345,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, renderContent
     if (evidence.open) return;
     evidenceController?.abort();
     evidenceController = null;
-    $('#exploration-evidence-content').replaceChildren();
+    clearEvidence();
     if (evidenceOpener?.isConnected) evidenceOpener.focus({ preventScroll: true });
   });
   updateChoice();
