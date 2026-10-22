@@ -6,6 +6,7 @@ import { describeAttachmentNotes } from './attachments.js';
 import { calendarDate, formatMessageTimestamp, getTimezone } from './timezone.js';
 import { createDisclosure } from './disclosure.js';
 import { showActionDialog } from './dialogs.js';
+import { usageView } from './response-usage.js';
 
 export function createChat({ getActiveProfileId, getAttachmentSelection, restoreAttachments, onAttachmentsSaved, getWorkspaceContext = () => ({}), selectWorkspace, startWorkspaceDraft, adoptWorkspace, onAttachmentMetadata, clearFocusFiles, onGeneratingChange, onConversationChange, openSettings, exploration }) {
   const state = {
@@ -267,35 +268,13 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
   }
 
   function formatMessageUsage(meta) {
-    const summary = [];
-    const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
-    const inTokens = count(meta.input_tokens);
-    const outTokens = count(meta.output_tokens);
-    const totalTokens = count(meta.total_tokens) ?? (inTokens != null && outTokens != null ? count(inTokens + outTokens) : null);
-    if (totalTokens != null) {
-      summary.push(`<span class="message-meta-item">${totalTokens.toLocaleString()} tokens</span>`);
-    } else if (meta.usage_status) {
-      summary.push('<span class="message-meta-item">Tokens unknown</span>');
-    }
-    if (Number.isFinite(meta.response_time_ms) && meta.response_time_ms >= 0) {
-      summary.push(`<span class="message-meta-item">${(meta.response_time_ms / 1000).toFixed(1)}s</span>`);
-    }
-    if (Number.isFinite(meta.estimated_cost) && meta.estimated_cost >= 0) {
-      const qualification = meta.cost_status === 'complete' ? '' : meta.cost_status === 'partial' ? ' (Partial estimate)' : ' (Completeness unknown)';
-      summary.push(`<span class="message-meta-item message-meta-cost">$${meta.estimated_cost.toFixed(6)}${qualification}</span>`);
-    } else if (meta.cost_status || meta.estimated_cost != null) {
-      summary.push('<span class="message-meta-item">Cost unavailable</span>');
-    }
-    const fields = [['input_tokens', 'Input tokens'], ['output_tokens', 'Output tokens'],
-      ['uncached_input_tokens', 'Uncached input'], ['cache_read_tokens', 'Cache read'],
-      ['cache_write_tokens', 'Cache write'], ['reasoning_tokens', 'Reasoning']];
-    const rows = fields.filter(([name]) => meta[name] != null || ['input_tokens', 'output_tokens'].includes(name))
-      .map(([name, label]) => `<div><dt>${label}</dt><dd>${count(meta[name])?.toLocaleString() ?? 'Unknown'}</dd></div>`);
-    if (meta.is_long_context) {
+    const view = usageView(meta);
+    const summary = view.summary.map(item => `<span class="message-meta-item${item.cost ? ' message-meta-cost' : ''}">${escapeHtml(item.text)}</span>`);
+    const rows = view.rows.map(row => `<div><dt>${escapeHtml(row.label)}</dt><dd>${escapeHtml(row.value)}</dd></div>`);
+    if (view.longTier) {
       rows.push('<div><dt>Pricing tier</dt><dd><span class="message-meta-tag message-meta-tier">Long Tier</span></dd></div>');
     }
-    const hint = ['cache_read_tokens', 'cache_write_tokens', 'reasoning_tokens'].some(name => count(meta[name]) > 0)
-      ? '<p class="message-usage-hint">Cache tokens are included in input; reasoning tokens are included in output.</p>' : '';
+    const hint = view.hints.map(text => `<p class="message-usage-hint">${escapeHtml(text)}</p>`).join('');
     return summary.length ? `<summary class="message-usage-summary"><span class="message-usage-metrics">${summary.join('')}</span><span class="message-usage-toggle">Details<i data-lucide="chevron-down" aria-hidden="true"></i></span></summary><div class="message-usage-body"><dl class="message-usage-fields">${rows.join('')}</dl>${hint}</div>` : '';
   }
 
@@ -303,6 +282,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     chat.querySelector('.empty-state')?.remove();
     const el = document.createElement('article');
     el.className = `message ${role}`;
+    if (Number.isInteger(messageIndex)) el.dataset.messageIndex = String(messageIndex);
     const avatar = role === 'assistant' ? '<div class="avatar"><i data-lucide="sparkles"></i></div>' : '';
     const timestamp = '<span class="message-timestamp" hidden></span>';
     const metadata = role === 'assistant' ? `<div class="message-meta"><span class="message-meta-tag message-profile" hidden><i data-lucide="bot" aria-hidden="true"></i><span></span></span>${timestamp}</div>` : '';
@@ -318,8 +298,9 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     render(content);
 
     const setMeta = (newMeta) => {
-      const current = { ...messageMetadata.get(el), ...newMeta };
+      const current = { ...messageMetadata.get(el), ...newMeta, ...newMeta.response_metadata };
       messageMetadata.set(el, current);
+      if (current.run_id) el.dataset.runId = current.run_id;
       if (profileEl) {
         const profileLabel = current.profile_name || current.deployment;
         profileEl.hidden = !profileLabel;
@@ -492,20 +473,23 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     const wasNearBottom = isNearBottom();
     footerDisclosure.finish();
     disposeMessageDisclosures();
+    exploration?.prepareRender();
     chat.innerHTML = '';
-    data.messages.forEach((message, index) => {
+    const messageTargets = data.messages.map((message, index) => {
       const source = data.messages[index - 1];
       const regeneration = message.role === 'assistant' && source?.role === 'user'
         ? { userIndex: index - 1, content: source.content, hasFollowing: index < data.messages.length - 1 }
         : null;
-      appendMessage(message.role, message.content, index, false, false, message, regeneration);
+      const view = appendMessage(message.role, message.content, index, false, false, message, regeneration);
+      return { ...message, index, element: view.el };
     });
-    exploration?.show(data.id);
+    exploration?.show(data.id, messageTargets);
     renderRequestFeedback();
     updateConversationUsage();
     onConversationChange(state.conversationId);
     if (preserveScroll && !wasNearBottom) { chat.scrollTop = savedScrollTop; }
     else scrollDown(false);
+    exploration?.restorePosition({ preserveScroll: preserveScroll && !wasNearBottom });
     loadConversations();
     return true;
   }
@@ -745,8 +729,12 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
             requestFeedback.sourceCreatedAt = event.user_created_at || requestFeedback.sourceCreatedAt;
             if (requestViewVersion === state.conversationLoadVersion) onStart(event);
             if (event.user_created_at) user?.setMeta({ created_at: event.user_created_at });
+            if (user && Number.isInteger(event.user_index)) user.el.dataset.messageIndex = String(event.user_index);
           }
-          if (state.conversationId === requestFeedback.conversationId) exploration?.progress(event);
+          if (state.conversationId === requestFeedback.conversationId) exploration?.progress(event, {
+            user: user?.el || [...chat.querySelectorAll('.message.user')].find(message => Number(message.dataset.messageIndex) === (event.user_index ?? options.regenerateMessageIndex)),
+            assistant: assistant.el
+          });
           if (event.type === 'context_policy') contextPolicy = event;
           if (event.type === 'attachments' && Array.isArray(event.files)) {
             onAttachmentMetadata(event.files);
@@ -780,7 +768,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
           }
           if (event.type === 'done') {
             if (!options.recoveryId) onAttachmentsSaved();
-            if (event.created_at) assistant.setMeta({ created_at: event.created_at });
+            if (event.created_at || event.response_metadata) assistant.setMeta({ created_at: event.created_at, response_metadata: event.response_metadata });
             onFinish();
           }
           if (event.type === 'error') {

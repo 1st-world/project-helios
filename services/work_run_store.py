@@ -7,9 +7,11 @@ import json
 import sqlite3
 from dataclasses import asdict
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
 
+from models.message import Message
 from services.call_usage_store import CallUsageStore
 from services.context_budget import ContextChangedError
 from services.response_outcome import ResponseOutcome
@@ -282,7 +284,7 @@ class WorkRunStore:
         )]
 
     def history(self, conversation_id: str, *, before: int | None = None,
-                limit: int = 20) -> dict:
+                limit: int = 20, messages: list[Message] | None = None) -> dict:
         """Page run metadata without loading any provider output or tool results."""
         if (not 1 <= limit <= 50
                 or (before is not None and not 1 <= before < 2 ** 63)):
@@ -294,14 +296,16 @@ class WorkRunStore:
         ).fetchall()
         return {
             "runs": [
-                self.public_metadata(json.loads(raw))
+                self.public_metadata(json.loads(raw), messages=messages)
                 for _, raw in rows[:limit]
             ],
             "next_before": rows[limit - 1][0] if len(rows) > limit else None,
         }
 
     @staticmethod
-    def public_metadata(run: dict) -> dict:
+    def public_metadata(
+        run: dict, *, messages: list[Message] | None = None,
+    ) -> dict:
         """Project display metadata while omitting the host root and internal policies."""
         snapshot = run.get("snapshot", {})
         root = snapshot.get("workspace", {}).get("root")
@@ -320,7 +324,42 @@ class WorkRunStore:
                 key: profile.get(key) for key in ("id", "name", "deployment")
             },
             "goals": snapshot.get("goals", {}),
+            "message_link": WorkRunStore.message_link(run, messages or []),
         }
+
+    @staticmethod
+    def message_link(run: dict, messages: list[Message]) -> dict:
+        """Resolve only exact current transcript references, leaving old branches unlinked."""
+        empty = {"user_index": None, "assistant_index": None}
+        answers = [
+            index for index, message in enumerate(messages)
+            if message.role == "assistant" and message.run_id == run["id"]
+        ]
+        if len(answers) > 1:
+            return empty
+        if answers:
+            index = answers[0]
+            return {
+                "user_index": (
+                    index - 1 if index > 0 and messages[index - 1].role == "user"
+                    else None
+                ),
+                "assistant_index": index,
+            }
+        source = run.get("snapshot", {}).get("source_message")
+        if not isinstance(source, dict):
+            return empty
+        index = source.get("user_index")
+        if type(index) is not int or not 0 <= index < len(messages):
+            return empty
+        message = messages[index]
+        if (message.role != "user"
+                or source.get("created_at") != message.created_at.isoformat()
+                or source.get("content_sha256") != sha256(
+                    message.content.encode("utf-8")
+                ).hexdigest()):
+            return empty
+        return {"user_index": index, "assistant_index": None}
 
     def activity(self, run_id: str, *, offset: int = 0, limit: int = 30) -> dict:
         """Page ordered model and tool facts without returning opaque model content."""
@@ -393,6 +432,57 @@ class WorkRunStore:
         return call_store.run_totals(
             run_id, expected_call_ids=call_ids,
         )
+
+    def response_metadata(
+        self, run_id: str, conversation_id: str, call_store: CallUsageStore,
+    ) -> dict:
+        """Project whole-response display facts without persisting aggregate usage twice."""
+        run = self.get(run_id, conversation_id)
+        usage = self.usage(run_id, call_store)
+        totals = usage["totals"]
+        profile = run.get("snapshot", {}).get("profile", {})
+        recorded = totals["calls"]
+        metadata = {
+            "usage_scope": "work_run", "response_calls": usage["expected_calls"],
+            "recorded_response_calls": recorded,
+            "usage_status": totals["usage_status"] if recorded else "unavailable",
+            "cost_status": totals["cost_status"] if recorded else "unavailable",
+            "coverage_incomplete": totals["coverage_incomplete"],
+            "partial_token_fields": [],
+            "estimated_cost": (
+                totals["known_estimated_cost"]
+                if recorded and totals["cost_status"] != "unavailable" else None
+            ),
+            **{key: profile.get(source) for key, source in (
+                ("profile_id", "id"), ("profile_name", "name"),
+                ("deployment", "deployment"),
+            ) if profile.get(source) is not None},
+        }
+        for field in (
+            "input_tokens", "output_tokens", "total_tokens",
+            "uncached_input_tokens", "cache_read_tokens", "cache_write_tokens",
+            "reasoning_tokens",
+        ):
+            metadata[field] = (
+                totals[field] if recorded > totals[f"unknown_{field}_calls"]
+                else None
+            )
+            if metadata[field] is not None and (
+                totals[f"unknown_{field}_calls"] or usage["missing_call_ids"]
+            ):
+                metadata["partial_token_fields"].append(field)
+        metadata["response_time_ms"] = None
+        if run.get("started_at") and run.get("finished_at"):
+            try:
+                start = datetime.fromisoformat(run["started_at"])
+                finish = datetime.fromisoformat(run["finished_at"])
+                if start.tzinfo is not None and finish.tzinfo is not None:
+                    elapsed = (finish - start).total_seconds() * 1000
+                    if elapsed >= 0:
+                        metadata["response_time_ms"] = elapsed
+            except (TypeError, ValueError):
+                pass
+        return metadata
 
     def context(self, run_id: str, conversation_id: str, *,
                 completed: bool = True) -> list[dict]:

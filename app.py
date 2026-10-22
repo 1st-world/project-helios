@@ -9,6 +9,7 @@ from copy import copy
 from contextlib import aclosing, asynccontextmanager
 from dataclasses import asdict, replace
 from datetime import date
+from hashlib import sha256
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import ClassVar, Literal
@@ -731,6 +732,19 @@ async def create_conversation():
     return conversation_manager.create().to_dict()
 
 
+def response_display_metadata(run_id: str, conversation_id: str) -> dict:
+    """Keep a saved answer readable when its independent accounting is unavailable."""
+    try:
+        return work_run_store.response_metadata(
+            run_id, conversation_id, call_usage_store,
+        )
+    except (WorkContextUnavailableError, sqlite3.Error):
+        return {
+            "usage_scope": "work_run", "usage_status": "unavailable",
+            "cost_status": "unavailable", "coverage_incomplete": True,
+        }
+
+
 @app.get("/api/conversations/{conversation_id}")
 async def get_conversation(conversation_id: str):
     """Return a conversation with its complete transcript or report it missing."""
@@ -738,6 +752,12 @@ async def get_conversation(conversation_id: str):
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found.")
     data = conversation.to_dict()
+    for message in data["messages"]:
+        if message["role"] != "assistant" or not message.get("run_id"):
+            continue
+        message["response_metadata"] = response_display_metadata(
+            message["run_id"], conversation_id,
+        )
     workspace = conversation_workspaces.for_conversation(conversation)
     data["workspace_available"] = await run_local(workspace.is_available)
     return data
@@ -776,7 +796,9 @@ async def work_history(conversation_id: str, before: int | None = None):
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found.")
     try:
-        page = work_run_store.history(conversation_id, before=before)
+        page = work_run_store.history(
+            conversation_id, before=before, messages=conversation.messages,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     adopted = {
@@ -792,6 +814,7 @@ async def work_history(conversation_id: str, before: int | None = None):
 async def work_activity(conversation_id: str, run_id: str, offset: int = 0):
     """Return one bounded activity page without private provider reasoning or output."""
     run = require_work_run(conversation_id, run_id)
+    conversation = conversation_manager.get(conversation_id)
     try:
         page = work_run_store.activity(run_id, offset=offset)
     except ValueError as exc:
@@ -800,7 +823,9 @@ async def work_activity(conversation_id: str, run_id: str, offset: int = 0):
         if step["kind"] == "model":
             step["record"] = call_usage_store.get_record(step["call_id"])
     return {
-        **page, "run": work_run_store.public_metadata(run),
+        **page, "run": work_run_store.public_metadata(
+            run, messages=conversation.messages,
+        ),
         "usage": work_run_store.usage(run_id, call_usage_store),
     }
 
@@ -2075,11 +2100,23 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
         try:
             outgoing_instructions, outgoing_messages = current_inputs()
             if payload.explore_project:
+                source_user_index = (
+                    payload.regenerate_message_index
+                    if payload.regenerate_message_index is not None
+                    else len(turn_messages) - 1
+                )
                 run_id = work_run_store.create(
                     conversation.id, turn_version,
                     kind="regeneration" if payload.regenerate_message_index is not None else "explore",
                     user_index=payload.regenerate_message_index,
                     snapshot={
+                        "source_message": {
+                            "user_index": source_user_index,
+                            "created_at": user_message.created_at.isoformat(),
+                            "content_sha256": sha256(
+                                user_message.content.encode("utf-8")
+                            ).hexdigest(),
+                        },
                         "workspace": {
                             "root": str(request_workspace.root),
                             "revision": request_workspace.revision,
@@ -2105,6 +2142,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
             }
             if run_id is not None:
                 start_event["run_id"] = run_id
+                start_event["user_index"] = source_user_index
             yield f"data: {json.dumps(start_event)}\n\n"
             if attachments.metadata:
                 metadata_event = {
@@ -2218,6 +2256,9 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
             }
             if run_id is not None:
                 done_event["run_id"] = run_id
+                done_event["response_metadata"] = response_display_metadata(
+                    run_id, conversation.id,
+                )
             yield f"data: {json.dumps(done_event)}\n\n"
         except ConversationUnavailableError:
             logger.info(
