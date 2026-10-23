@@ -4,6 +4,8 @@ Run content is durable application data, separate from the content-free usage le
 """
 
 import json
+import math
+import re
 import sqlite3
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -324,8 +326,41 @@ class WorkRunStore:
                 key: profile.get(key) for key in ("id", "name", "deployment")
             },
             "goals": snapshot.get("goals", {}),
+            "failure": WorkRunStore.failure_details(run.get("failure")),
             "message_link": WorkRunStore.message_link(run, messages or []),
         }
+
+    @staticmethod
+    def failure_details(failure: dict | None) -> dict:
+        """Allow only content-free diagnostics already intended for client feedback."""
+        if not isinstance(failure, dict):
+            return {}
+        safe = {}
+        for key in ("code", "category", "phase", "response_status"):
+            value = failure.get(key)
+            if isinstance(value, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,127}", value):
+                safe[key] = value
+        request_id = failure.get("request_id")
+        if isinstance(request_id, str) and re.fullmatch(r"[A-Za-z0-9._-]{1,256}", request_id):
+            safe["request_id"] = request_id
+        status = failure.get("http_status")
+        if type(status) is int and 100 <= status <= 599:
+            safe["http_status"] = status
+        retry = failure.get("retry_after_seconds")
+        if type(retry) in (int, float) and math.isfinite(retry) and retry >= 0:
+            safe["retry_after_seconds"] = retry
+        return safe
+
+    def record_failure(self, run_id: str, failure: dict) -> None:
+        """Attach safe terminal feedback without changing finish time, steps, or accounting."""
+        run = self.get(run_id)
+        if run["status"] not in {"failed", "stopped"}:
+            return
+        run["failure"] = self.failure_details(failure)
+        with self.connection:
+            self.connection.execute(
+                "UPDATE work_runs SET data=? WHERE id=?", (_json(run), run_id),
+            )
 
     @staticmethod
     def message_link(run: dict, messages: list[Message]) -> dict:

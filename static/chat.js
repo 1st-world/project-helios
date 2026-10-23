@@ -2,11 +2,12 @@
 
 import { $, closeMobileSidebar, escapeHtml, refreshIcons, toast } from './ui.js';
 import { describeContextWarning, describeRequestError } from './chat-feedback.js';
+import { describeWorkRun } from './work-run-status.js';
 import { describeAttachmentNotes } from './attachments.js';
 import { calendarDate, formatMessageTimestamp, getTimezone } from './timezone.js';
 import { createDisclosure } from './disclosure.js';
 import { showActionDialog } from './dialogs.js';
-import { usageView } from './response-usage.js';
+import { createResponseFooter } from './response-footer.js';
 
 export function createChat({ getActiveProfileId, getAttachmentSelection, restoreAttachments, onAttachmentsSaved, getWorkspaceContext = () => ({}), selectWorkspace, startWorkspaceDraft, adoptWorkspace, onAttachmentMetadata, clearFocusFiles, onGeneratingChange, onConversationChange, openSettings, exploration }) {
   const state = {
@@ -23,7 +24,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
 
   const chat = $('#chat');
   const messageMetadata = new WeakMap();
-  const usageDisclosures = new WeakMap();
+  const responseFooters = new Map();
   let timestampRefreshTimer = null;
   let timestampDay = '';
   let timestampTimezone = '';
@@ -140,10 +141,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     const wasNearBottom = isNearBottom();
     state.showResponseUsage = visible;
     exploration?.setUsageVisibility(visible);
-    chat.querySelectorAll('.message-usage').forEach(el => {
-      if (!visible) usageDisclosures.get(el)?.finish();
-      el.hidden = !visible;
-    });
+    responseFooters.forEach(footer => footer.setUsageVisibility(visible));
     if (wasNearBottom) scrollDown(false);
   }
 
@@ -225,6 +223,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
   }
 
   function renderMessageTimestamp(el) {
+    if (el.classList.contains('assistant')) return responseFooters.get(el)?.refreshTimestamp();
     const meta = messageMetadata.get(el) || {};
     const label = el.querySelector('.message-timestamp');
     const timestamp = formatMessageTimestamp(meta.created_at);
@@ -245,10 +244,11 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
   }
 
   function disposeMessageDisclosures(root = chat) {
-    root.querySelectorAll('.message-usage').forEach(details => {
-      usageDisclosures.get(details)?.destroy();
-      usageDisclosures.delete(details);
-    });
+    for (const [message, footer] of responseFooters) {
+      if (message !== root && !root.contains(message)) continue;
+      footer.destroy();
+      responseFooters.delete(message);
+    }
   }
 
   function refreshMessageTimestamps(force = false) {
@@ -258,24 +258,14 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     const timezone = getTimezone();
     if (force || day !== timestampDay || timezone !== timestampTimezone) {
       const wasNearBottom = isNearBottom();
-      chat.querySelectorAll('.message').forEach(renderMessageTimestamp);
+      chat.querySelectorAll('.message.user, .message.assistant').forEach(renderMessageTimestamp);
+      exploration?.refreshTimestamps();
       timestampDay = day;
       timestampTimezone = timezone;
       if (wasNearBottom) scrollDown(false);
     }
     // Check minute boundaries rather than assuming calendar days last 24 hours across timezone changes and DST.
     timestampRefreshTimer = setTimeout(refreshMessageTimestamps, 60000 - Date.now() % 60000);
-  }
-
-  function formatMessageUsage(meta) {
-    const view = usageView(meta);
-    const summary = view.summary.map(item => `<span class="message-meta-item${item.cost ? ' message-meta-cost' : ''}">${escapeHtml(item.text)}</span>`);
-    const rows = view.rows.map(row => `<div><dt>${escapeHtml(row.label)}</dt><dd>${escapeHtml(row.value)}</dd></div>`);
-    if (view.longTier) {
-      rows.push('<div><dt>Pricing tier</dt><dd><span class="message-meta-tag message-meta-tier">Long Tier</span></dd></div>');
-    }
-    const hint = view.hints.map(text => `<p class="message-usage-hint">${escapeHtml(text)}</p>`).join('');
-    return summary.length ? `<summary class="message-usage-summary"><span class="message-usage-metrics">${summary.join('')}</span><span class="message-usage-toggle">Details<i data-lucide="chevron-down" aria-hidden="true"></i></span></summary><div class="message-usage-body"><dl class="message-usage-fields">${rows.join('')}</dl>${hint}</div>` : '';
   }
 
   function appendMessage(role, content = '', messageIndex = null, shouldScroll = true, smooth = false, meta = null, regeneration = null) {
@@ -285,11 +275,13 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     if (Number.isInteger(messageIndex)) el.dataset.messageIndex = String(messageIndex);
     const avatar = role === 'assistant' ? '<div class="avatar"><i data-lucide="sparkles"></i></div>' : '';
     const timestamp = '<span class="message-timestamp" hidden></span>';
-    const metadata = role === 'assistant' ? `<div class="message-meta"><span class="message-meta-tag message-profile" hidden><i data-lucide="bot" aria-hidden="true"></i><span></span></span>${timestamp}</div>` : '';
-    el.innerHTML = `${avatar}<div class="message-body"><div class="message-text"></div><div class="message-footer"><div class="message-footer-main">${metadata}<div class="message-actions">${role === 'user' ? timestamp : ''}<div class="message-action-buttons"></div></div></div></div></div>`;
+    el.innerHTML = `${avatar}<div class="message-body"><div class="message-text"></div><div class="message-footer"><div class="message-footer-main"><div class="message-actions">${role === 'user' ? timestamp : ''}<div class="message-action-buttons"></div></div></div></div></div>`;
     const textEl = el.querySelector('.message-text');
     const footer = el.querySelector('.message-footer');
-    const profileEl = el.querySelector('.message-profile');
+    const responseFooter = role === 'assistant' ? createResponseFooter(footer, { onResize() {
+      if (state.showResponseUsage && isNearBottom()) scrollDown(false);
+    } }) : null;
+    if (responseFooter) responseFooters.set(el, responseFooter);
     const actionsEl = el.querySelector('.message-action-buttons');
 
     const render = (text) => {
@@ -301,39 +293,10 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
       const current = { ...messageMetadata.get(el), ...newMeta, ...newMeta.response_metadata };
       messageMetadata.set(el, current);
       if (current.run_id) el.dataset.runId = current.run_id;
-      if (profileEl) {
-        const profileLabel = current.profile_name || current.deployment;
-        profileEl.hidden = !profileLabel;
-        profileEl.querySelector('span').textContent = profileLabel || '';
-      }
-      renderMessageTimestamp(el);
-      if (role === 'assistant' && Object.keys(newMeta).some(name => name !== 'created_at')) {
-        const markup = formatMessageUsage(current);
-        let usageEl = el.querySelector('.message-usage');
-        if (markup) {
-          if (!usageEl) {
-            usageEl = document.createElement('details');
-            usageEl.className = 'message-usage';
-            footer.append(usageEl);
-          }
-          usageDisclosures.get(usageEl)?.destroy();
-          usageEl.innerHTML = markup;
-          usageEl.hidden = !state.showResponseUsage;
-          const controller = createDisclosure(usageEl, usageEl.querySelector(':scope > .message-usage-body'));
-          const resizeObserver = new ResizeObserver(() => {
-            if (usageEl.isConnected && !usageEl.hidden && isNearBottom()) scrollDown(false);
-          });
-          resizeObserver.observe(usageEl);
-          usageDisclosures.set(usageEl, {
-            finish: controller.finish,
-            destroy() { resizeObserver.disconnect(); controller.destroy(); }
-          });
-        } else if (usageEl) {
-          usageDisclosures.get(usageEl)?.destroy();
-          usageDisclosures.delete(usageEl);
-          usageEl.remove();
-        }
-      }
+      if (responseFooter) {
+        responseFooter.update(current);
+        responseFooter.setUsageVisibility(state.showResponseUsage);
+      } else renderMessageTimestamp(el);
       refreshIcons();
     };
     if (meta) setMeta(meta);
@@ -399,10 +362,6 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
 
   function onFinish() {
     loadConversations();
-  }
-
-  function onError(message) {
-    toast(message, 'error');
   }
 
   function onAbort(assistant, answer) {
@@ -688,6 +647,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     const answer = { value: '' };
     let contextPolicy = null;
     let requestStarted = false;
+    let workRunId = null;
     try {
       state.controller = new AbortController();
       const response = await fetch('/api/chat', {
@@ -724,6 +684,8 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
           if (!frame.startsWith('data: ')) continue;
           const event = JSON.parse(frame.slice(6));
           if (event.type === 'start') {
+            workRunId = event.run_id || null;
+            if (workRunId) assistant.el.hidden = true;
             requestStarted = true;
             requestFeedback.conversationId = event.conversation_id;
             requestFeedback.sourceCreatedAt = event.user_created_at || requestFeedback.sourceCreatedAt;
@@ -767,28 +729,41 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
             }
           }
           if (event.type === 'done') {
+            assistant.el.hidden = false;
             if (!options.recoveryId) onAttachmentsSaved();
             if (event.created_at || event.response_metadata) assistant.setMeta({ created_at: event.created_at, response_metadata: event.response_metadata });
             onFinish();
           }
           if (event.type === 'error') {
             const feedback = describeRequestError(event, 'Unable to generate a response.');
-            throw Object.assign(new Error(feedback.message), { feedback });
+            throw Object.assign(new Error(feedback.message), { feedback, workRun: event.run_id ? { status: event.run_status, reason: event.code, failure: event } : null });
           }
         }
       }
     } catch (error) {
       if (error.name === 'AbortError') {
-        onAbort(assistant, answer);
+        if (workRunId) {
+          disposeMessageDisclosures(assistant.el);
+          assistant.el.remove();
+          exploration?.progress({ type: 'cancel_requested', run_id: workRunId });
+        } else onAbort(assistant, answer);
       } else {
         if (!requestStarted && !options.preserveDraft && requestViewVersion === state.conversationLoadVersion && state.conversationId === requestConversationId && !prompt.value) {
           prompt.value = text;
           autoResize();
         }
-        assistant.render(answer.value || '_Unable to generate a response._');
-        const feedback = error.feedback || describeRequestError({ message: error.message });
-        addRequestFeedback(requestFeedback, 'error', feedback);
-        onError(feedback.title);
+        if ((error.workRun || workRunId) && exploration) {
+          disposeMessageDisclosures(assistant.el);
+          assistant.el.remove();
+          const outcome = describeWorkRun(error.workRun || { status: 'unavailable' });
+          toast(outcome.label, outcome.tone === 'neutral' ? 'info' : outcome.tone);
+        } else {
+          assistant.render(answer.value || '_Unable to generate a response._');
+          const feedback = error.feedback || describeRequestError({ message: error.message });
+          const type = feedback.tone || 'error';
+          addRequestFeedback(requestFeedback, type, feedback);
+          toast(feedback.title, type);
+        }
       }
     } finally {
       state.controller = null;
@@ -802,6 +777,28 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
         setGenerating(false);
       }
     }
+  }
+
+  async function prepareExploration({ conversationId, source }) {
+    if (state.generating || messageEditor) return toast('Finish the current response or message edit before preparing another exploration.', 'info');
+    const viewVersion = state.conversationLoadVersion;
+    const isCurrent = () => {
+      if (state.generating || state.conversationId !== conversationId || viewVersion !== state.conversationLoadVersion || !source) return false;
+      const message = [...chat.querySelectorAll('.message.user')].find(element => Number(element.dataset.messageIndex) === source.index);
+      const metadata = message && messageMetadata.get(message);
+      return metadata?.created_at === source.created_at && metadata?.content === source.content;
+    };
+    if (!isCurrent()) return toast('The original question is no longer available in this conversation branch.', 'info');
+    const replacesDraft = prompt.value.trim() && prompt.value !== source.content;
+    if (!await showActionDialog({ title: 'Prepare a new exploration?',
+      description: 'Copy this question to the composer and select Explore project. Review the current Workspace, model, attachments and applied limits before sending. The saved attempt is not resumed, and nothing is sent until you press Send.'
+        + (replacesDraft ? ' This replaces your current message draft.' : ''),
+      confirmLabel: 'Prepare', danger: Boolean(replacesDraft) }) || !isCurrent()) return;
+    if (!await exploration.selectForNextResponse(isCurrent) || !isCurrent()) return;
+    prompt.value = source.content;
+    autoResize();
+    prompt.focus();
+    toast('Exploration prepared. Review the current settings and press Send when ready.', 'info');
   }
 
   async function regenerateResponse({ userIndex, content, hasFollowing }) {
@@ -867,7 +864,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     };
   }
 
-  return { init, newChat, setUsageVisibility, setResponseUsageVisibility, renderUsageContent, usageFooter, isGenerating: () => state.generating,
+  return { init, newChat, prepareExploration, setUsageVisibility, setResponseUsageVisibility, renderUsageContent, usageFooter, isGenerating: () => state.generating,
     setWorkspaceVersion(id, version) { if (id === state.conversationId && Number.isSafeInteger(version)) state.conversationVersion = version; }
   };
 }

@@ -2056,6 +2056,11 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                     "conversation_changed", "context_recovery_unavailable", "context_preflight_blocked",
                 } else "failed"
                 recorded = stop_run(status, error.get("code", "request_failed"))
+                if recorded:
+                    try:
+                        work_run_store.record_failure(run_id, error)
+                    except Exception as exc:
+                        logger.warning("Could not retain work feedback (error_type=%s)", type(exc).__name__)
                 try:
                     run_status = work_run_store.get(run_id)["status"] if recorded else "unavailable"
                     run_usage = work_run_store.usage(run_id, call_usage_store)

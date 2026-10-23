@@ -112,6 +112,7 @@ export function describeRequestError(payload, fallback = 'Request failed.', stat
   const statusAlreadyShown = status === `HTTP ${detail?.http_status}` && details.includes(`Provider HTTP status: ${detail?.http_status}`);
   if (status && !statusAlreadyShown) details.push(status);
   return { title, message: message || fallback, details: details.filter(Boolean),
+    ...(blocked ? { tone: 'warning' } : {}),
     actions: recoveryActions(code),
     ...(code === 'provider_context_length_exceeded' && detail.recovery?.available === true ? { recovery: detail.recovery } : {}) };
 }

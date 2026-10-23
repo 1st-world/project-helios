@@ -1,5 +1,26 @@
 /* Describe response and model-call usage with explicit aggregate scope and incomplete-record qualifiers. */
 
+export function workRunMetadata(run = {}) {
+  const usage = run.usage;
+  const totals = usage?.totals;
+  const meta = { profile_name: run.profile?.name, deployment: run.profile?.deployment, created_at: run.started_at };
+  if (!totals) return meta;
+  const recorded = totals.calls ?? usage.expected_calls;
+  const empty = usage.expected_calls === 0;
+  Object.assign(meta, { usage_scope: 'work_run', response_calls: usage.expected_calls, recorded_response_calls: recorded,
+    usage_status: recorded || empty ? totals.usage_status : 'unavailable', cost_status: recorded || empty ? totals.cost_status : 'unavailable',
+    coverage_incomplete: totals.coverage_incomplete, partial_token_fields: [] });
+  for (const field of ['input_tokens', 'output_tokens', 'total_tokens', 'uncached_input_tokens', 'cache_read_tokens', 'cache_write_tokens', 'reasoning_tokens']) {
+    const unknown = totals[`unknown_${field}_calls`] || 0;
+    meta[field] = empty || recorded > unknown ? totals[field] ?? null : null;
+    if (meta[field] != null && (unknown || usage.missing_call_ids?.length)) meta.partial_token_fields.push(field);
+  }
+  meta.estimated_cost = (empty || recorded > (totals.unknown_cost_calls || 0)) && totals.cost_status !== 'unavailable' ? totals.known_estimated_cost : null;
+  const elapsed = Date.parse(run.finished_at) - Date.parse(run.started_at);
+  if (Number.isFinite(elapsed) && elapsed >= 0) meta.response_time_ms = elapsed;
+  return meta;
+}
+
 export function usageView(meta = {}) {
   const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
   const summary = [];

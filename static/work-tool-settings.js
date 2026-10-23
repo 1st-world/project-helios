@@ -61,12 +61,15 @@ export function createWorkToolSettings({ getWorkspace, isGenerating }) {
       confirmLabel: 'Discard changes', cancelLabel: 'Keep editing', danger: true });
   }
 
-  $('#work-tools-settings').onclick = () => {
+  function open({ focusLimits = false } = {}) {
     $('#work-tools').open = false;
     restoreDraft();
     updateState();
     dialog.showModal();
-  };
+    if (focusLimits && !isGenerating()) $('#work-tools-call-limit').focus();
+  }
+
+  $('#work-tools-settings').onclick = open;
   form.onsubmit = event => {
     event.preventDefault();
     if (isGenerating()) return;
@@ -86,5 +89,5 @@ export function createWorkToolSettings({ getWorkspace, isGenerating }) {
   });
   restoreDraft();
   updateState();
-  return { limits: () => ({ ...applied }), beforeDialogClose, updateState };
+  return { limits: () => ({ ...applied }), beforeDialogClose, updateState, open };
 }

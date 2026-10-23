@@ -1,11 +1,12 @@
 /* Own one-response exploration consent, paged run activity, and immutable saved evidence views. */
 
-import { $, refreshIcons } from './ui.js';
-import { formatMessageTimestamp } from './timezone.js';
+import { $, refreshIcons, toast } from './ui.js';
 import { showActionDialog } from './dialogs.js';
 import { renderExplorationEvidence } from './exploration-evidence.js';
 import { createDisclosure } from './disclosure.js';
-import { usageView } from './response-usage.js';
+import { usageView, workRunMetadata } from './response-usage.js';
+import { createResponseFooter } from './response-footer.js';
+import { describeWorkRun, workStepStatus, WORK_ACTION_LABELS } from './work-run-status.js';
 
 const toolLabels = { helios_project_list_files: 'List files', helios_project_search_text: 'Search text', helios_project_read_file: 'Read file' };
 const activeStates = new Set(['preparing', 'model', 'tools', 'ready']);
@@ -17,17 +18,7 @@ function node(tag, text, className) {
   return element;
 }
 
-function usageText(usage) {
-  if (!usage) return 'Usage not yet recorded';
-  const total = usage.totals;
-  const tokens = total.usage_status === 'unavailable' ? 'tokens unavailable'
-    : `${Number(total.total_tokens).toLocaleString()} tokens${total.usage_status === 'partial' ? ' (partial)' : ''}`;
-  const cost = total.cost_status === 'unavailable' ? 'cost unavailable'
-    : `$${Number(total.known_estimated_cost).toFixed(6)}${total.cost_status === 'complete' ? '' : ' (partial estimate)'}`;
-  return `${usage.expected_calls} response calls · ${tokens} · ${cost}${total.coverage_incomplete ? ' · incomplete records' : ''}`;
-}
-
-export function createExploration({ getWorkspace, chooseWorkspace, getLimits = () => ({}), renderContent = render => render() }) {
+export function createExploration({ getWorkspace, chooseWorkspace, getLimits = () => ({}), onAction = () => {}, renderContent = render => render() }) {
   const choice = $('#explore-project');
   const tools = $('#work-tools');
   const evidence = $('#exploration-evidence-dialog');
@@ -66,6 +57,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     $('#work-tools-trigger').setAttribute('aria-label', count
       ? `Work tools: ${count} ${count === 1 ? 'tool' : 'tools'} selected for the next response` : 'Work tools: no tools selected');
     tools.classList.toggle('tools-selected', count > 0);
+    cards.forEach(card => card.controls?.forEach(control => { control.disabled = busy; }));
   }
 
   function resetChoice() {
@@ -123,35 +115,58 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     return source.element;
   }
 
+  function resultAnchor(card, question) {
+    const source = messageTargets.find(message => message.element === question);
+    const answer = source && messageTargets.find(message => message.role === 'assistant' && message.index === source.index + 1);
+    if (!answer?.element.isConnected) return question;
+    const started = Date.parse(card.run.started_at);
+    const saved = Date.parse(answer.created_at);
+    return started >= saved || (!Number.isFinite(started - saved) && card.run.kind === 'regeneration') ? answer.element : question;
+  }
+
   function placeCards() {
-    const destinations = new Map();
+    const positions = new Map();
+    let hasUnmatched = false;
     const ordered = [...cards.values()].sort((left, right) =>
       (Date.parse(left.run.started_at) || Infinity) - (Date.parse(right.run.started_at) || Infinity));
     for (const card of ordered) {
       const message = linkedMessage(card);
-      let destination = region;
-      if (message) {
+      let destination;
+      if (card.hasAnswer && message) {
         if (!messageRegions.has(message)) {
           const group = node('section', null, 'exploration-message exploration-records');
-          group.setAttribute('aria-label', message.classList.contains('assistant')
-            ? 'Project explorations for this answer' : 'Project explorations for this question');
+          group.setAttribute('aria-label', 'Project explorations for this answer');
           message.querySelector('.message-body').append(group);
           messageRegions.set(message, group);
         }
         destination = messageRegions.get(message);
+      } else {
+        ensureResult(card);
+        destination = card.resultActivity;
+        if (message) {
+          const anchor = resultAnchor(card, message);
+          const previous = positions.get(anchor) || anchor;
+          if (previous.nextSibling !== card.result) $('#chat').insertBefore(card.result, previous.nextSibling);
+          positions.set(anchor, card.result);
+        } else {
+          hasUnmatched = true;
+          if (card.result.parentElement !== region) region.append(card.result);
+        }
       }
-      if (!destinations.has(destination)) destinations.set(destination, []);
-      destinations.get(destination).push(card);
-    }
-    for (const [destination, group] of destinations) {
-      group.forEach((card, index) => {
-        const sibling = destination.querySelectorAll(':scope > .exploration-run')[index];
-        if (sibling === card.details) return;
+      if (card.details.parentElement !== destination) {
         const focused = document.activeElement;
-        const hadFocus = focused && card.details.contains(focused);
-        destination.insertBefore(card.details, sibling || null);
+        const hadFocus = focused && (card.details.contains(focused) || card.result?.contains(focused));
+        destination.append(card.details);
         if (hadFocus) focused.focus({ preventScroll: true });
-      });
+      }
+      if (card.hasAnswer && card.result) {
+        card.resultMetadata.destroy();
+        card.result.remove();
+        card.result = null;
+        card.resultMetadata = null;
+        card.resultActivity = null;
+        card.outcomeHost = null;
+      }
     }
     for (const [message, group] of messageRegions) {
       if (!group.childElementCount || !message.isConnected) {
@@ -159,7 +174,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
         messageRegions.delete(message);
       }
     }
-    if (destinations.has(region)) {
+    if (hasUnmatched) {
       if (!historyHeading.isConnected) region.prepend(historyHeading, historyHint);
     } else {
       historyHeading.remove();
@@ -168,20 +183,93 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     attach();
   }
 
+  function ensureResult(card) {
+    if (card.result) return;
+    card.result = node('article', null, 'message work-result');
+    card.result.dataset.runId = card.run.id;
+    card.result.setAttribute('aria-label', 'App work result');
+    const avatar = node('div', null, 'avatar');
+    const icon = node('i');
+    icon.setAttribute('data-lucide', 'workflow');
+    icon.setAttribute('aria-hidden', 'true');
+    avatar.append(icon);
+    const body = node('div', null, 'message-body');
+    card.outcomeHost = node('section', null, 'exploration-result exploration-records');
+    const footer = node('div', null, 'message-footer');
+    card.resultActivity = node('section', null, 'exploration-message exploration-records');
+    card.resultActivity.setAttribute('aria-label', 'Project explorations for this work result');
+    body.append(card.outcomeHost, footer, card.resultActivity);
+    card.result.append(avatar, body);
+    card.resultMetadata = createResponseFooter(footer, { timeLabel: 'Run started', onResize() { renderContent(() => {}); } });
+    refreshIcons(card.result);
+  }
+
   function statusText(run) {
-    const status = activeStates.has(run.status) ? 'In progress' : run.status;
-    return `Work activity · ${status}${run.adopted ? '' : run.status === 'completed' ? ' · answer outside current branch' : ''}`;
+    return `Work activity · ${describeWorkRun(run).label}`;
+  }
+
+  function sourceMessage(card) {
+    const owner = linkedMessage(card);
+    const target = messageTargets.find(message => message.element === owner);
+    if (!target) return null;
+    return target.role === 'user' ? target : messageTargets.find(message => message.role === 'user' && message.index === target.index - 1) || null;
+  }
+
+  function renderOutcome(card) {
+    card.hasAnswer = card.run.adopted === true && linkedMessage(card)?.classList.contains('assistant');
+    const outcome = describeWorkRun({ ...card.run, adopted: card.hasAnswer });
+    card.details.dataset.tone = outcome.tone;
+    if (card.hasAnswer) {
+      card.outcome?.remove();
+      card.outcome = null;
+      card.outcomeSignature = null;
+      card.controls = [];
+      return;
+    }
+    ensureResult(card);
+    card.result.dataset.tone = outcome.tone;
+    card.resultMetadata.update(workRunMetadata(card.run));
+    card.resultMetadata.setUsageVisibility(historyVisibility);
+    const source = sourceMessage(card);
+    const actions = outcome.actions.filter(action => action !== 'prepare-exploration' || source);
+    const signature = JSON.stringify([outcome, card.phase, actions, source?.index, source?.created_at, source?.content]);
+    if (signature === card.outcomeSignature) return;
+    const section = card.outcome || node('section', null, 'exploration-run-outcome');
+    section.dataset.tone = outcome.tone;
+    section.replaceChildren(node('p', 'App work result', 'exploration-outcome-source'),
+      node('h4', card.phase?.replace('Work activity · ', '') || outcome.label),
+      node('p', outcome.message || 'Project exploration is in progress. A final answer has not been saved yet.'));
+    if (outcome.details.length) section.append(node('p', outcome.details.join('\n'), 'exploration-outcome-details'));
+    const controls = node('div', null, 'exploration-outcome-actions');
+    card.controls = actions.map(action => {
+      const control = button(WORK_ACTION_LABELS[action], async () => {
+        if (busy || !card.result?.isConnected || !cards.has(card.run.id)) return;
+        const currentSource = sourceMessage(card);
+        if (action === 'prepare-exploration' && !currentSource) return;
+        control.disabled = true;
+        try { await onAction(action, { conversationId, run: card.run, source: currentSource }); }
+        catch { toast('Unable to open this action. Please try again.', 'error'); }
+        finally { control.disabled = busy; }
+      });
+      control.dataset.mutatesConversation = '';
+      control.disabled = busy;
+      controls.append(control);
+      return control;
+    });
+    if (card.controls.length) section.append(controls);
+    if (!source && outcome.actions.includes('prepare-exploration')) {
+      section.append(node('p', 'The original question cannot be verified in this conversation branch. Start a new request from the composer.', 'exploration-outcome-note'));
+    }
+    card.outcome = section;
+    card.outcomeSignature = signature;
+    if (section.parentElement !== card.outcomeHost) card.outcomeHost.append(section);
   }
 
   function updateCard(card) {
-    card.heading.textContent = card.phase || statusText(card.run);
-    const stamp = formatMessageTimestamp(card.run.started_at);
-    card.context.textContent = card.run.adopted ? 'Explore project'
-      : ['Explore project', card.run.profile?.name || card.run.profile?.deployment, stamp?.label].filter(Boolean).join(' · ');
-    card.context.hidden = !card.context.textContent;
-    if (stamp) card.context.title = `Exploration started: ${stamp.detail}`;
-    card.usage.textContent = usageText(card.run.usage);
-    card.usage.hidden = !historyVisibility || card.run.adopted === true;
+    const heading = card.phase || statusText(card.run);
+    if (card.heading.textContent !== heading) card.heading.textContent = heading;
+    card.context.textContent = 'Explore project';
+    renderOutcome(card);
   }
 
   function addFact(list, label, value) {
@@ -200,7 +288,6 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     addFact(facts, 'Model call limit', goals.max_model_calls == null ? 'No limit' : String(goals.max_model_calls));
     addFact(facts, 'Time target', goals.elapsed_time_target_seconds == null ? 'Not set' : `${goals.elapsed_time_target_seconds}s`);
     addFact(facts, 'Cost target', goals.cost_goal_usd == null ? 'Not set' : `$${goals.cost_goal_usd}`);
-    if (card.run.reason) addFact(facts, 'Stop reason', card.run.reason);
     section.append(facts);
     return section;
   }
@@ -219,7 +306,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     row.replaceChildren();
     const heading = node('div', null, 'exploration-step-heading');
     heading.append(node('strong', step.kind === 'model' ? 'Model response' : toolLabels[step.name] || 'Unsupported tool'),
-      node('span', step.status, 'exploration-step-status'));
+      node('span', workStepStatus(step.status), 'exploration-step-status'));
     row.append(heading);
     const view = { row, signature };
     if (step.kind === 'model') {
@@ -317,6 +404,9 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
         card.body.replaceChildren(runSettings(card), activity);
       }
       data.steps.forEach((step, index) => appendStep(card, step, offset + index));
+      if (offset === 0 && !data.steps.length && data.next_offset == null) {
+        card.steps.append(node('p', 'No model or tool steps were recorded.', 'exploration-activity-empty'));
+      }
       if (data.next_offset != null) {
         card.more = button('Show more activity', () => loadActivity(card, data.next_offset));
         card.body.append(card.more);
@@ -347,7 +437,8 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
         card.loaded = false;
       }
       card.run = !activeStates.has(card.run.status) && activeStates.has(run.status)
-        ? { ...run, status: card.run.status, adopted: card.run.adopted } : run;
+        ? { ...card.run, ...run, status: card.run.status, adopted: card.run.adopted, reason: card.run.reason, failure: card.run.failure }
+        : { ...run, cancellationRequested: activeStates.has(run.status) && card.run.cancellationRequested };
       card.sourceIdentity = null;
       if (live) card.live = true;
       if (!activeStates.has(run.status)) card.phase = null;
@@ -360,17 +451,17 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     details.dataset.runId = run.id;
     const summary = node('summary');
     const heading = node('strong');
+    if (live) heading.setAttribute('aria-live', 'polite');
     const context = node('span', null, 'exploration-run-context');
-    const usage = node('span', null, 'exploration-run-usage');
     const body = node('div', null, 'exploration-run-body');
     const summaryContent = node('div', null, 'exploration-run-summary');
     const chevron = node('i');
     chevron.setAttribute('data-lucide', 'chevron-down');
     chevron.setAttribute('aria-hidden', 'true');
-    summaryContent.append(heading, context, usage);
+    summaryContent.append(heading, context);
     summary.append(summaryContent, chevron);
     details.append(summary, body);
-    const card = { details, heading, context, usage, body, run, live, stepViews: new Map(), loaded: false, loading: false };
+    const card = { details, heading, context, body, run, live, stepViews: new Map(), loaded: false, loading: false };
     details.addEventListener('toggle', () => { if (details.open && !card.loaded) loadActivity(card); });
     cards.set(run.id, card);
     updateCard(card);
@@ -417,22 +508,24 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
 
   function prepareRender() {
     const focused = document.activeElement;
-    focusedControl = [...cards.values()].some(card => focused && card.details.contains(focused)) ? focused : null;
+    focusedControl = [...cards.values()].some(card => focused && (card.details.contains(focused) || card.result?.contains(focused))) ? focused : null;
     const viewport = $('#chat').getBoundingClientRect();
     const visible = [...cards.values()].find(card => {
-      const bounds = card.details.getBoundingClientRect();
-      return card.details.open && bounds.bottom > viewport.top && bounds.top < viewport.bottom;
+      const bounds = (card.result || card.details).getBoundingClientRect();
+      return (card.result || card.details.open) && bounds.bottom > viewport.top && bounds.top < viewport.bottom;
     });
-    renderAnchor = visible ? { card: visible, top: visible.details.getBoundingClientRect().top } : null;
+    renderAnchor = visible ? { card: visible, top: (visible.result || visible.details).getBoundingClientRect().top } : null;
     cards.forEach(card => {
+      card.resultMetadata?.finish();
       card.disclosure.finish();
       card.stepViews.forEach(view => view.controller?.finish());
     });
   }
 
   function restorePosition({ preserveScroll = false } = {}) {
-    if (preserveScroll && renderAnchor?.card.details.isConnected) {
-      $('#chat').scrollTop += renderAnchor.card.details.getBoundingClientRect().top - renderAnchor.top;
+    const anchor = renderAnchor && (renderAnchor.card.result || renderAnchor.card.details);
+    if (preserveScroll && anchor?.isConnected) {
+      $('#chat').scrollTop += anchor.getBoundingClientRect().top - renderAnchor.top;
     }
     if (focusedControl?.isConnected) focusedControl.focus({ preventScroll: true });
     renderAnchor = null;
@@ -451,6 +544,8 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       if (evidence.open) evidence.close();
       cards.forEach(card => {
         card.stepViews.forEach(view => view.controller?.destroy());
+        card.resultMetadata?.destroy();
+        card.result?.remove();
         card.disclosure.destroy();
       });
       cards.clear();
@@ -461,6 +556,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       focusedControl = null;
     } else {
       cards.forEach(card => {
+        card.resultMetadata?.finish();
         card.disclosure.finish();
         card.stepViews.forEach(view => view.controller?.finish());
         card.activityToken = null;
@@ -513,10 +609,19 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       loadPage();
     }
     if (event.type === 'run_usage') card.run.usage = event.usage;
+    if (event.type === 'cancel_requested') {
+      card.run.cancellationRequested = true;
+      card.phase = null;
+    }
     if (event.type === 'error' || event.type === 'done') {
       card.run.status = event.run_status || (event.type === 'done' ? 'completed' : 'failed');
       card.run.adopted = event.type === 'done';
       card.run.usage = event.run_usage || card.run.usage;
+      card.run.cancellationRequested = false;
+      if (event.type === 'error') {
+        card.run.reason = event.code;
+        card.run.failure = event;
+      }
       card.phase = null;
       card.live = false;
     }
@@ -525,20 +630,29 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     if (card.details.open && !card.loading && !card.loaded) loadActivity(card);
   }
 
-  tools.addEventListener('change', async event => {
-    if (!event.target.matches('input[data-work-tool]')) return;
-    if (event.target === choice && choice.checked && !getWorkspace().root) {
+  async function selectForNextResponse(isCurrent = () => true) {
+    if (busy || !isCurrent()) return false;
+    if (!getWorkspace().root) {
       resetChoice();
       tools.open = false;
       const accepted = await showActionDialog({ title: 'Choose a workspace?',
         description: 'Explore project needs a workspace to find and read project files. Would you like to choose one?',
         confirmLabel: 'Choose workspace' });
-      if (accepted && !busy && await chooseWorkspace() && !busy) choice.checked = true;
+      if (!accepted || busy || !isCurrent() || !await chooseWorkspace() || busy || !isCurrent()) return false;
+    }
+    choice.checked = true;
+    tools.open = false;
+    updateChoice();
+    return true;
+  }
+
+  tools.addEventListener('change', async event => {
+    if (!event.target.matches('input[data-work-tool]')) return;
+    if (event.target === choice && choice.checked && !getWorkspace().root) {
+      await selectForNextResponse();
       updateChoice();
       $('#work-tools-trigger').focus({ preventScroll: true });
-      return;
-    }
-    updateChoice();
+    } else updateChoice();
   });
 
   document.addEventListener('timezone-change', () => cards.forEach(updateCard));
@@ -554,7 +668,8 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
   refreshIcons();
 
   return {
-    selection, resetChoice, show, prepareRender, restorePosition,
+    selection, resetChoice, show, prepareRender, restorePosition, selectForNextResponse,
+    refreshTimestamps() { cards.forEach(card => card.resultMetadata?.refreshTimestamp()); },
     progress(event, targets) { renderContent(() => updateProgress(event, targets)); },
     describeSelection: () => choice.checked ? 'Explore project is selected for this response.' : 'Work tools are off for this response.',
     setGenerating(value) { busy = value; updateChoice(); },
