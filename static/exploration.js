@@ -27,10 +27,9 @@ function usageText(usage) {
   return `${usage.expected_calls} response calls · ${tokens} · ${cost}${total.coverage_incomplete ? ' · incomplete records' : ''}`;
 }
 
-export function createExploration({ getWorkspace, chooseWorkspace, renderContent = render => render() }) {
+export function createExploration({ getWorkspace, chooseWorkspace, getLimits = () => ({}), renderContent = render => render() }) {
   const choice = $('#explore-project');
   const tools = $('#work-tools');
-  const settings = $('#exploration-settings-dialog');
   const evidence = $('#exploration-evidence-dialog');
   const region = node('section', null, 'exploration-history exploration-records');
   region.setAttribute('aria-label', 'Exploration history');
@@ -58,10 +57,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, renderContent
   let historyPaged = false;
 
   function updateChoice() {
-    const workspace = getWorkspace();
     choice.disabled = busy;
-    $('#exploration-goals').disabled = busy;
-    $('#exploration-scope').textContent = workspace.root ? `Workspace: ${workspace.root}` : 'Choose a workspace from the sidebar before enabling exploration.';
 
     const count = tools.querySelectorAll('input[data-work-tool]:checked').length;
     const badge = $('#work-tools-count');
@@ -77,31 +73,11 @@ export function createExploration({ getWorkspace, chooseWorkspace, renderContent
     updateChoice();
   }
 
-  function limits() {
-    const result = {};
-    for (const [id, key] of [['call', 'max_model_calls'], ['time', 'elapsed_time_target_seconds'], ['cost', 'cost_goal_usd']]) {
-      const input = $(`#exploration-${id}-goal`);
-      input.setCustomValidity('');
-      if (input.validity.badInput || (input.value !== '' && (!Number.isFinite(input.valueAsNumber) || input.valueAsNumber <= 0
-          || (id === 'call' && !Number.isSafeInteger(input.valueAsNumber))))) {
-        input.setCustomValidity(id === 'call' ? 'Enter a positive whole number.' : 'Enter a number greater than zero.');
-      }
-      if (!input.checkValidity()) {
-        if (!settings.open) settings.showModal();
-        input.reportValidity();
-        input.focus();
-        throw new Error('Review the exploration goals before sending.');
-      }
-      if (input.value !== '') result[key] = input.valueAsNumber;
-    }
-    return result;
-  }
-
   function selection() {
     if (!choice.checked) return {};
     const workspace = getWorkspace();
     if (!workspace.root || workspace.revision == null || !workspace.sessionId) throw new Error('Choose a workspace before exploring.');
-    const goals = limits();
+    const goals = getLimits();
     return { explore_project: true, ...(Object.keys(goals).length ? { exploration_limits: goals } : {}) };
   }
 
@@ -565,13 +541,6 @@ export function createExploration({ getWorkspace, chooseWorkspace, renderContent
     updateChoice();
   });
 
-  $('#explore-settings').onclick = () => { tools.open = false; updateChoice(); settings.showModal(); };
-  $('#exploration-goals-form').onsubmit = event => {
-    event.preventDefault();
-    try { limits(); settings.close(); } catch { /* Native validation identifies the field. */ }
-  };
-  settings.querySelectorAll('input').forEach(input => input.addEventListener('input', () => input.setCustomValidity('')));
-  settings.addEventListener('close', () => { if (!settings.open) $('#work-tools-trigger').focus({ preventScroll: true }); });
   document.addEventListener('timezone-change', () => cards.forEach(updateCard));
   document.addEventListener('workspace-change', event => { if (event.detail.changed) resetChoice(); else updateChoice(); });
   evidence.addEventListener('close', () => {

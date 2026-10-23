@@ -7,6 +7,7 @@ import { initializeUI } from './ui.js';
 import { initializeSettings } from './settings.js';
 import { createUsage } from './usage.js';
 import { createExploration } from './exploration.js';
+import { createWorkToolSettings } from './work-tool-settings.js';
 
 const workspace = createWorkspace({
   getActiveProfileId: () => profiles.getActiveProfileId(),
@@ -16,6 +17,7 @@ const profiles = createProfiles({ isGenerating: () => chat.isGenerating() });
 const exploration = createExploration({
   getWorkspace: workspace.getWorkspaceInfo,
   chooseWorkspace: workspace.chooseWorkspace,
+  getLimits: () => workToolSettings.limits(),
   renderContent: render => chat.renderUsageContent(render)
 });
 const chat = createChat({
@@ -37,8 +39,10 @@ const chat = createChat({
     profiles.setGenerating(value);
     usage.setGenerating(value);
     exploration.setGenerating(value);
+    workToolSettings.updateState();
   }
 });
+const workToolSettings = createWorkToolSettings({ getWorkspace: workspace.getWorkspaceInfo, isGenerating: chat.isGenerating });
 const usage = createUsage({ footer: chat.usageFooter, renderFooter: chat.renderUsageContent });
 usage.init();
 
@@ -56,6 +60,7 @@ initializeUI({
     if (dialog.id === 'workspace-dialog') return workspace.beforeDialogClose();
     if (dialog.id === 'file-dialog') return workspace.beforeAttachmentDialogClose();
     if (dialog.id === 'settings-dialog') return settings.beforeDialogClose();
+    if (dialog.id === 'work-tools-settings-dialog') return workToolSettings.beforeDialogClose();
     return true;
   }
 });

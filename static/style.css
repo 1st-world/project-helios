@@ -1557,10 +1557,28 @@ textarea::placeholder {
   background: var(--bg-surface-elevated);
   box-shadow: var(--shadow-lg);
 }
-.tools-popover > strong {
+.tools-popover .tools-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.tools-popover .tools-popover-header strong {
+  color: var(--text-main);
   font-weight: var(--font-weight-heading);
   font-size: var(--font-size-title-group);
   line-height: var(--line-height-heading);
+}
+.tools-popover .tools-popover-settings {
+  flex: none;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-control);
+}
+.tools-popover .tools-popover-settings:hover {
+  text-decoration: underline;
 }
 .tools-popover p {
   margin: 5px 0 12px;
@@ -1568,7 +1586,7 @@ textarea::placeholder {
   font-size: var(--font-size-body-compact);
   line-height: var(--line-height-body-compact);
 }
-.tools-popover button,
+.tools-popover > button,
 .tools-popover .work-tool-choice {
   display: flex;
   align-items: center;
@@ -1580,31 +1598,31 @@ textarea::placeholder {
   color: var(--text-muted);
   text-align: left;
 }
-.tools-popover button:last-child {
+.tools-popover > button:last-child {
   padding-bottom: 0;
 }
-.tools-popover button > svg,
+.tools-popover > button > svg,
 .tools-popover .work-tool-choice > svg {
   flex: none;
 }
-.tools-popover button > span:first-of-type,
+.tools-popover > button > span:first-of-type,
 .tools-popover .work-tool-copy {
   flex: 1;
   min-width: 0;
 }
-.tools-popover button strong,
-.tools-popover button small,
+.tools-popover > button strong,
+.tools-popover > button small,
 .tools-popover .work-tool-copy strong,
 .tools-popover .work-tool-copy small {
   display: block;
 }
-.tools-popover button strong,
+.tools-popover > button strong,
 .tools-popover .work-tool-copy strong {
   font-weight: var(--font-weight-label);
   font-size: var(--font-size-label);
   line-height: var(--line-height-compact);
 }
-.tools-popover button small,
+.tools-popover > button small,
 .tools-popover .work-tool-copy small {
   margin-top: 2px;
   font-size: var(--font-size-description);
@@ -2139,25 +2157,203 @@ textarea::placeholder {
   border-color: var(--border-focus);
 }
 
-.exploration-settings {
-  width: min(540px, calc(100vw - 32px));
+.work-tools-settings {
+  width: min(740px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  overflow: hidden;
 }
-.exploration-settings fieldset {
+.work-tools-settings[open] {
+  display: flex;
+  flex-direction: column;
+}
+.work-tools-settings > .dialog-heading {
+  flex: none;
+}
+.work-tools-settings .work-tools-settings-form {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   min-width: 0;
-  margin: 0 0 16px;
-  padding: 12px;
+  min-height: 0;
+  overflow: hidden;
+}
+.work-tools-settings .work-tools-settings-body {
+  flex: 1;
+  min-height: 0;
+  padding-bottom: 16px;
+  overflow-y: auto;
+}
+.work-tools-settings .work-tools-settings-group {
+  min-width: 0;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 8px;
+  background: var(--bg-surface);
 }
-.exploration-settings legend {
+.work-tools-settings .work-tools-settings-group + .work-tools-settings-group {
+  margin-top: 20px;
+}
+.work-tools-settings .work-tools-settings-heading {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 10px 16px;
+}
+.work-tools-settings .work-tools-settings-heading h3 {
+  min-width: 0;
+  margin: 0;
   color: var(--text-main);
+  font-weight: var(--font-weight-heading);
+  font-size: var(--font-size-title-section);
+  line-height: var(--line-height-heading);
+  overflow-wrap: anywhere;
+}
+.work-tools-settings .work-tools-settings-content {
+  padding: 16px;
+  border-top: 1px solid var(--border);
+}
+.work-tools-settings .work-tools-settings-content > p {
+  margin: 0 0 12px;
+}
+.work-tools-settings .work-tools-settings-content > p:last-child {
+  margin-bottom: 0;
+}
+.work-tools-settings fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.work-tools-settings .work-tools-run-guidance {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+}
+.work-tools-settings .work-tools-run-guidance p {
+  margin: 0;
+}
+.work-tools-settings .work-tools-setting {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  align-items: center;
+  padding: 12px 0;
+  gap: 12px;
+}
+.work-tools-settings .work-tools-setting:first-child {
+  padding-top: 0;
+}
+.work-tools-settings .work-tools-setting:last-child {
+  padding-bottom: 0;
+}
+.work-tools-settings .work-tools-setting + .work-tools-setting {
+  border-top: 1px solid var(--border);
+}
+.work-tools-settings .work-tools-setting-copy {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+.work-tools-settings .work-tools-setting label {
+  margin: 0;
+}
+.work-tools-settings .work-tools-setting small {
+  color: var(--text-muted);
+  font-weight: var(--font-weight-regular);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+}
+.work-tools-settings .work-tools-setting input {
+  min-width: 0;
+  line-height: var(--line-height-input);
+}
+.work-tools-settings .work-tools-workspace {
+  margin: 0 0 12px;
+}
+.work-tools-settings .work-tools-workspace dt {
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-meta);
+}
+.work-tools-settings .work-tools-workspace dd {
+  margin: 0;
+  color: var(--text-sub);
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-description);
+  overflow-wrap: anywhere;
+}
+.work-tools-settings .work-tools-scope-details {
+  min-width: 0;
+  border-top: 1px solid var(--border);
+}
+.work-tools-settings .work-tools-scope-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  padding: 10px 0;
+  gap: 8px;
+  list-style: none;
+  cursor: pointer;
+  transition: background-color var(--motion-duration-fast) var(--motion-easing-default);
+}
+.work-tools-settings .work-tools-scope-details > summary::-webkit-details-marker {
+  display: none;
+}
+.work-tools-settings .work-tools-scope-details > summary:hover {
+  background: var(--bg-element-hover);
+}
+.work-tools-settings .work-tools-scope-details > summary:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+}
+.work-tools-settings .work-tools-scope-details h4 {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-sub);
   font-weight: var(--font-weight-heading);
   font-size: var(--font-size-title-group);
   line-height: var(--line-height-heading);
 }
-.exploration-settings #exploration-scope {
-  color: var(--text-sub);
-  overflow-wrap: anywhere;
+.work-tools-settings .work-tools-scope-details > summary svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--text-muted);
+  transition: transform var(--motion-duration) var(--motion-easing);
+}
+.work-tools-settings .work-tools-scope-details[open]:not([data-expanded="false"]) > summary svg {
+  transform: rotate(180deg);
+}
+.work-tools-settings .work-tools-scope-body {
+  display: flow-root;
+}
+.work-tools-settings .work-tools-scope-details:not([open]) > .work-tools-scope-body {
+  display: none;
+}
+.work-tools-settings .work-tools-scope-body p {
+  margin: 0 0 12px;
+}
+.work-tools-settings .work-tools-scope-body p:last-child {
+  margin-bottom: 0;
+}
+.work-tools-settings .work-tools-settings-footer {
+  flex: none;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.work-tools-settings .dialog-actions {
+  margin-top: 0;
+}
+.work-tools-settings .dialog-actions svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.work-tools-settings [hidden] {
+  display: none;
 }
 
 .exploration-evidence {
@@ -4274,6 +4470,10 @@ button svg,
 }
 
 @media (max-width: 520px) {
+  .work-tools-settings .work-tools-setting {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .message-footer .message-usage-fields,
   .exploration-records .exploration-call-fields {
     grid-template-columns: minmax(0, 1fr);
@@ -4435,8 +4635,8 @@ button svg,
 @media (prefers-reduced-motion: reduce) {
   .action-dialog,
   .action-dialog::backdrop,
-  .exploration-settings,
-  .exploration-settings::backdrop,
+  .work-tools-settings,
+  .work-tools-settings::backdrop,
   .exploration-evidence,
   .exploration-evidence::backdrop {
     animation: none;
@@ -4454,6 +4654,8 @@ button svg,
   .preferences-dialog .settings-disclosure-chevron,
   .workspace-manager .workspace-disclosure-header,
   .workspace-manager .workspace-disclosure-chevron,
+  .work-tools-settings .work-tools-scope-details > summary,
+  .work-tools-settings .work-tools-scope-details > summary svg,
   .exploration-evidence .evidence-details > summary svg,
   .exploration-evidence .evidence-details > summary,
   .exploration-records .exploration-run > summary,
