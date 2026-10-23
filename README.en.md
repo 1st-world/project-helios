@@ -56,6 +56,12 @@ https://your-resource.services.ai.azure.com/openai/v1/
 
 [profiles.example.json](profiles.example.json) illustrates the storage format. Its model names, deployment names, and prices are examples; enter the information and rates for your actual deployment. You can create new connections in the UI.
 
+### During response generation
+
+From **Send**, a compact indicator shows the current phase and elapsed time. It distinguishes preparation, waiting for the model, receiving text, and finalization, and remains visible after text starts arriving until completion. Preparation can be stopped and duplicate sends are blocked. Cancelling preparation before submission restores the original question without overwriting another draft. **Stop** requests cancellation; exploration confirms its saved terminal state before showing the cancelled result.
+
+Work tools use the same presentation for current listing, search, and read operations. Detailed steps remain inside **Work activity**, collapsed by default; a disclosure you open stays open when the final answer is adopted. Progress reflects observed app events rather than estimated completion, remaining time, or private model reasoning. Elapsed time includes waiting for this request and can differ from saved response/run duration or billable time.
+
 ## API support
 
 | Item | Current implementation |

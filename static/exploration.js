@@ -6,6 +6,7 @@ import { renderExplorationEvidence } from './exploration-evidence.js';
 import { createDisclosure } from './disclosure.js';
 import { usageView, workRunMetadata } from './response-usage.js';
 import { createResponseFooter } from './response-footer.js';
+import { createResponseProgress, workProgressLabel } from './response-progress.js';
 import { describeWorkRun, workStepStatus, WORK_ACTION_LABELS } from './work-run-status.js';
 
 const toolLabels = { helios_project_list_files: 'List files', helios_project_search_text: 'Search text', helios_project_read_file: 'Read file' };
@@ -219,6 +220,10 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     card.hasAnswer = card.run.adopted === true && linkedMessage(card)?.classList.contains('assistant');
     const outcome = describeWorkRun({ ...card.run, adopted: card.hasAnswer });
     card.details.dataset.tone = outcome.tone;
+    if (!activeStates.has(card.run.status)) {
+      card.progressView?.destroy();
+      card.progressView = null;
+    }
     if (card.hasAnswer) {
       card.outcome?.remove();
       card.outcome = null;
@@ -230,6 +235,17 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     card.result.dataset.tone = outcome.tone;
     card.resultMetadata.update(workRunMetadata(card.run));
     card.resultMetadata.setUsageVisibility(historyVisibility);
+    if (activeStates.has(card.run.status)) {
+      card.outcome?.remove();
+      card.outcome = null;
+      card.outcomeSignature = null;
+      card.controls = [];
+      card.progressView ||= createResponseProgress({ startedAt: card.targets?.startedAt ?? card.run.started_at,
+        label: card.run.cancellationRequested ? 'stopping' : card.phase || 'Preparing exploration' });
+      card.progressView.update(card.run.cancellationRequested ? 'stopping' : card.phase || 'Preparing exploration');
+      if (card.progressView.el.parentElement !== card.outcomeHost) card.outcomeHost.append(card.progressView.el);
+      return;
+    }
     const source = sourceMessage(card);
     const actions = outcome.actions.filter(action => action !== 'prepare-exploration' || source);
     const signature = JSON.stringify([outcome, card.phase, actions, source?.index, source?.created_at, source?.content]);
@@ -266,7 +282,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
   }
 
   function updateCard(card) {
-    const heading = card.phase || statusText(card.run);
+    const heading = activeStates.has(card.run.status) ? 'Work activity' : statusText(card.run);
     if (card.heading.textContent !== heading) card.heading.textContent = heading;
     card.context.textContent = 'Explore project';
     renderOutcome(card);
@@ -429,9 +445,10 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     }
   }
 
-  function addCard(run, live = false) {
+  function addCard(run, live = false, targets = null) {
     if (cards.has(run.id)) {
       const card = cards.get(run.id);
+      if (targets) card.targets = targets;
       if (run.status !== card.run.status || run.usage?.expected_calls !== card.run.usage?.expected_calls) {
         card.activityRevision = (card.activityRevision || 0) + 1;
         card.loaded = false;
@@ -461,7 +478,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     summaryContent.append(heading, context);
     summary.append(summaryContent, chevron);
     details.append(summary, body);
-    const card = { details, heading, context, body, run, live, stepViews: new Map(), loaded: false, loading: false };
+    const card = { details, heading, context, body, run, live, targets, stepViews: new Map(), loaded: false, loading: false };
     details.addEventListener('toggle', () => { if (details.open && !card.loaded) loadActivity(card); });
     cards.set(run.id, card);
     updateCard(card);
@@ -543,6 +560,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       clearEvidence();
       if (evidence.open) evidence.close();
       cards.forEach(card => {
+        card.progressView?.destroy();
         card.stepViews.forEach(view => view.controller?.destroy());
         card.resultMetadata?.destroy();
         card.result?.remove();
@@ -589,7 +607,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     if (event.type === 'start') {
       resetChoice();
       if (conversationId !== event.conversation_id) show(event.conversation_id);
-      addCard({ id: event.run_id, status: 'preparing', goals: {}, profile: {} }, true);
+      addCard({ id: event.run_id, status: 'preparing', goals: {}, profile: {} }, true, targets);
       attach();
     }
     const card = cards.get(event.run_id);
@@ -600,15 +618,16 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       card.loaded = false;
     }
     if (event.type === 'work_progress') {
-      card.phase = `Work activity · ${event.phase === 'model' ? 'Model responding' : `${toolLabels[event.name] || 'Tool'}${event.phase === 'tool_completed' ? event.failed ? ' failed' : ' complete' : ' in progress'}`}`;
+      card.phase = workProgressLabel(event);
       card.loaded = false;
     }
     if (event.type === 'work_usage') {
-      card.phase = 'Work activity · Response recorded';
+      card.phase = workProgressLabel(event);
       card.loaded = false;
       loadPage();
     }
     if (event.type === 'run_usage') card.run.usage = event.usage;
+    if (event.type === 'delta') card.phase = workProgressLabel(event);
     if (event.type === 'cancel_requested') {
       card.run.cancellationRequested = true;
       card.phase = null;
