@@ -212,7 +212,7 @@ async def collect_attachments(candidates: set[str] | None = None) -> None:
 mimetypes.add_type("font/woff2", ".woff2")
 
 app = FastAPI(
-    title="Helios BYOK AI Assistant", version="0.2.0", lifespan=lifespan,
+    title="Helios BYOK AI Assistant", version="0.3.0-alpha", lifespan=lifespan,
 )
 app.mount(
     "/static", StaticFiles(directory=settings.static_root), name="static"

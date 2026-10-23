@@ -4,7 +4,7 @@ Language: [한국어](README.md) | **English**
 
 Helios is a local web app that connects to Microsoft Foundry model deployments using your own API key. It stores conversations and settings locally and lets you attach selected project files when asking a model questions.
 
-The current version is **`0.2.0`, an alpha release**. By default, chat leaves input capacity decisions to the provider instead of estimating a model's capacity and reducing or restricting input. Input budgets, output limits, and conversation memory are optional. Local file processing has separate resource limits.
+The current version is **`0.3.0-alpha`**. By default, chat leaves input capacity decisions to the provider instead of estimating a model's capacity and reducing or restricting input. Input budgets, output limits, and conversation memory are optional. Local file processing has separate resource limits.
 
 ## Current features
 
@@ -248,13 +248,13 @@ App versions change for verified releases that group multiple commits, not for e
 | A release grouping new features, significant policy changes, or incompatible alpha changes | Increment MINOR and reset PATCH to 0. Example: `0.2.x → 0.3.0`. |
 | Stable release | Start at app version `1.0.0`. |
 
-This MINOR/PATCH distinction is Helios's alpha policy. A release-preparation commit aligns the versions in `app.py` and both READMEs. Tag the verified commit with a version such as `v0.2.0`. Storage schemas change separately when their storage contract changes, not simply because an app feature was added.
+This MINOR/PATCH distinction is Helios's alpha policy. Alpha releases use the `-alpha` suffix. A release-preparation commit aligns the versions in `app.py` and both READMEs. Tag the verified commit with a version such as `v0.3.0-alpha`. Storage schemas change separately when their storage contract changes, not simply because an app feature was added.
 
 ### Storage and the end of alpha
 
 The run database and optional message run references each use independent string schema `"0.1"`. New message references record `run_schema_version` and `run_id`. Existing conversations without these references remain readable without automatic rewriting. Unsupported versions are preserved without overwriting their originals.
 
-- The current app version is **`0.2.0`**, and the settings/profile storage schema is **the string `"0.1"`**. It is not a JSON decimal: `"0.1"` and `"0.10"` are distinct identifiers.
+- The current app version is **`0.3.0-alpha`**, and the settings/profile storage schema is **the string `"0.1"`**. It is not a JSON decimal: `"0.1"` and `"0.10"` are distinct identifiers.
 - The attachment manifest uses string schema `"0.2"`; optional message attachment references remain `"0.1"`. Existing `"0.1"` manifests upgrade transactionally with a 24-hour cleanup grace for unused copies. Conversations are not rewritten; new references record `attachment_schema_version` and `attachment_sources`. Unsupported versions are neither overwritten nor cleaned. Back up copies, the manifest, and conversation JSON together.
 - Existing formats without a version field are identified internally as `0`. Their original bytes are backed up before the first explicit save. The migration record's `from_schema_version: 0` and the backup name's `v0` identify that origin; new documents do not write a numeric `schema_version: 0`.
 - Invalid or unsupported settings/profile versions produce an error without overwriting the originals. Preserve the affected files and backups while investigating.
@@ -314,7 +314,7 @@ The additive `failure` field in run history and activity APIs stores and returns
 
 Request cancellation or disconnect stops work, holding the Workspace lease until MCP cleanup finishes. Regeneration creates a new run; only a successful final answer and attachment references replace the old branch. Failure and cancellation preserve it. If even terminal-state storage fails, ownership is released and the saved state is reported as unavailable; restart recovers unfinished runs as interrupted. Exploration context failures do not issue one-time summary receipts that resume incomplete runs. Review input and start a new exploration. A failed final conversation JSON write can leave a completed run without an adopted reply; it is not automatically adopted or replayed.
 
-The app remains at `0.2.0`. Release `0.3.0-alpha` follows Explore project UI implementation and alignment and validation of the existing UI/UX.
+Release `0.3.0-alpha` includes the Explore project UI and improvements to Workspace, attachments, response progress, and result presentation.
 
 `GET /api/conversations/{id}/work-runs` returns the newest 20 runs and `next_before`; pass `before` for older pages. `GET /api/conversations/{id}/work-runs/{run_id}?offset=0` returns run metadata, totals, 30 ordered steps, and `next_offset`, without raw model output. Both responses include verified current transcript indices in each run's `message_link.user_index` and `assistant_index`, with `null` for unmatched positions. New runs internally capture the question index, creation time, and content checksum to prevent incorrect links after edits or branch replacement. Its `/evidence?response_id=...&call_id=...` endpoint returns one original saved tool result. All queries require the existing owning conversation, do not resolve arbitrary file paths or cross-conversation runs, and make no Provider requests or MCP calls.
 
