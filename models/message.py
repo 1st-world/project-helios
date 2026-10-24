@@ -7,6 +7,7 @@ from typing import Literal
 from uuid import UUID
 
 from models.attachment import ATTACHMENT_REFERENCE_VERSION, ATTACHMENT_SOURCES
+from models.reasoning import SUMMARY_SCHEMA_VERSION, validate_reasoning_summary
 
 RUN_REFERENCE_SCHEMA_VERSION = "0.1"
 
@@ -39,6 +40,7 @@ class Message:
     usage_call_id: str | None = None
     run_id: str | None = None
     attachment_sources: list[dict] = field(default_factory=list)
+    reasoning_summary: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         """Serialize a message, omitting metadata that was not recorded."""
@@ -50,6 +52,11 @@ class Message:
         if self.attachment_sources:
             data["attachment_schema_version"] = ATTACHMENT_REFERENCE_VERSION
             data["attachment_sources"] = deepcopy(self.attachment_sources)
+        if self.reasoning_summary:
+            if self.role != "assistant":
+                raise ValueError("Reasoning summaries require an assistant message.")
+            data["reasoning_summary_schema_version"] = SUMMARY_SCHEMA_VERSION
+            data["reasoning_summary"] = validate_reasoning_summary(self.reasoning_summary)
         if self.run_id is not None:
             data["run_schema_version"] = RUN_REFERENCE_SCHEMA_VERSION
             data["run_id"] = self.run_id
@@ -97,6 +104,11 @@ class Message:
             raise ValueError("Invalid message content.")
         created_at = datetime.fromisoformat(data["created_at"])
         cost = data.get("estimated_cost")
+        summary = validate_reasoning_summary(data.get("reasoning_summary", []))
+        if summary or "reasoning_summary_schema_version" in data:
+            if (role != "assistant"
+                    or data.get("reasoning_summary_schema_version") != SUMMARY_SCHEMA_VERSION):
+                raise ValueError("Unsupported reasoning summary schema.")
         run_id = data.get("run_id")
         if run_id is not None or "run_schema_version" in data:
             if (data.get("run_schema_version") != RUN_REFERENCE_SCHEMA_VERSION
@@ -137,4 +149,5 @@ class Message:
             usage_call_id=data.get("usage_call_id"),
             run_id=run_id,
             attachment_sources=sources,
+            reasoning_summary=summary,
         )

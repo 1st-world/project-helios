@@ -547,6 +547,7 @@ class CreateProfileRequest(ProfileContextSettings):
     endpoint: str = Field(min_length=1, max_length=2048)
     api_key: str = Field(min_length=1, max_length=1024)
     deployment: str = Field(min_length=1, max_length=256)
+    reasoning_summary: Literal["off", "auto"] = "off"
     input_price_per_million: float | None = Field(default=None, ge=0)
     output_price_per_million: float | None = Field(default=None, ge=0)
     long_context_threshold: int | None = Field(
@@ -567,6 +568,7 @@ class UpdateProfileRequest(ProfileContextSettings):
     endpoint: str | None = Field(default=None, max_length=2048)
     api_key: str | None = Field(default=None, max_length=1024)
     deployment: str | None = Field(default=None, max_length=256)
+    reasoning_summary: Literal["off", "auto"] | None = None
     input_price_per_million: float | None = Field(default=None, ge=0)
     output_price_per_million: float | None = Field(default=None, ge=0)
     clear_input_price: bool = False
@@ -623,6 +625,7 @@ async def create_profile(payload: CreateProfileRequest):
             payload.long_context_threshold,
             payload.long_input_price_per_million,
             payload.long_output_price_per_million,
+            reasoning_summary=payload.reasoning_summary,
             cache_read_price_per_million=payload.cache_read_price_per_million,
             cache_write_price_per_million=payload.cache_write_price_per_million,
             long_cache_read_price_per_million=payload.long_cache_read_price_per_million,
@@ -652,6 +655,7 @@ async def update_profile(profile_id: str, payload: UpdateProfileRequest):
             endpoint=payload.endpoint,
             api_key=payload.api_key,
             deployment=payload.deployment,
+            reasoning_summary=payload.reasoning_summary,
             input_price_per_million=payload.input_price_per_million,
             output_price_per_million=payload.output_price_per_million,
             clear_input_price=payload.clear_input_price,
@@ -2023,6 +2027,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
         reported_assessment = None
         run_id = None
         memory_submitted = False
+        reasoning_summaries = {}
 
         def exploration_authority() -> None:
             """Stop stale authority and prevent using responses derived from revoked memory."""
@@ -2128,7 +2133,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                             "session_id": request_workspace.session_id,
                         },
                         "profile": {name: getattr(pinned_profile, name) for name in (
-                            "id", "name", "deployment", "input_price_per_million",
+                            "id", "name", "deployment", "reasoning_summary", "input_price_per_million",
                             "output_price_per_million", "long_context_threshold",
                             "long_input_price_per_million", "long_output_price_per_million",
                             "cache_read_price_per_million", "cache_write_price_per_million",
@@ -2180,6 +2185,8 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                         yield notice
                     if event["type"] == "delta":
                         answer += event["text"]
+                    elif event["type"] == "reasoning_summary":
+                        reasoning_summaries[event["call_id"]] = event["parts"]
                     elif event["type"] == "usage":
                         usage_data = event.get("usage")
                         profile_data = event.get("profile")
@@ -2197,6 +2204,10 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
             ):
                 raise ContextChangedError("The recovery request became stale during generation. Its response was not saved; recorded API usage is retained.")
             msg_kwargs = {}
+            if reasoning_summaries:
+                msg_kwargs["reasoning_summary"] = [
+                    part for parts in reasoning_summaries.values() for part in parts
+                ]
             if usage_call_id is not None:
                 msg_kwargs["usage_call_id"] = usage_call_id
             if profile_data:

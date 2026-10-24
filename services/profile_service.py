@@ -119,7 +119,9 @@ class ProfileService:
         } - {"legacy_input_boundary"}
         known |= {"is_configured", "has_api_key"}
         allowed = known | ({"model_max_output_tokens"} if legacy else set())
-        if set(data) - allowed or not legacy and set(data) != known:
+        # Public summaries are an additive opt-in omitted by earlier versioned profiles.
+        required = known - {"reasoning_summary"}
+        if set(data) - allowed or not legacy and required - set(data):
             raise ValueError("Profile fields do not match their version.")
         for name in ("id", "name", "endpoint", "api_key", "deployment"):
             value = data.get(name)
@@ -291,6 +293,7 @@ class ProfileService:
         context_input_budget_mode: str | None = None,
         memory_enabled: bool | None = False,
         memory_output_headroom: int | None = None,
+        reasoning_summary: str = "off",
     ) -> ConnectionProfile:
         """Create a normalized profile and select it when no active profile exists."""
         cleaned_name = name.strip() or "New Azure Profile"
@@ -306,6 +309,7 @@ class ProfileService:
             endpoint=endpoint.strip(),
             api_key=api_key.strip(),
             deployment=deployment.strip(),
+            reasoning_summary=reasoning_summary,
             input_price_per_million=input_price_per_million,
             output_price_per_million=output_price_per_million,
             long_context_threshold=(
@@ -360,6 +364,7 @@ class ProfileService:
         clear_long_cache_read_price: bool = False,
         clear_long_cache_write_price: bool = False,
         context_settings: dict | None = None,
+        reasoning_summary: str | None = None,
     ) -> ConnectionProfile:
         """Apply provided profile values and pricing-clear flags, preserving omitted settings."""
         original = self.get_profile(profile_id)
@@ -370,6 +375,8 @@ class ProfileService:
         )
         if set(changes) - set(PROFILE_POLICY_FIELDS):
             raise ValueError("Unknown context setting.")
+        if reasoning_summary is not None:
+            changes["reasoning_summary"] = reasoning_summary
         profile = replace(original, **changes)
         if name is not None and name.strip():
             profile.name = name.strip()

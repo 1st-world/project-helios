@@ -2,7 +2,7 @@
 
 const phaseLabels = {
   preparing: 'Preparing request', waiting: 'Waiting for model', receiving: 'Receiving response',
-  finalizing: 'Finalizing response', stopping: 'Stopping'
+  finalizing: 'Finalizing response', stopping: 'Stopping', reasoning: 'Receiving reasoning summary'
 };
 const toolProgress = {
   helios_project_list_files: 'Listing files', helios_project_search_text: 'Searching project',
@@ -11,6 +11,8 @@ const toolProgress = {
 
 export function workProgressLabel(event = {}) {
   if (event.type === 'cancel_requested') return phaseLabels.stopping;
+  if (event.type === 'reasoning_summary') return phaseLabels.reasoning;
+  if (event.type === 'work_output') return 'Receiving model update';
   if (event.type === 'work_usage') return 'Processing model response';
   if (event.type === 'delta') return phaseLabels.finalizing;
   if (event.phase === 'model') return phaseLabels.waiting;

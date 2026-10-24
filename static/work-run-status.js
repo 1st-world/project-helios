@@ -36,7 +36,16 @@ export function describeWorkRun(run = {}) {
     'The app stopped before this attempt finished. Its saved activity is retained, but the last call may have incomplete usage. Review usage before preparing another exploration.', ['usage', 'prepare-exploration']);
   if (Object.hasOwn(goalOutcomes, code)) {
     const [label, message] = goalOutcomes[code];
-    return state(label, 'warning', message, ['work-settings', 'prepare-exploration']);
+    const goal = {
+      exploration_call_limit: ['max_model_calls', 'Model call limit', ''],
+      exploration_time_target: ['elapsed_time_target_seconds', 'Time target', 's'],
+      exploration_cost_goal: ['cost_goal_usd', 'Cost target', ' USD'],
+      exploration_cost_unknown: ['cost_goal_usd', 'Cost target', ' USD']
+    }[code];
+    const value = run.goals?.[goal[0]];
+    const details = typeof value === 'number' && Number.isFinite(value) && value > 0
+      ? [`${goal[1]}: ${value}${goal[2]}`] : [];
+    return state(label, 'warning', message, ['work-settings', 'prepare-exploration'], details);
   }
   if (['input_policy_blocked', 'context_preflight_blocked'].includes(code)) return state('Input check blocked', 'warning',
     'The estimated input exceeded the selected budget before the next model call. Review the input budget or prepare a smaller request. This is a local check, not a confirmed provider rejection.', ['limits', 'prepare-exploration']);

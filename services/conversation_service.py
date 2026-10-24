@@ -376,6 +376,7 @@ class ConversationManager:
         usage_call_id: str | None = None,
         run_id: str | None = None,
         attachment_sources: "list[dict] | None" = None,
+        reasoning_summary: "list[dict] | None" = None,
     ) -> Message:
         """Persist a new message and derive the initial title from the first user content."""
         message = Message(
@@ -400,6 +401,7 @@ class ConversationManager:
             usage_call_id=usage_call_id,
             run_id=run_id,
             attachment_sources=attachment_sources or [],
+            reasoning_summary=reasoning_summary or [],
         )
         title = conversation.title
         if role == "user" and conversation.title == "New conversation":
@@ -424,6 +426,7 @@ class ConversationManager:
                 or run["status"] != "ready"):
             raise ValueError("Conversation or work run changed before adoption.")
         answer = run_store.answer(run_id)
+        summary = run_store.reasoning_summary(run_id)
         # A completed orphan is retained if the later JSON write fails or is interrupted.
         run_store.finish(run_id, "completed")
         if run["kind"] == "regeneration":
@@ -431,5 +434,7 @@ class ConversationManager:
                 conversation, run["user_index"], answer,
                 expected_messages=expected_messages, run_id=run_id,
                 user_attachment_sources=user_attachment_sources,
+                reasoning_summary=summary,
             )
-        return self.add_message(conversation, "assistant", answer, run_id=run_id)
+        return self.add_message(conversation, "assistant", answer, run_id=run_id,
+                                reasoning_summary=summary)

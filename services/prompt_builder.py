@@ -48,14 +48,14 @@ class PromptBuilder:
         result = []
         for message in messages:
             if message.run_id is None:
-                result.append(replace(message))
+                result.append(replace(message, reasoning_summary=[]))
                 continue
             items = [
                 item for item in self._run_items(message)
                 if item.get("type") != "reasoning"
             ]
             result.append(replace(
-                message, content="Completed work context (data):\n" + json.dumps(
+                message, reasoning_summary=[], content="Completed work context (data):\n" + json.dumps(
                     items, ensure_ascii=False, allow_nan=False,
                 ),
             ))

@@ -113,9 +113,12 @@ class ConnectionProfile:
     memory_enabled: bool | None = False
     memory_output_headroom: int | None = None
     legacy_input_boundary: LegacyInputBoundary | None = field(default=None, repr=False)
+    reasoning_summary: str = "off"
 
     def __post_init__(self) -> None:
         """Validate optional declarations and user limits without guessing from deployment names."""
+        if self.reasoning_summary not in {"off", "auto"}:
+            raise ValueError("Reasoning summary must be off or auto.")
         for name in ("id", "name", "endpoint", "api_key", "deployment"):
             if not isinstance(getattr(self, name), str):
                 raise ValueError("Connection fields must be strings.")
@@ -186,6 +189,7 @@ class ConnectionProfile:
             "name": self.name,
             "endpoint": self.endpoint,
             "deployment": self.deployment,
+            "reasoning_summary": self.reasoning_summary,
             "input_price_per_million": self.input_price_per_million,
             "output_price_per_million": self.output_price_per_million,
             "long_context_threshold": self.long_context_threshold,
@@ -232,6 +236,7 @@ class ConnectionProfile:
             endpoint=str(data.get("endpoint") or "").strip(),
             api_key=str(data.get("api_key") or "").strip(),
             deployment=str(data.get("deployment") or "").strip(),
+            reasoning_summary=data.get("reasoning_summary", "off"),
             input_price_per_million=(
                 float(input_price)
                 if input_price is not None and str(input_price).strip() != ""

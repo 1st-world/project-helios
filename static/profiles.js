@@ -157,6 +157,7 @@ export function createProfiles({ isGenerating }) {
     const hint = $('#api-key-hint');
     if (hint) hint.textContent = 'An API key is required for a new profile.';
     $('#azure-deployment').value = '';
+    $('#profile-reasoning-summary').value = 'off';
     $('#azure-input-price').value = '';
     $('#azure-output-price').value = '';
     $('#azure-long-threshold').value = '';
@@ -189,6 +190,7 @@ export function createProfiles({ isGenerating }) {
     const hint = $('#api-key-hint');
     if (hint) hint.textContent = 'Blank keeps the saved key; a new value replaces it.';
     $('#azure-deployment').value = profile.deployment;
+    $('#profile-reasoning-summary').value = profile.reasoning_summary || 'off';
     $('#azure-input-price').value = profile.input_price_per_million !== null && profile.input_price_per_million !== undefined ? profile.input_price_per_million : '';
     $('#azure-output-price').value = profile.output_price_per_million !== null && profile.output_price_per_million !== undefined ? profile.output_price_per_million : '';
     $('#azure-long-threshold').value = profile.long_context_threshold !== null && profile.long_context_threshold !== undefined ? profile.long_context_threshold : '';
@@ -498,6 +500,7 @@ export function createProfiles({ isGenerating }) {
       }
       if (!deployment) return setStatus('Deployment name is required.', 'error');
       const payload = { name, endpoint, deployment, ...profileContext.changes(Boolean(editingId)), ...cachePriceChanges(Boolean(editingId)) };
+      payload.reasoning_summary = $('#profile-reasoning-summary').value;
       if (api_key) payload.api_key = api_key;
       const inPriceVal = $('#azure-input-price').value.trim();
       const outPriceVal = $('#azure-output-price').value.trim();

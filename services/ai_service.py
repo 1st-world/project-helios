@@ -24,6 +24,7 @@ from services.provider_errors import (
     safe_identifier,
 )
 from services.response_outcome import ResponseAccumulator, ResponseOutcome
+from services.reasoning_summary import ReasoningSummaryStream
 from services.summary_usage_store import SummaryUsageStore
 from services.usage_service import UsageService
 from services.work_run_store import WorkRunStore
@@ -411,6 +412,7 @@ class AIService:
         transport = None
         has_text = False
         accumulator = ResponseAccumulator()
+        summaries = ReasoningSummaryStream(call["id"])
         outcome = None
 
         def usage_event(raw_usage: object | None) -> dict:
@@ -444,6 +446,7 @@ class AIService:
                 instructions=instructions,
                 input=input_messages,
                 stream=True,
+                **({"reasoning": {"summary": "auto"}} if profile.reasoning_summary == "auto" else {}),
                 **self._output_options(profile),
                 **(response_options or {}),
             )
@@ -451,8 +454,13 @@ class AIService:
             call.update(provider_metadata(
                 transport=transport, secrets=(profile.api_key, profile.endpoint),
             ))
+            if self._run_id:
+                yield {"type": "call_started", "call_id": call["id"]}
             async for event in stream:
                 accumulator.observe(event)
+                summary_event = summaries.observe(event)
+                if summary_event is not None:
+                    yield summary_event
                 if event.type == "response.created":
                     response_id = safe_identifier(
                         getattr(getattr(event, "response", None), "id", None),
@@ -465,7 +473,8 @@ class AIService:
                     "response.output_text.delta", "response.refusal.delta",
                 }:
                     has_text = has_text or bool(event.delta.strip())
-                    yield {"type": "delta", "text": event.delta}
+                    yield {"type": "delta", "text": event.delta,
+                           **({"call_id": call["id"]} if self._run_id else {})}
                 elif event.type == "response.completed":
                     completed = True
                     response_usage = getattr(event.response, "usage", None)
@@ -479,6 +488,9 @@ class AIService:
                     )
                     outcome = accumulator.finish(event.response, "completed")
                     self._record_outcome(call, outcome)
+                    summary_event = summaries.finish(outcome.output, "completed")
+                    if summary_event is not None:
+                        yield summary_event
                     # Completion is final, regardless of the transport lifetime.
                     break
                 elif event.type in {"response.failed", "response.incomplete"}:
@@ -507,6 +519,9 @@ class AIService:
                         response, event.type.removeprefix("response."),
                     )
                     self._record_outcome(call, outcome)
+                    summary_event = summaries.finish(outcome.output, outcome.status)
+                    if summary_event is not None:
+                        yield summary_event
                     yield {
                         "type": "response", "call_id": call["id"],
                         "outcome": outcome,

@@ -9,6 +9,7 @@ import { createDisclosure } from './disclosure.js';
 import { showActionDialog } from './dialogs.js';
 import { createResponseFooter } from './response-footer.js';
 import { createResponseProgress } from './response-progress.js';
+import { createReasoningSummary } from './reasoning-summary.js';
 
 export function createChat({ getActiveProfileId, getAttachmentSelection, restoreAttachments, onAttachmentsSaved, getWorkspaceContext = () => ({}), selectWorkspace, startWorkspaceDraft, adoptWorkspace, onAttachmentMetadata, clearFocusFiles, onGeneratingChange, onConversationChange, openSettings, exploration }) {
   const state = {
@@ -27,6 +28,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
   const messageMetadata = new WeakMap();
   const responseFooters = new Map();
   const responseProgress = new Map();
+  const responseSummaries = new Map();
   let timestampRefreshTimer = null;
   let timestampDay = '';
   let timestampTimezone = '';
@@ -247,6 +249,11 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
   }
 
   function disposeMessageDisclosures(root = chat) {
+    for (const [message, summary] of responseSummaries) {
+      if (message !== root && !root.contains(message)) continue;
+      summary.destroy();
+      responseSummaries.delete(message);
+    }
     for (const [message, progress] of responseProgress) {
       if (message !== root && !root.contains(message)) continue;
       progress.destroy();
@@ -285,6 +292,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     const timestamp = '<span class="message-timestamp" hidden></span>';
     el.innerHTML = `${avatar}<div class="message-body"><div class="message-text"></div><div class="message-footer"><div class="message-footer-main"><div class="message-actions">${role === 'user' ? timestamp : ''}<div class="message-action-buttons"></div></div></div></div></div>`;
     const textEl = el.querySelector('.message-text');
+    let mounted = false;
     const footer = el.querySelector('.message-footer');
     const responseFooter = role === 'assistant' ? createResponseFooter(footer, { onResize() {
       if (state.showResponseUsage && isNearBottom()) scrollDown(false);
@@ -301,6 +309,17 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
       const current = { ...messageMetadata.get(el), ...newMeta, ...newMeta.response_metadata };
       messageMetadata.set(el, current);
       if (current.run_id) el.dataset.runId = current.run_id;
+      if (role === 'assistant' && !current.run_id && Array.isArray(current.reasoning_summary) && (!mounted || el.isConnected)) {
+        let summary = responseSummaries.get(el);
+        if (!summary && current.reasoning_summary.length) {
+          summary = createReasoningSummary();
+          el.querySelector('.message-body').insertBefore(summary.el, textEl);
+          responseSummaries.set(el, summary);
+        }
+        summary?.update(current.reasoning_summary);
+        if (responseProgress.has(el) && textEl.textContent) summary?.answerStarted();
+        summary?.setProgress(responseProgress.get(el));
+      }
       if (responseFooter) {
         responseFooter.update(current);
         responseFooter.setUsageVisibility(state.showResponseUsage);
@@ -351,6 +370,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
 
     const next = chat.querySelector('.exploration-history') || (feedbackRegion.parentElement === chat ? feedbackRegion : usageFooter.parentElement === chat ? usageFooter : null);
     chat.insertBefore(el, next);
+    mounted = true;
     refreshIcons();
     if (shouldScroll) scrollDown(smooth);
     return { el, render, setMeta };
@@ -436,6 +456,15 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
       const latestUser = data.messages.findLast(message => message.role === 'user');
       restoreAttachments(latestUser?.attachment_sources || []);
     }
+    const summaryStates = new Map();
+    if (state.conversationId === id) {
+      for (const [message, summary] of responseSummaries) {
+        summary.finish();
+        const meta = messageMetadata.get(message);
+        const key = meta?.run_id || meta?.reasoning_summary?.[0]?.call_id;
+        if (key) summaryStates.set(key, summary.el.open);
+      }
+    }
     const savedScrollTop = chat.scrollTop;
     const wasNearBottom = isNearBottom();
     footerDisclosure.finish();
@@ -448,6 +477,9 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
         ? { userIndex: index - 1, content: source.content, hasFollowing: index < data.messages.length - 1 }
         : null;
       const view = appendMessage(message.role, message.content, index, false, false, message, regeneration);
+      const summary = responseSummaries.get(view.el);
+      const summaryKey = message.run_id || message.reasoning_summary?.[0]?.call_id;
+      if (summary && summaryStates.has(summaryKey)) summary.el.open = summaryStates.get(summaryKey);
       return { ...message, index, element: view.el };
     });
     exploration?.show(data.id, messageTargets);
@@ -645,6 +677,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     let requestStarted = false;
     let requestSubmitted = false;
     let responseCompleted = false;
+    const summaryCalls = new Map();
     let workRunId = null;
     const controller = new AbortController();
     state.controller = controller;
@@ -700,6 +733,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
           if (event.type === 'start') {
             workRunId = event.run_id || null;
             if (workRunId) {
+              assistant.setMeta({ run_id: workRunId });
               assistant.el.hidden = true;
               progress.destroy();
               responseProgress.delete(assistant.el);
@@ -711,7 +745,10 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
             if (event.user_created_at) user?.setMeta({ created_at: event.user_created_at });
             if (user && Number.isInteger(event.user_index)) user.el.dataset.messageIndex = String(event.user_index);
           }
-          if (state.conversationId === requestFeedback.conversationId) exploration?.progress(event, {
+          if (event.type === 'done' && workRunId) {
+            assistant.setMeta({ run_id: workRunId, reasoning_summary: [...summaryCalls.values()].flat() });
+          }
+          if (state.conversationId === requestFeedback.conversationId) exploration?.progress(workRunId ? { ...event, run_id: event.run_id || workRunId } : event, {
             user: user?.el || [...chat.querySelectorAll('.message.user')].find(message => Number(message.dataset.messageIndex) === (event.user_index ?? options.regenerateMessageIndex)),
             assistant: assistant.el, startedAt: progressStartedAt
           });
@@ -726,7 +763,17 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
           }
           if (event.type === 'delta') {
             if (!workRunId) progress.update('receiving');
+            responseSummaries.get(assistant.el)?.answerStarted();
             onDelta(event, assistant, answer);
+          }
+          if (event.type === 'reasoning_summary') {
+            const wasNearBottom = isNearBottom();
+            summaryCalls.set(event.call_id, event.parts || []);
+            if (!workRunId) {
+              assistant.setMeta({ reasoning_summary: [...summaryCalls.values()].flat() });
+              progress.update(event.parts?.some(part => part.status === 'in_progress') ? 'reasoning' : answer.value ? 'finalizing' : 'waiting');
+            }
+            if (wasNearBottom) scrollDown(false);
           }
           if (event.type === 'usage') {
             if (!workRunId) progress.update('finalizing');
@@ -753,6 +800,8 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
           if (event.type === 'done') {
             responseCompleted = true;
             progress.destroy();
+            responseProgress.delete(assistant.el);
+            responseSummaries.get(assistant.el)?.setProgress(null);
             assistant.el.querySelector('.message-text').setAttribute('aria-busy', 'false');
             assistant.el.hidden = false;
             if (!options.recoveryId) onAttachmentsSaved();
@@ -803,6 +852,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     } finally {
       progress.destroy();
       responseProgress.delete(assistant.el);
+      responseSummaries.get(assistant.el)?.setProgress(null);
       assistant.el.querySelector('.message-text').setAttribute('aria-busy', 'false');
       state.controller = null;
       state.cancelRequest = null;

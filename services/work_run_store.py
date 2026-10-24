@@ -14,6 +14,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from models.message import Message
+from models.reasoning import extract_reasoning_summary
 from services.call_usage_store import CallUsageStore
 from services.context_budget import ContextChangedError
 from services.response_outcome import ResponseOutcome
@@ -433,10 +434,37 @@ class WorkRunStore:
                 "name": name if name in names else None,
                 "result_available": bool(available),
             })
+            if kind == "model":
+                parts = self._call_reasoning_summary(run_id, call_id, status)
+                if parts:
+                    steps[-1]["reasoning_summary"] = parts
+                text = self._call_intermediate_text(run_id, call_id)
+                if text:
+                    steps[-1]["intermediate_text"] = text
         return {
             "steps": steps,
             "next_offset": offset + limit if len(rows) > limit else None,
         }
+
+    def _call_intermediate_text(self, run_id: str, call_id: str) -> str:
+        """Project public progress messages without loading opaque output or final answers."""
+        rows = self.connection.execute(
+            "SELECT CASE json_extract(part.value, '$.type') "
+            "WHEN 'output_text' THEN json_extract(part.value, '$.text') "
+            "WHEN 'refusal' THEN json_extract(part.value, '$.refusal') END "
+            "FROM model_steps m, json_each(m.outcome, '$.output') item, "
+            "json_each(item.value, '$.content') part "
+            "WHERE m.run_id=? AND m.call_id=? "
+            "AND json_extract(item.value, '$.type')='message' "
+            "AND (json_extract(m.outcome, '$.status')!='completed' "
+            "OR json_array_length(m.outcome, '$.protocol_errors')>0 "
+            "OR length(trim(json_extract(m.outcome, '$.text')))=0 "
+            "OR EXISTS (SELECT 1 FROM json_each(m.outcome, '$.output') tool "
+            "WHERE json_extract(tool.value, '$.type')='function_call')) "
+            "ORDER BY CAST(item.key AS INTEGER), CAST(part.key AS INTEGER)",
+            (run_id, call_id),
+        ).fetchall()
+        return "\n".join(text for (text,) in rows if isinstance(text, str) and text.strip())
 
     def evidence(self, run_id: str, response_id: str, call_id: str) -> dict:
         """Return one saved tool result, never resolve a model-supplied filesystem path."""
@@ -531,7 +559,10 @@ class WorkRunStore:
             outcome = step["outcome"]
             if step["status"] != "completed" or not outcome:
                 raise WorkContextUnavailableError("A saved model response is missing.")
-            items.extend(outcome["output"])
+            items.extend(
+                {**item, "summary": []} if item.get("type") == "reasoning" else item
+                for item in outcome["output"]
+            )
             for call in outcome["function_calls"]:
                 row = self.connection.execute(
                     "SELECT data FROM tool_steps WHERE run_id=? "
@@ -546,6 +577,32 @@ class WorkRunStore:
                     "output": json.loads(row[0])["output"],
                 })
         return items
+
+    def reasoning_summary(self, run_id: str) -> list[dict]:
+        """Collect public summaries for display without changing provider replay output."""
+        self.get(run_id)
+        return [part for call_id, status in self.connection.execute(
+            "SELECT call_id, status FROM model_steps WHERE run_id=? ORDER BY position",
+            (run_id,),
+        ) for part in self._call_reasoning_summary(run_id, call_id, status)]
+
+    def _call_reasoning_summary(self, run_id: str, call_id: str, status: str) -> list[dict]:
+        """Project public summary fields in SQL without loading private reasoning or tool payloads."""
+        result = []
+        rows = self.connection.execute(
+            "SELECT j.key, json_extract(j.value, '$.id'), json_extract(j.value, '$.summary') "
+            "FROM model_steps m, json_each(m.outcome, '$.output') j "
+            "WHERE m.run_id=? AND m.call_id=? AND json_extract(j.value, '$.type')='reasoning' "
+            "AND json_type(j.value, '$.summary')='array' "
+            "ORDER BY CAST(j.key AS INTEGER)", (run_id, call_id),
+        )
+        for index, item_id, raw in rows:
+            output = [{"type": "reasoning", "id": item_id,
+                       "summary": json.loads(raw) if raw else []}]
+            result.extend({**part, "output_index": index} for part in extract_reasoning_summary(
+                output, call_id, status="completed" if status == "completed" else "incomplete",
+            ))
+        return result
 
     def answer(self, run_id: str) -> str:
         """Read only the last response's visible text for atomic transcript adoption."""

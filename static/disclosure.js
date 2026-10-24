@@ -81,5 +81,5 @@ export function createDisclosure(details, body, reducedMotion = window.matchMedi
     reducedMotion.removeEventListener('change', onReducedMotion);
   }
 
-  return { finish, destroy };
+  return { finish, destroy, setOpen: toggle };
 }

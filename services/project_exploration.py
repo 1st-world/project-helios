@@ -211,8 +211,24 @@ class ProjectExplorer:
                         async for event in source:
                             if event["type"] == "response":
                                 outcome = event["outcome"]
+                                final_response = (
+                                    outcome.status == "completed" and not outcome.protocol_errors
+                                    and not outcome.function_calls and outcome.has_text
+                                )
+                                yield {"type": "work_output", "run_id": self.run_id,
+                                       "call_id": event["call_id"], "response_id": outcome.response_id,
+                                       "text": "" if final_response else outcome.text or outcome.refusal,
+                                       "final_response": final_response}
+                            elif event["type"] == "call_started":
+                                yield {"type": "work_progress", "run_id": self.run_id,
+                                       "phase": "model", "call_id": event["call_id"]}
+                            elif event["type"] == "delta":
+                                yield {"type": "work_output", "run_id": self.run_id,
+                                       "call_id": event["call_id"], "delta": event["text"]}
                             elif event["type"] == "usage":
                                 yield {**event, "type": "work_usage", "run_id": self.run_id}
+                            elif event["type"] == "reasoning_summary":
+                                yield {**event, "run_id": self.run_id}
                     self._guard()
                     if (outcome is None or outcome.status != "completed"
                             or outcome.protocol_errors):
@@ -228,7 +244,7 @@ class ProjectExplorer:
                         if self.store.get(self.run_id)["status"] != "ready":
                             raise ExplorationError("exploration_empty_response", "The exploration ended without a final answer.")
                         answer = self.store.answer(self.run_id)
-                        yield {"type": "delta", "text": answer}
+                        yield {"type": "delta", "text": answer, "run_id": self.run_id}
                         yield {"type": "run_usage", "run_id": self.run_id,
                                "usage": self.store.usage(self.run_id, self.ai.call_usage_store)}
                         yield {"type": "done", "run_id": self.run_id}

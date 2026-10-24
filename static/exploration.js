@@ -7,9 +7,11 @@ import { createDisclosure } from './disclosure.js';
 import { usageView, workRunMetadata } from './response-usage.js';
 import { createResponseFooter } from './response-footer.js';
 import { createResponseProgress, workProgressLabel } from './response-progress.js';
+import { createReasoningSummary, renderReasoningText } from './reasoning-summary.js';
 import { describeWorkRun, workStepStatus, WORK_ACTION_LABELS } from './work-run-status.js';
 
 const toolLabels = { helios_project_list_files: 'List files', helios_project_search_text: 'Search text', helios_project_read_file: 'Read file' };
+const toolIcons = { helios_project_list_files: 'folder', helios_project_search_text: 'search', helios_project_read_file: 'file-text' };
 const activeStates = new Set(['preparing', 'model', 'tools', 'ready']);
 
 function node(tag, text, className) {
@@ -28,7 +30,6 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
   const historyHeading = node('h3', 'Other explorations', 'exploration-history-title');
   const historyHint = node('p', 'These saved attempts have no matching question or answer in the current conversation.', 'exploration-history-hint');
   const cards = new Map();
-  const messageRegions = new Map();
   let messageTargets = [];
   let renderAnchor = null;
   let focusedControl = null;
@@ -133,17 +134,12 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     for (const card of ordered) {
       const message = linkedMessage(card);
       let destination;
-      if (card.hasAnswer && message) {
-        if (!messageRegions.has(message)) {
-          const group = node('section', null, 'exploration-message exploration-records');
-          group.setAttribute('aria-label', 'Project explorations for this answer');
-          message.querySelector('.message-body').append(group);
-          messageRegions.set(message, group);
-        }
-        destination = messageRegions.get(message);
+      const answering = card.showingAnswer && card.targets?.assistant?.isConnected;
+      if (card.hasAnswer && message || answering) {
+        destination = (answering ? card.targets.assistant : message).querySelector('.message-body');
       } else {
         ensureResult(card);
-        destination = card.resultActivity;
+        destination = card.result.querySelector('.message-body');
         if (message) {
           const anchor = resultAnchor(card, message);
           const previous = positions.get(anchor) || anchor;
@@ -157,7 +153,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       if (card.details.parentElement !== destination) {
         const focused = document.activeElement;
         const hadFocus = focused && (card.details.contains(focused) || card.result?.contains(focused));
-        destination.append(card.details);
+        destination.insertBefore(card.details, destination.firstChild);
         if (hadFocus) focused.focus({ preventScroll: true });
       }
       if (card.hasAnswer && card.result) {
@@ -165,15 +161,8 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
         card.result.remove();
         card.result = null;
         card.resultMetadata = null;
-        card.resultActivity = null;
         card.outcomeHost = null;
-      }
-    }
-    for (const [message, group] of messageRegions) {
-      if (!group.childElementCount || !message.isConnected) {
-        group.remove();
-        messageRegions.delete(message);
-      }
+      } else if (card.result) card.result.hidden = Boolean(answering);
     }
     if (hasUnmatched) {
       if (!historyHeading.isConnected) region.prepend(historyHeading, historyHint);
@@ -197,16 +186,10 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     const body = node('div', null, 'message-body');
     card.outcomeHost = node('section', null, 'exploration-result exploration-records');
     const footer = node('div', null, 'message-footer');
-    card.resultActivity = node('section', null, 'exploration-message exploration-records');
-    card.resultActivity.setAttribute('aria-label', 'Project explorations for this work result');
-    body.append(card.outcomeHost, footer, card.resultActivity);
+    body.append(card.outcomeHost, footer);
     card.result.append(avatar, body);
     card.resultMetadata = createResponseFooter(footer, { timeLabel: 'Run started', onResize() { renderContent(() => {}); } });
     refreshIcons(card.result);
-  }
-
-  function statusText(run) {
-    return `Work activity · ${describeWorkRun(run).label}`;
   }
 
   function sourceMessage(card) {
@@ -221,8 +204,12 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     const outcome = describeWorkRun({ ...card.run, adopted: card.hasAnswer });
     card.details.dataset.tone = outcome.tone;
     if (!activeStates.has(card.run.status)) {
+      card.summaryView?.setProgress(null);
       card.progressView?.destroy();
       card.progressView = null;
+      for (const step of card.stepData.values()) {
+        if (step.status === 'in_progress') updateStep(card, { ...step, status: 'interrupted' });
+      }
     }
     if (card.hasAnswer) {
       card.outcome?.remove();
@@ -243,7 +230,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       card.progressView ||= createResponseProgress({ startedAt: card.targets?.startedAt ?? card.run.started_at,
         label: card.run.cancellationRequested ? 'stopping' : card.phase || 'Preparing exploration' });
       card.progressView.update(card.run.cancellationRequested ? 'stopping' : card.phase || 'Preparing exploration');
-      if (card.progressView.el.parentElement !== card.outcomeHost) card.outcomeHost.append(card.progressView.el);
+      card.summaryView.setProgress(card.progressView);
       return;
     }
     const source = sourceMessage(card);
@@ -282,9 +269,6 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
   }
 
   function updateCard(card) {
-    const heading = activeStates.has(card.run.status) ? 'Work activity' : statusText(card.run);
-    if (card.heading.textContent !== heading) card.heading.textContent = heading;
-    card.context.textContent = 'Explore project';
     renderOutcome(card);
   }
 
@@ -294,71 +278,168 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     list.append(row);
   }
 
-  function runSettings(card) {
-    const section = node('section', null, 'exploration-run-settings');
-    section.append(node('h4', 'Run settings'));
-    const facts = node('dl', null, 'exploration-run-facts');
-    const goals = card.run.goals || {};
-    addFact(facts, 'Tools', 'Explore project');
-    addFact(facts, 'Workspace', card.run.workspace_name || 'Unavailable');
-    addFact(facts, 'Model call limit', goals.max_model_calls == null ? 'No limit' : String(goals.max_model_calls));
-    addFact(facts, 'Time target', goals.elapsed_time_target_seconds == null ? 'Not set' : `${goals.elapsed_time_target_seconds}s`);
-    addFact(facts, 'Cost target', goals.cost_goal_usd == null ? 'Not set' : `$${goals.cost_goal_usd}`);
-    section.append(facts);
-    return section;
+  function appendStep(card, step, position) {
+    card.empty?.remove();
+    card.empty = null;
+    const key = stepKey(step, position);
+    const signature = JSON.stringify([step.name, step.status, step.record?.usage, step.result_available, step.reasoning_summary, step.intermediate_text]);
+    card.stepData.set(key, step);
+    let view = card.stepViews.get(key);
+    if (view?.signature === signature) return;
+    const followBottom = card.live && card.details.open && card.body.scrollHeight - card.body.scrollTop - card.body.clientHeight <= 32;
+    if (!view) {
+      const row = node('div', null, 'exploration-step');
+      const stepDetails = node('details', null, 'exploration-step-disclosure');
+      stepDetails.open = activeStates.has(card.run.status) && !card.answering;
+      const heading = node('summary', null, 'exploration-step-heading');
+      const status = node('span', null, 'exploration-step-status');
+      const title = node('strong');
+      const icon = node('i');
+      icon.setAttribute('data-lucide', step.kind === 'model' ? 'bot' : toolIcons[step.name] || 'wrench');
+      icon.setAttribute('aria-hidden', 'true');
+      title.append(icon, node('span', step.kind === 'model' ? 'Model call' : toolLabels[step.name] || 'Unsupported tool'));
+      const toggle = node('i', null, 'exploration-step-toggle');
+      toggle.setAttribute('data-lucide', 'chevron-down');
+      toggle.setAttribute('aria-hidden', 'true');
+      heading.append(title, status, toggle);
+      const body = node('div', null, 'exploration-step-body');
+      stepDetails.append(heading, body);
+      row.append(stepDetails);
+      card.steps.append(row);
+      view = { row, stepDetails, body, status };
+      view.stepController = createDisclosure(stepDetails, body);
+      if (step.kind === 'model') {
+        view.content = node('div', null, 'exploration-model-content');
+        view.parts = new Map();
+        body.append(view.content);
+      }
+      card.stepViews.set(key, view);
+    }
+    view.status.textContent = workStepStatus(step.status);
+    if (step.kind === 'model') {
+      renderModelContent(view, step);
+      renderCallUsage(view, step);
+      view.pendingUsage = step.status === 'in_progress' && !step.record?.usage;
+      view.details.hidden = !historyVisibility || view.pendingUsage;
+    } else if (step.result_available && !view.resultButton) {
+      const open = button('Open saved result', () => openEvidence(card.run.id, card.stepData.get(key), open));
+      view.resultButton = open;
+      view.body.append(open);
+    } else if (!step.result_available) {
+      view.resultButton?.remove();
+      view.resultButton = null;
+    }
+    updateStepBody(view);
+    view.signature = signature;
+    if (followBottom) card.body.scrollTop = card.body.scrollHeight;
+    refreshIcons(view.row);
   }
 
-  function appendStep(card, step, position) {
-    const key = `${step.kind}:${step.response_id ?? ''}:${step.call_id ?? position}`;
-    const signature = JSON.stringify([step.name, step.status, step.record?.usage, step.result_available]);
-    const previous = card.stepViews.get(key);
-    if (previous?.signature === signature) {
-      card.steps.append(previous.row);
-      return;
+  function renderCallUsage(view, step) {
+    const signature = JSON.stringify(step.record?.usage);
+    if (view.details && view.usageSignature === signature) return;
+    view.controller?.finish();
+    const expanded = view.details?.open === true;
+    view.controller?.destroy();
+    view.details?.remove();
+    const usage = usageView(step.record?.usage || { usage_status: 'unavailable', cost_status: 'unavailable' });
+    const details = node('details', null, 'exploration-call-usage');
+    details.open = expanded;
+    const summary = node('summary');
+    const metrics = node('span', null, 'exploration-call-metrics');
+    for (const item of usage.summary) metrics.append(node('span', item.text, `exploration-call-metric${item.cost ? ' exploration-call-cost' : ''}`));
+    const toggle = node('span', 'Details', 'exploration-call-toggle');
+    const chevron = node('i');
+    chevron.setAttribute('data-lucide', 'chevron-down');
+    chevron.setAttribute('aria-hidden', 'true');
+    toggle.append(chevron);
+    summary.append(metrics, toggle);
+    const body = node('div', null, 'exploration-call-body');
+    const fields = node('dl', null, 'exploration-call-fields');
+    for (const field of usage.rows) addFact(fields, field.label, field.value);
+    if (usage.longTier) addFact(fields, 'Pricing tier', 'Long tier');
+    body.append(fields);
+    for (const hint of usage.hints) body.append(node('p', hint, 'exploration-call-hint'));
+    details.append(summary, body);
+    view.body.append(details);
+    view.details = details;
+    view.usageSignature = signature;
+    view.controller = createDisclosure(details, body);
+  }
+
+  function updateStepBody(view) {
+    view.body.hidden = !view.summary && !view.output && !view.resultButton && (!view.details || view.details.hidden);
+  }
+
+  function beginAnswer(card) {
+    if (card.answering) return;
+    card.answering = true;
+    if (card.details.contains(document.activeElement)) card.details.querySelector('summary').focus({ preventScroll: true });
+    card.summaryView.answerStarted();
+    card.stepViews.forEach(view => {
+      view.controller?.finish();
+      view.stepController.finish(false);
+    });
+  }
+
+  function renderModelContent(view, step) {
+    const retained = new Set();
+    const parts = (step.reasoning_summary || []).filter(part => part.text?.trim());
+    if (parts.length && !view.summary) {
+      const section = node('section', null, 'exploration-model-section');
+      const content = node('div', null, 'exploration-model-parts');
+      section.append(node('p', 'Reasoning summary', 'exploration-content-label'), content);
+      view.summary = { section, content };
+      view.content.insertBefore(section, view.content.firstChild);
     }
-    const expanded = previous?.details?.open === true;
-    previous?.controller?.destroy();
-    const row = previous?.row || node('div', null, 'exploration-step');
-    row.replaceChildren();
-    const heading = node('div', null, 'exploration-step-heading');
-    heading.append(node('strong', step.kind === 'model' ? 'Model response' : toolLabels[step.name] || 'Unsupported tool'),
-      node('span', workStepStatus(step.status), 'exploration-step-status'));
-    row.append(heading);
-    const view = { row, signature };
-    if (step.kind === 'model') {
-      const usage = usageView(step.record?.usage || { usage_status: 'unavailable', cost_status: 'unavailable' });
-      const details = node('details', null, 'exploration-call-usage');
-      details.open = expanded;
-      details.hidden = !historyVisibility;
-      const summary = node('summary');
-      const metrics = node('span', null, 'exploration-call-metrics');
-      for (const item of usage.summary) metrics.append(node('span', item.text, `exploration-call-metric${item.cost ? ' exploration-call-cost' : ''}`));
-      const toggle = node('span', 'Details', 'exploration-call-toggle');
-      const chevron = node('i');
-      chevron.setAttribute('data-lucide', 'chevron-down');
-      chevron.setAttribute('aria-hidden', 'true');
-      toggle.append(chevron);
-      summary.append(metrics, toggle);
-      const body = node('div', null, 'exploration-call-body');
-      const fields = node('dl', null, 'exploration-call-fields');
-      for (const field of usage.rows) addFact(fields, field.label, field.value);
-      if (usage.longTier) addFact(fields, 'Pricing tier', 'Long tier');
-      body.append(fields);
-      for (const hint of usage.hints) body.append(node('p', hint, 'exploration-call-hint'));
-      details.append(summary, body);
-      row.append(details);
-      card.steps.append(row);
-      view.details = details;
-      view.controller = createDisclosure(details, body);
-    } else {
-      if (step.result_available) {
-        const open = button('Open saved result', () => openEvidence(card.run.id, step, open));
-        row.append(open);
+    for (const [position, part] of parts.entries()) {
+      const key = JSON.stringify([part.item_id, part.summary_index]);
+      retained.add(key);
+      let partView = view.parts.get(key);
+      if (!partView) {
+        partView = { el: node('div', null, 'reasoning-summary-content') };
+        view.parts.set(key, partView);
       }
-      card.steps.append(row);
+      if (partView.text !== part.text) {
+        partView.el.innerHTML = renderReasoningText(part.text);
+        partView.text = part.text;
+      }
+      if (view.summary.content.children[position] !== partView.el) view.summary.content.insertBefore(partView.el, view.summary.content.children[position] || null);
     }
-    card.stepViews.set(key, view);
-    refreshIcons(row);
+    for (const [key, partView] of view.parts) {
+      if (retained.has(key)) continue;
+      partView.el.remove();
+      view.parts.delete(key);
+    }
+    if (!parts.length) {
+      view.summary?.section.remove();
+      view.summary = null;
+    }
+    if (step.intermediate_text?.trim()) {
+      if (!view.output) {
+        const section = node('section', null, 'exploration-model-section');
+        const content = node('div', null, 'exploration-model-output reasoning-summary-content');
+        section.append(node('p', 'Model message', 'exploration-content-label'), content);
+        view.output = { section, content };
+        view.content.append(section);
+      }
+      if (view.output.text !== step.intermediate_text) {
+        view.output.content.innerHTML = renderReasoningText(step.intermediate_text);
+        view.output.text = step.intermediate_text;
+      }
+    } else {
+      view.output?.section.remove();
+      view.output = null;
+    }
+  }
+
+  function updateStep(card, step) {
+    const key = stepKey(step);
+    appendStep(card, { ...card.stepData.get(key), ...step }, card.stepData.size);
+  }
+
+  function stepKey(step, position = '') {
+    return `${step.kind}:${step.kind === 'tool' ? `${step.response_id}:` : ''}${step.call_id ?? position}`;
   }
 
   function clearEvidence() {
@@ -413,15 +494,13 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       updateCard(card);
       card.sourceIdentity = null;
       placeCards();
-      if (offset === 0) {
-        card.steps = node('div', null, 'exploration-steps');
-        const activity = node('section', null, 'exploration-run-activity');
-        activity.append(node('h4', 'Activity'), card.steps);
-        card.body.replaceChildren(runSettings(card), activity);
-      }
-      data.steps.forEach((step, index) => appendStep(card, step, offset + index));
-      if (offset === 0 && !data.steps.length && data.next_offset == null) {
-        card.steps.append(node('p', 'No model or tool steps were recorded.', 'exploration-activity-empty'));
+      data.steps.forEach((step, index) => {
+        const current = card.stepData.get(stepKey(step, offset + index));
+        appendStep(card, card.live && current ? { ...step, ...current, record: step.record || current.record } : step, offset + index);
+      });
+      if (offset === 0 && !card.stepViews.size && !data.steps.length && data.next_offset == null && !activeStates.has(card.run.status)) {
+        card.empty = node('p', 'No model or tool steps were recorded.', 'exploration-activity-empty');
+        card.steps.append(card.empty);
       }
       if (data.next_offset != null) {
         card.more = button('Show more activity', () => loadActivity(card, data.next_offset));
@@ -458,32 +537,29 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
         : { ...run, cancellationRequested: activeStates.has(run.status) && card.run.cancellationRequested };
       card.sourceIdentity = null;
       if (live) card.live = true;
-      if (!activeStates.has(run.status)) card.phase = null;
+      if (!activeStates.has(card.run.status)) {
+        card.phase = null;
+        card.live = false;
+      }
       updateCard(card);
       placeCards();
       if (card.details.open && !card.loading && !card.loaded) loadActivity(card);
       return card;
     }
-    const details = node('details', null, 'exploration-run');
+    const summaryView = createReasoningSummary({ work: true });
+    const details = summaryView.el;
+    details.classList.add('exploration-run');
     details.dataset.runId = run.id;
-    const summary = node('summary');
-    const heading = node('strong');
-    if (live) heading.setAttribute('aria-live', 'polite');
-    const context = node('span', null, 'exploration-run-context');
-    const body = node('div', null, 'exploration-run-body');
-    const summaryContent = node('div', null, 'exploration-run-summary');
-    const chevron = node('i');
-    chevron.setAttribute('data-lucide', 'chevron-down');
-    chevron.setAttribute('aria-hidden', 'true');
-    summaryContent.append(heading, context);
-    summary.append(summaryContent, chevron);
-    details.append(summary, body);
-    const card = { details, heading, context, body, run, live, targets, stepViews: new Map(), loaded: false, loading: false };
+    const body = summaryView.content;
+    body.classList.add('exploration-records');
+    const steps = node('div', null, 'exploration-steps');
+    body.append(steps);
+    const card = { details, body, steps, summaryView, run, live, targets,
+      stepViews: new Map(), stepData: new Map(), loaded: false, loading: false, disclosure: summaryView };
     details.addEventListener('toggle', () => { if (details.open && !card.loaded) loadActivity(card); });
     cards.set(run.id, card);
     updateCard(card);
     placeCards();
-    card.disclosure = createDisclosure(details, body);
     refreshIcons(details);
     return card;
   }
@@ -534,8 +610,8 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     renderAnchor = visible ? { card: visible, top: (visible.result || visible.details).getBoundingClientRect().top } : null;
     cards.forEach(card => {
       card.resultMetadata?.finish();
+      card.stepViews.forEach(view => { view.controller?.finish(); view.stepController.finish(); });
       card.disclosure.finish();
-      card.stepViews.forEach(view => view.controller?.finish());
     });
   }
 
@@ -561,10 +637,10 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       if (evidence.open) evidence.close();
       cards.forEach(card => {
         card.progressView?.destroy();
-        card.stepViews.forEach(view => view.controller?.destroy());
+        card.stepViews.forEach(view => { view.controller?.destroy(); view.stepController.destroy(); });
         card.resultMetadata?.destroy();
-        card.result?.remove();
         card.disclosure.destroy();
+        card.result?.remove();
       });
       cards.clear();
       region.replaceChildren();
@@ -575,8 +651,8 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     } else {
       cards.forEach(card => {
         card.resultMetadata?.finish();
+        card.stepViews.forEach(view => { view.controller?.finish(); view.stepController.finish(); });
         card.disclosure.finish();
-        card.stepViews.forEach(view => view.controller?.finish());
         card.activityToken = null;
         card.loadingNode?.remove();
         card.loading = false;
@@ -592,8 +668,6 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       card.run.adopted = messages.some(message => message.role === 'assistant' && message.run_id === card.run.id);
       updateCard(card);
     });
-    messageRegions.forEach(group => group.remove());
-    messageRegions.clear();
     pageLoading = false;
     if (id) {
       placeCards();
@@ -620,29 +694,64 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     if (event.type === 'work_progress') {
       card.phase = workProgressLabel(event);
       card.loaded = false;
+      if (event.phase === 'model' && event.call_id) {
+        card.currentCallId = event.call_id;
+        updateStep(card, { kind: 'model', call_id: event.call_id, status: 'in_progress' });
+      } else if (event.call_id && ['tool', 'tool_completed'].includes(event.phase)) {
+        updateStep(card, { kind: 'tool', call_id: event.call_id, response_id: event.response_id,
+          name: event.name, status: event.phase === 'tool' ? 'in_progress' : event.failed ? 'failed' : 'completed',
+          result_available: event.phase === 'tool_completed' });
+      }
+    }
+    if (event.type === 'work_output') {
+      if (event.delta || event.text) card.phase = workProgressLabel(event);
+      const previous = card.stepData.get(`model:${event.call_id}`);
+      updateStep(card, { kind: 'model', call_id: event.call_id, response_id: event.response_id || previous?.response_id,
+        status: previous?.status || 'in_progress',
+        intermediate_text: event.text ?? `${previous?.intermediate_text || ''}${event.delta || ''}` });
     }
     if (event.type === 'work_usage') {
       card.phase = workProgressLabel(event);
       card.loaded = false;
+      if (event.call_id) updateStep(card, { kind: 'model', call_id: event.call_id, status: 'completed', record: { usage: event.usage } });
       loadPage();
     }
     if (event.type === 'run_usage') card.run.usage = event.usage;
-    if (event.type === 'delta') card.phase = workProgressLabel(event);
+    if (event.type === 'reasoning_summary') {
+      updateStep(card, { kind: 'model', call_id: event.call_id,
+        reasoning_summary: event.parts || [] });
+      card.phase = event.parts?.some(part => part.status === 'in_progress') ? workProgressLabel(event) : 'Waiting for model';
+    }
+    if (event.type === 'delta') {
+      card.phase = workProgressLabel(event);
+      beginAnswer(card);
+      card.showingAnswer = true;
+      if (card.targets?.assistant) card.targets.assistant.hidden = false;
+    }
     if (event.type === 'cancel_requested') {
       card.run.cancellationRequested = true;
       card.phase = null;
     }
     if (event.type === 'error' || event.type === 'done') {
+      if (event.type === 'done') beginAnswer(card);
       card.run.status = event.run_status || (event.type === 'done' ? 'completed' : 'failed');
       card.run.adopted = event.type === 'done';
       card.run.usage = event.run_usage || card.run.usage;
       card.run.cancellationRequested = false;
+      card.showingAnswer = false;
       if (event.type === 'error') {
         card.run.reason = event.code;
         card.run.failure = event;
       }
       card.phase = null;
       card.live = false;
+      if (event.type === 'error') {
+        for (const step of card.stepData.values()) {
+          if (step.kind !== 'model') continue;
+          updateStep(card, { ...step, reasoning_summary: step.reasoning_summary?.map(part =>
+            part.status === 'in_progress' ? { ...part, status: 'incomplete' } : part) });
+        }
+      }
     }
     updateCard(card);
     placeCards();
@@ -698,7 +807,8 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
         updateCard(card);
         card.stepViews.forEach(view => {
           view.controller?.finish();
-          if (view.details) view.details.hidden = !value;
+          if (view.details) view.details.hidden = !value || view.pendingUsage;
+          updateStepBody(view);
         });
       });
     }

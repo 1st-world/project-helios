@@ -538,6 +538,12 @@
                   <div class="settings-field-group" role="group" aria-labelledby="profile-input-output-title">
                     <h5 id="profile-input-output-title" class="settings-field-title">Input & output</h5>
                     <div class="settings-preference-row">
+                      <div class="settings-preference-copy"><span id="profile-reasoning-summary-label" class="settings-preference-label">Reasoning summary</span><small id="profile-reasoning-summary-help">Show public summaries with replies. Requires a supported deployment. Summaries are excluded from later questions and memory.</small></div>
+                      <div class="profile-context-control">
+                        <select id="profile-reasoning-summary" aria-labelledby="profile-reasoning-summary-label" aria-describedby="profile-reasoning-summary-help"><option value="off">Off</option><option value="auto">On</option></select>
+                      </div>
+                    </div>
+                    <div class="settings-preference-row">
                       <div class="settings-preference-copy"><span id="profile-input-budget-mode-label" class="settings-preference-label">Input budget</span><small id="profile-input-budget-mode-help">Use the app budget, remove it for this profile, or choose a custom token budget.</small></div>
                       <div class="profile-context-control">
                         <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_input_budget_mode" title="Use the app input budget" aria-label="Use the app input budget" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
