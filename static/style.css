@@ -637,7 +637,8 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:hover {
   justify-content: flex-end;
 }
 .message:has(> .message-body > .reasoning-summary:not([hidden])),
-.message:has(> .message-body > .message-text:empty + .response-progress) {
+.message:has(> .message-body > .message-text:empty + .response-progress),
+.message.work-result:has(> .message-body > .response-progress) {
   --message-leading-height: var(--message-header-height);
 }
 .avatar {
@@ -967,6 +968,9 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:hover {
   display: grid;
   min-width: 0;
   gap: 12px;
+}
+.exploration-records .exploration-steps[hidden] {
+  display: none;
 }
 .exploration-records .exploration-step {
   min-width: 0;

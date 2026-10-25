@@ -13,7 +13,7 @@ export function createReasoningSummary({ open = false, work = false } = {}) {
   el.open = open;
   el.hidden = !work;
   const header = document.createElement('summary');
-  const title = work ? 'Work process' : 'Reasoning summary';
+  let title = work ? 'Work process' : 'Reasoning summary';
   header.setAttribute('aria-label', title);
   header.title = `Show or hide ${title.toLowerCase()}`;
   const label = document.createElement('span');
@@ -41,6 +41,17 @@ export function createReasoningSummary({ open = false, work = false } = {}) {
   let destroyed = false;
   let started = false;
   let answering = false;
+
+  function setWork(value) {
+    if (destroyed || work === value) return;
+    work = value;
+    title = work ? 'Work process' : 'Reasoning summary';
+    header.setAttribute('aria-label', title);
+    header.title = `Show or hide ${title.toLowerCase()}`;
+    label.textContent = title;
+    list.setAttribute('aria-label', work ? 'Work process content' : 'Reasoning summary content');
+    el.hidden = !work && !calls.size;
+  }
 
   function start() {
     if (destroyed || started || answering) return;
@@ -110,7 +121,7 @@ export function createReasoningSummary({ open = false, work = false } = {}) {
       call.section.remove();
       calls.delete(callId);
     }
-    el.hidden = !visible.length;
+    el.hidden = !work && !visible.length;
     if (followBottom) list.scrollTop = list.scrollHeight;
     refreshIcons(el);
   }
@@ -128,7 +139,7 @@ export function createReasoningSummary({ open = false, work = false } = {}) {
     if (progress && !el.hidden) start();
   }
 
-  return { el, content: list, update, setProgress, start, answerStarted, finish: disclosure.finish,
+  return { el, content: list, update, setProgress, setWork, start, answerStarted, finish: disclosure.finish,
     destroy() {
       if (destroyed) return;
       destroyed = true;

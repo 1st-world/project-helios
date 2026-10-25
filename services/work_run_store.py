@@ -239,7 +239,8 @@ class WorkRunStore:
             return False
         with self.connection:
             return bool(self.connection.execute(
-                "UPDATE tool_steps SET status='in_progress' WHERE run_id=? "
+                "UPDATE tool_steps SET status='in_progress', "
+                "data=json_set(data, '$.started', json('true')) WHERE run_id=? "
                 "AND response_id=? AND call_id=? AND status='pending'",
                 (run_id, response_id, call_id),
             ).rowcount)
@@ -305,9 +306,8 @@ class WorkRunStore:
             "next_before": rows[limit - 1][0] if len(rows) > limit else None,
         }
 
-    @staticmethod
     def public_metadata(
-        run: dict, *, messages: list[Message] | None = None,
+        self, run: dict, *, messages: list[Message] | None = None,
     ) -> dict:
         """Project display metadata while omitting the host root and internal policies."""
         snapshot = run.get("snapshot", {})
@@ -323,6 +323,7 @@ class WorkRunStore:
                 "finished_at", "recovered_at", "reason", "user_index",
             )},
             "workspace_name": workspace_name,
+            "has_tool_activity": self.has_tool_activity(run["id"]),
             "profile": {
                 key: profile.get(key) for key in ("id", "name", "deployment")
             },
@@ -485,6 +486,15 @@ class WorkRunStore:
             "SELECT COUNT(*) FROM model_steps WHERE run_id=?", (run_id,),
         ).fetchone()[0]
 
+    def has_tool_activity(self, run_id: str) -> bool:
+        """Detect claimed calls and legacy results without counting unstarted plans."""
+        self.get(run_id)
+        return bool(self.connection.execute(
+            "SELECT EXISTS(SELECT 1 FROM tool_steps WHERE run_id=? AND ("
+            "json_extract(data, '$.started')=1 OR status='in_progress' OR "
+            "json_type(data, '$.output')='text'))", (run_id,),
+        ).fetchone()[0])
+
     def usage(self, run_id: str, call_store: CallUsageStore) -> dict:
         """Aggregate the ledger against every durable model-call reference."""
         self.get(run_id)
@@ -507,6 +517,7 @@ class WorkRunStore:
         recorded = totals["calls"]
         metadata = {
             "usage_scope": "work_run", "response_calls": usage["expected_calls"],
+            "has_tool_activity": self.has_tool_activity(run_id),
             "recorded_response_calls": recorded,
             "usage_status": totals["usage_status"] if recorded else "unavailable",
             "cost_status": totals["cost_status"] if recorded else "unavailable",

@@ -1,4 +1,4 @@
-/* Own one-response exploration consent, paged run activity, and immutable saved evidence views. */
+/* Own tool-enabled response presentation, one-response consent, paged run activity, and immutable evidence views. */
 
 import { $, refreshIcons, toast } from './ui.js';
 import { showActionDialog } from './dialogs.js';
@@ -135,9 +135,12 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       const message = linkedMessage(card);
       let destination;
       const answering = card.showingAnswer && card.targets?.assistant?.isConnected;
-      if (card.hasAnswer && message || answering) {
-        destination = (answering ? card.targets.assistant : message).querySelector('.message-body');
+      const ordinary = !card.hasTools && activeStates.has(card.run.status) && card.targets?.assistant?.isConnected;
+      if (card.hasAnswer && message || answering || ordinary) {
+        destination = (answering || ordinary ? card.targets.assistant : message).querySelector('.message-body');
+        if (ordinary) card.targets.assistant.hidden = false;
       } else {
+        if (card.targets?.assistant && activeStates.has(card.run.status)) card.targets.assistant.hidden = true;
         ensureResult(card);
         destination = card.result.querySelector('.message-body');
         if (message) {
@@ -156,13 +159,17 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
         destination.insertBefore(card.details, destination.firstChild);
         if (hadFocus) focused.focus({ preventScroll: true });
       }
+      if (card.progressView && !card.hasTools && card.details.hidden) {
+        card.summaryView.setProgress(null);
+        destination.insertBefore(card.progressView.el, destination.querySelector('.message-footer'));
+      }
       if (card.hasAnswer && card.result) {
         card.resultMetadata.destroy();
         card.result.remove();
         card.result = null;
         card.resultMetadata = null;
         card.outcomeHost = null;
-      } else if (card.result) card.result.hidden = Boolean(answering);
+      } else if (card.result) card.result.hidden = Boolean(answering || ordinary);
     }
     if (hasUnmatched) {
       if (!historyHeading.isConnected) region.prepend(historyHeading, historyHint);
@@ -189,6 +196,8 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     body.append(card.outcomeHost, footer);
     card.result.append(avatar, body);
     card.resultMetadata = createResponseFooter(footer, { timeLabel: 'Run started', onResize() { renderContent(() => {}); } });
+    card.resultMetadata.update(workRunMetadata(card.run));
+    card.resultMetadata.setUsageVisibility(historyVisibility);
     refreshIcons(card.result);
   }
 
@@ -218,21 +227,25 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       card.controls = [];
       return;
     }
-    ensureResult(card);
-    card.result.dataset.tone = outcome.tone;
-    card.resultMetadata.update(workRunMetadata(card.run));
-    card.resultMetadata.setUsageVisibility(historyVisibility);
     if (activeStates.has(card.run.status)) {
       card.outcome?.remove();
       card.outcome = null;
       card.outcomeSignature = null;
       card.controls = [];
       card.progressView ||= createResponseProgress({ startedAt: card.targets?.startedAt ?? card.run.started_at,
-        label: card.run.cancellationRequested ? 'stopping' : card.phase || 'Preparing exploration' });
-      card.progressView.update(card.run.cancellationRequested ? 'stopping' : card.phase || 'Preparing exploration');
-      card.summaryView.setProgress(card.progressView);
+        label: card.run.cancellationRequested ? 'stopping' : card.phase || 'Preparing request' });
+      card.progressView.update(card.run.cancellationRequested ? 'stopping' : card.phase || 'Preparing request');
+      card.summaryView.setProgress(card.details.hidden ? null : card.progressView);
+      if (card.result) {
+        card.resultMetadata.update(workRunMetadata(card.run));
+        card.resultMetadata.setUsageVisibility(historyVisibility);
+      }
       return;
     }
+    ensureResult(card);
+    card.result.dataset.tone = outcome.tone;
+    card.resultMetadata.update(workRunMetadata(card.run));
+    card.resultMetadata.setUsageVisibility(historyVisibility);
     const source = sourceMessage(card);
     const actions = outcome.actions.filter(action => action !== 'prepare-exploration' || source);
     const signature = JSON.stringify([outcome, card.phase, actions, source?.index, source?.created_at, source?.content]);
@@ -269,7 +282,23 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
   }
 
   function updateCard(card) {
+    const hadTools = card.presentingWork;
+    card.hasTools ||= card.run.has_tool_activity === true || (card.run.has_tool_activity == null && !card.live);
+    card.summaryView.setWork(card.hasTools);
+    card.steps.hidden = !card.hasTools;
+    if (!card.hasTools) {
+      const saved = messageTargets.find(message => message.role === 'assistant' && message.run_id === card.run.id);
+      const parts = !card.live && saved ? saved.reasoning_summary || []
+        : card.stepData.size ? [...card.stepData.values()].flatMap(step => step.reasoning_summary || []) : [];
+      card.summaryView.update(parts);
+    } else if (!hadTools) card.summaryView.update([]);
+    card.presentingWork = card.hasTools;
     renderOutcome(card);
+  }
+
+  function loadVisibleActivity(card) {
+    const needsSummary = !card.hasTools && !card.live && !card.hasAnswer;
+    if (!card.loading && !card.loaded && (card.hasTools && card.details.open || needsSummary)) loadActivity(card);
   }
 
   function addFact(list, label, value) {
@@ -498,6 +527,8 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
         const current = card.stepData.get(stepKey(step, offset + index));
         appendStep(card, card.live && current ? { ...step, ...current, record: step.record || current.record } : step, offset + index);
       });
+      updateCard(card);
+      placeCards();
       if (offset === 0 && !card.stepViews.size && !data.steps.length && data.next_offset == null && !activeStates.has(card.run.status)) {
         card.empty = node('p', 'No model or tool steps were recorded.', 'exploration-activity-empty');
         card.steps.append(card.empty);
@@ -543,10 +574,10 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       }
       updateCard(card);
       placeCards();
-      if (card.details.open && !card.loading && !card.loaded) loadActivity(card);
+      loadVisibleActivity(card);
       return card;
     }
-    const summaryView = createReasoningSummary({ work: true });
+    const summaryView = createReasoningSummary();
     const details = summaryView.el;
     details.classList.add('exploration-run');
     details.dataset.runId = run.id;
@@ -554,13 +585,14 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     body.classList.add('exploration-records');
     const steps = node('div', null, 'exploration-steps');
     body.append(steps);
-    const card = { details, body, steps, summaryView, run, live, targets,
+    const card = { details, body, steps, summaryView, run, live, targets, hasTools: false,
       stepViews: new Map(), stepData: new Map(), loaded: false, loading: false, disclosure: summaryView };
-    details.addEventListener('toggle', () => { if (details.open && !card.loaded) loadActivity(card); });
+    details.addEventListener('toggle', () => loadVisibleActivity(card));
     cards.set(run.id, card);
     updateCard(card);
     placeCards();
     refreshIcons(details);
+    loadVisibleActivity(card);
     return card;
   }
 
@@ -672,7 +704,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     if (id) {
       placeCards();
       loadPage();
-      cards.forEach(card => { if (card.details.open && !card.loaded) loadActivity(card); });
+      cards.forEach(loadVisibleActivity);
     } else region.remove();
   }
 
@@ -681,7 +713,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     if (event.type === 'start') {
       resetChoice();
       if (conversationId !== event.conversation_id) show(event.conversation_id);
-      addCard({ id: event.run_id, status: 'preparing', goals: {}, profile: {} }, true, targets);
+      addCard({ id: event.run_id, status: 'preparing', has_tool_activity: false, goals: {}, profile: {} }, true, targets);
       attach();
     }
     const card = cards.get(event.run_id);
@@ -698,13 +730,14 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
         card.currentCallId = event.call_id;
         updateStep(card, { kind: 'model', call_id: event.call_id, status: 'in_progress' });
       } else if (event.call_id && ['tool', 'tool_completed'].includes(event.phase)) {
+        card.hasTools = true;
         updateStep(card, { kind: 'tool', call_id: event.call_id, response_id: event.response_id,
           name: event.name, status: event.phase === 'tool' ? 'in_progress' : event.failed ? 'failed' : 'completed',
           result_available: event.phase === 'tool_completed' });
       }
     }
     if (event.type === 'work_output') {
-      if (event.delta || event.text) card.phase = workProgressLabel(event);
+      if (event.delta || event.text) card.phase = card.hasTools ? workProgressLabel(event) : 'Receiving response';
       const previous = card.stepData.get(`model:${event.call_id}`);
       updateStep(card, { kind: 'model', call_id: event.call_id, response_id: event.response_id || previous?.response_id,
         status: previous?.status || 'in_progress',
@@ -736,6 +769,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       if (event.type === 'done') beginAnswer(card);
       card.run.status = event.run_status || (event.type === 'done' ? 'completed' : 'failed');
       card.run.adopted = event.type === 'done';
+      if (event.response_metadata?.has_tool_activity === true) card.hasTools = true;
       card.run.usage = event.run_usage || card.run.usage;
       card.run.cancellationRequested = false;
       card.showingAnswer = false;
@@ -755,7 +789,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     }
     updateCard(card);
     placeCards();
-    if (card.details.open && !card.loading && !card.loaded) loadActivity(card);
+    loadVisibleActivity(card);
   }
 
   async function selectForNextResponse(isCurrent = () => true) {
