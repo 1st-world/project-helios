@@ -165,20 +165,23 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     }
     items.forEach(({ type, title, message, details, recovery, actions = [], sourceCreatedAt }) => {
       const notice = document.createElement('div');
-      notice.className = `chat-request-notice ${type}`;
+      notice.className = `chat-request-notice status-callout ${type}`;
+      notice.dataset.tone = type;
       const heading = document.createElement('strong');
+      heading.className = 'status-callout-title';
       heading.textContent = title;
       const text = document.createElement('p');
+      text.className = 'status-callout-message';
       text.textContent = message;
       notice.append(heading, text);
       if (details.length) {
         const explanation = document.createElement('p');
-        explanation.className = 'chat-request-notice-details';
+        explanation.className = 'chat-request-notice-details status-callout-details';
         explanation.textContent = details.join('\n');
         notice.append(explanation);
       }
       const controls = document.createElement('div');
-      controls.className = 'chat-request-notice-actions';
+      controls.className = 'chat-request-notice-actions status-callout-actions';
       const labels = { question: 'Review question', attachments: 'Review attachments', connections: 'Connection settings', usage: 'Review usage', limits: 'Review input budget', output: 'Review output limits' };
       actions.forEach(action => {
         if (!labels[action]) return;
@@ -932,7 +935,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
               disposeMessageDisclosures(assistant.el);
               assistant.el.remove();
             }
-            addRequestFeedback(requestFeedback, 'info', {
+            addRequestFeedback(requestFeedback, 'neutral', {
               title: stopState?.in_progress === false ? 'Response stopped' : 'Stop requested',
               message: 'Only completed answers are saved. Any incomplete output is temporary and is not included in follow-up requests.',
               details: [
@@ -958,7 +961,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
   }
 
   async function prepareExploration({ conversationId, source }) {
-    if (state.generating || messageEditor) return toast('Finish the current response or message edit before preparing another exploration.', 'info');
+    if (state.generating || messageEditor) return toast('Finish the current response or message edit before preparing a new request.', 'info');
     const viewVersion = state.conversationLoadVersion;
     const isCurrent = () => {
       if (state.generating || state.conversationId !== conversationId || viewVersion !== state.conversationLoadVersion || !source) return false;
@@ -968,7 +971,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     };
     if (!isCurrent()) return toast('The original question is no longer available in this conversation branch.', 'info');
     const replacesDraft = prompt.value.trim() && prompt.value !== source.content;
-    if (!await showActionDialog({ title: 'Prepare a new exploration?',
+    if (!await showActionDialog({ title: 'Prepare a new request?',
       description: 'Copy this question to the composer and select Explore project. Review the current Workspace, model, attachments and applied limits before sending. The saved attempt is not resumed, and nothing is sent until you press Send.'
         + (replacesDraft ? ' This replaces your current message draft.' : ''),
       confirmLabel: 'Prepare', danger: Boolean(replacesDraft) }) || !isCurrent()) return;
@@ -976,7 +979,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     prompt.value = source.content;
     autoResize();
     prompt.focus();
-    toast('Exploration prepared. Review the current settings and press Send when ready.', 'info');
+    toast('Request prepared with Explore project. Review the current settings and press Send when ready.', 'info');
   }
 
   async function regenerateResponse({ userIndex, content, hasFollowing }) {

@@ -2368,7 +2368,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
             if payload.explore_project:
                 error["recovery"] = {
                     "available": False,
-                    "reason": "Exploration stopped. Review the input and start a new exploration; the failed run is not automatically resumed.",
+                    "reason": "Request stopped. Review the input and prepare a new request; this attempt is not automatically resumed.",
                 }
             yield failure_packet(error)
         except ProviderAttachmentError as exc:

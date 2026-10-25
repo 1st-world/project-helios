@@ -26,8 +26,8 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
   const tools = $('#work-tools');
   const evidence = $('#exploration-evidence-dialog');
   const region = node('section', null, 'exploration-history exploration-records');
-  region.setAttribute('aria-label', 'Exploration history');
-  const historyHeading = node('h3', 'Other explorations', 'exploration-history-title');
+  region.setAttribute('aria-label', 'Work history');
+  const historyHeading = node('h3', 'Other runs', 'exploration-history-title');
   const historyHint = node('p', 'These saved attempts have no matching question or answer in the current conversation.', 'exploration-history-hint');
   const cards = new Map();
   let messageTargets = [];
@@ -70,14 +70,14 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
   function selection() {
     if (!choice.checked) return {};
     const workspace = getWorkspace();
-    if (!workspace.root || workspace.revision == null || !workspace.sessionId) throw new Error('Choose a workspace before exploring.');
+    if (!workspace.root || workspace.revision == null || !workspace.sessionId) throw new Error('Choose a Workspace to use Explore project.');
     const goals = getLimits();
     return { explore_project: true, ...(Object.keys(goals).length ? { exploration_limits: goals } : {}) };
   }
 
-  async function json(url, signal) {
+  async function json(url, signal, label = 'Saved work') {
     const response = await fetch(url, { signal });
-    if (!response.ok) throw new Error(`Saved exploration could not be loaded (HTTP ${response.status}).`);
+    if (!response.ok) throw new Error(`${label} could not be loaded (HTTP ${response.status}).`);
     return response.json();
   }
 
@@ -247,21 +247,21 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     card.resultMetadata.update(workRunMetadata(card.run));
     card.resultMetadata.setUsageVisibility(historyVisibility);
     const source = sourceMessage(card);
-    const actions = outcome.actions.filter(action => action !== 'prepare-exploration' || source);
+    const actions = outcome.actions.filter(action => action !== 'prepare-request' || source);
     const signature = JSON.stringify([outcome, card.phase, actions, source?.index, source?.created_at, source?.content]);
     if (signature === card.outcomeSignature) return;
-    const section = card.outcome || node('section', null, 'exploration-run-outcome');
+    const section = card.outcome || node('section', null, 'exploration-run-outcome status-callout');
     section.dataset.tone = outcome.tone;
-    section.replaceChildren(node('p', 'App work result', 'exploration-outcome-source'),
-      node('h4', card.phase?.replace('Work activity · ', '') || outcome.label),
-      node('p', outcome.message || 'Project exploration is in progress. A final answer has not been saved yet.'));
-    if (outcome.details.length) section.append(node('p', outcome.details.join('\n'), 'exploration-outcome-details'));
-    const controls = node('div', null, 'exploration-outcome-actions');
+    section.replaceChildren(node('p', 'App work result', 'exploration-outcome-source status-callout-source'),
+      node('h4', card.phase || outcome.label, 'status-callout-title'),
+      node('p', outcome.message || 'Work is in progress. A final answer has not been saved yet.', 'status-callout-message'));
+    if (outcome.details.length) section.append(node('p', outcome.details.join('\n'), 'exploration-outcome-details status-callout-details'));
+    const controls = node('div', null, 'exploration-outcome-actions status-callout-actions');
     card.controls = actions.map(action => {
       const control = button(WORK_ACTION_LABELS[action], async () => {
         if (busy || !card.result?.isConnected || !cards.has(card.run.id)) return;
         const currentSource = sourceMessage(card);
-        if (action === 'prepare-exploration' && !currentSource) return;
+        if (action === 'prepare-request' && !currentSource) return;
         control.disabled = true;
         try { await onAction(action, { conversationId, run: card.run, source: currentSource }); }
         catch { toast('Unable to open this action. Please try again.', 'error'); }
@@ -273,8 +273,8 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       return control;
     });
     if (card.controls.length) section.append(controls);
-    if (!source && outcome.actions.includes('prepare-exploration')) {
-      section.append(node('p', 'The original question cannot be verified in this conversation branch. Start a new request from the composer.', 'exploration-outcome-note'));
+    if (!source && outcome.actions.includes('prepare-request')) {
+      section.append(node('p', 'The original question cannot be verified in this conversation branch. Start a new request from the composer.', 'exploration-outcome-note status-callout-details'));
     }
     card.outcome = section;
     card.outcomeSignature = signature;
@@ -489,7 +489,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     const id = conversationId;
     try {
       const query = new URLSearchParams({ response_id: step.response_id, call_id: step.call_id });
-      const result = await json(`${base(id)}/${encodeURIComponent(runId)}/evidence?${query}`, controller.signal);
+      const result = await json(`${base(id)}/${encodeURIComponent(runId)}/evidence?${query}`, controller.signal, 'Saved result');
       if (controller !== evidenceController || !evidence.open || id !== conversationId) return;
       renderExplorationEvidence(target, result, step.name);
       refreshIcons(target);
@@ -509,7 +509,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     card.loading = true;
     card.more?.remove();
     card.error?.remove();
-    const loading = node('p', 'Loading activity…');
+    const loading = node('p', 'Loading work process…');
     card.body.append(loading);
     const version = generation;
     const revision = card.activityRevision || 0;
@@ -517,7 +517,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     card.activityToken = token;
     card.loadingNode = loading;
     try {
-      const data = await json(`${base()}/${encodeURIComponent(card.run.id)}?offset=${offset}`, historyController?.signal);
+      const data = await json(`${base()}/${encodeURIComponent(card.run.id)}?offset=${offset}`, historyController?.signal, 'Work process');
       if (version !== generation || card.activityToken !== token || revision !== (card.activityRevision || 0)) return;
       card.run = { ...card.run, ...data.run, usage: data.usage };
       updateCard(card);
@@ -534,14 +534,14 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
         card.steps.append(card.empty);
       }
       if (data.next_offset != null) {
-        card.more = button('Show more activity', () => loadActivity(card, data.next_offset));
+        card.more = button('Show more steps', () => loadActivity(card, data.next_offset));
         card.body.append(card.more);
       }
       card.nextOffset = data.next_offset;
       card.loaded = true;
     } catch (error) {
       if (error.name !== 'AbortError' && version === generation && card.activityToken === token && revision === (card.activityRevision || 0)) {
-        card.more = button('Retry activity', () => loadActivity(card, offset));
+        card.more = button('Retry loading steps', () => loadActivity(card, offset));
         card.error = node('p', error.message);
         card.body.append(card.error, card.more);
       }
@@ -603,22 +603,22 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     if (before != null) historyMore?.remove();
     historyRetry?.remove();
     historyError?.remove();
-    const status = node('p', 'Loading project explorations…');
+    const status = node('p', 'Loading work history…');
     region.append(status);
     try {
-      const data = await json(`${base()}${before == null ? '' : `?before=${before}`}`, historyController.signal);
+      const data = await json(`${base()}${before == null ? '' : `?before=${before}`}`, historyController.signal, 'Work history');
       if (version !== generation) return;
       [...data.runs].reverse().forEach(run => addCard(run));
       if (before != null || !historyPaged) nextBefore = data.next_before;
       if (before != null) historyPaged = true;
       if (nextBefore != null && historyMore?.parentElement !== region) {
-        historyMore = button('Show older explorations', () => loadPage(nextBefore));
+        historyMore = button('Show older runs', () => loadPage(nextBefore));
         region.prepend(historyMore);
       } else if (nextBefore == null) historyMore?.remove();
     } catch (error) {
       if (error.name !== 'AbortError' && version === generation) {
         historyError = node('p', error.message);
-        historyRetry = button('Retry explorations', () => loadPage(before));
+        historyRetry = button('Retry loading history', () => loadPage(before));
         region.append(historyError, historyRetry);
       }
     } finally {
@@ -689,7 +689,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
         card.loadingNode?.remove();
         card.loading = false;
         if (card.loaded && card.nextOffset != null && card.more?.parentElement !== card.body) {
-          card.more = button('Show more activity', () => loadActivity(card, card.nextOffset));
+          card.more = button('Show more steps', () => loadActivity(card, card.nextOffset));
           card.body.append(card.more);
         }
       });

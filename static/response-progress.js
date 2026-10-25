@@ -18,7 +18,7 @@ export function workProgressLabel(event = {}) {
   if (event.phase === 'model') return phaseLabels.waiting;
   if (event.phase === 'tool_completed') return event.failed ? 'Tool reported a problem' : 'Preparing next step';
   if (event.phase === 'tool') return Object.hasOwn(toolProgress, event.name) ? toolProgress[event.name] : 'Running tool';
-  return 'Preparing exploration';
+  return phaseLabels.preparing;
 }
 
 export function createResponseProgress({ startedAt = Date.now(), label = phaseLabels.preparing } = {}) {

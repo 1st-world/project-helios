@@ -20,7 +20,7 @@ const exploration = createExploration({
   getLimits: () => workToolSettings.limits(),
   onAction(action, context) {
     if (action === 'work-settings') return workToolSettings.open({ focusLimits: true });
-    if (action === 'prepare-exploration') return chat.prepareExploration(context);
+    if (action === 'prepare-request') return chat.prepareExploration(context);
     if (action === 'workspace') return workspace.chooseWorkspace();
     if (action === 'attachments') return document.querySelector('#load-file').click();
     return profiles.openSettings({ connections: 'connections', usage: 'usage', limits: 'context' }[action]);
