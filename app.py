@@ -1029,6 +1029,21 @@ def workspace_payload(workspace: WorkspaceService, entries: list[dict] | None) -
     return payload
 
 
+@app.get("/api/chat/status")
+async def chat_status(
+    conversation_id: str | None = None, workspace_session_id: str | None = None,
+):
+    """Confirm disconnect cleanup and recover a draft's saved identity without filesystem work."""
+    workspace = resolve_workspace(conversation_id, workspace_session_id)
+    owner = conversation_workspaces.owner(workspace)
+    if owner is not None:
+        await context_recovery.wait_for_idle(owner)
+    return {
+        "conversation_id": owner,
+        "in_progress": owner is not None and context_recovery.is_busy(owner),
+    }
+
+
 def build_workspace_structure(
     workspace: WorkspaceService, options: WorkspaceStructureRequest,
 ) -> str:
@@ -2415,9 +2430,35 @@ class ChatStreamingResponse(StreamingResponse):
         self.operation = operation
 
     async def __call__(self, scope, receive, send) -> None:
-        """Shield final generator cleanup from the streaming task's cancellation scope."""
+        """Watch silent calls for disconnect and shield final generator cleanup."""
         try:
-            await super().__call__(scope, receive, send)
+            version = tuple(map(
+                int, scope.get("asgi", {}).get("spec_version", "2.0").split("."),
+            ))
+            if version < (2, 4):
+                await super().__call__(scope, receive, send)
+            else:
+                failure = None
+                # ASGI 2.4 send errors alone cannot interrupt a silent provider or tool await.
+                async with anyio.create_task_group() as group:
+                    async def watch_disconnect():
+                        """Cancel inference promptly without waiting for another output frame."""
+                        await self.listen_for_disconnect(receive)
+                        group.cancel_scope.cancel()
+
+                    group.start_soon(watch_disconnect)
+                    try:
+                        await self.stream_response(send)
+                    except OSError:
+                        failure = ClientDisconnect()
+                    except Exception as exc:
+                        failure = exc
+                    finally:
+                        group.cancel_scope.cancel()
+                if failure is not None:
+                    raise failure
+                if self.background is not None:
+                    await self.background()
         finally:
             with anyio.CancelScope(shield=True):
                 try:

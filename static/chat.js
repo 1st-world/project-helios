@@ -393,7 +393,8 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
   }
 
   function onAbort(assistant, answer) {
-    assistant.render(answer.value || '_Generation stopped._');
+    assistant.el.dataset.transientResponse = '';
+    assistant.render(answer.value ? `_Stopped response (not saved)._\n\n${answer.value}` : '_Stopped before a final answer._');
   }
 
   async function loadConversations() {
@@ -490,7 +491,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     else scrollDown(false);
     exploration?.restorePosition({ preserveScroll: preserveScroll && !wasNearBottom });
     loadConversations();
-    return true;
+    return data;
   }
 
   function newChat() {
@@ -655,6 +656,10 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     if (messageEditor) return toast('Save or cancel your message edit before sending.', 'info');
     const text = options.prompt ?? prompt.value.trim();
     if (!text || state.generating) return;
+    chat.querySelectorAll('[data-transient-response]').forEach(message => {
+      disposeMessageDisclosures(message);
+      message.remove();
+    });
     const requestFeedback = { conversationId: state.conversationId, items: [], sourceCreatedAt: options.sourceCreatedAt };
     state.requestFeedback.delete(state.conversationId);
     renderRequestFeedback();
@@ -677,23 +682,43 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     let requestStarted = false;
     let requestSubmitted = false;
     let responseCompleted = false;
+    let interrupted = false;
+    let requestScope = {};
+    let reader = null;
     const summaryCalls = new Map();
     let workRunId = null;
     const controller = new AbortController();
     state.controller = controller;
     state.cancelRequest = () => {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || responseCompleted) return;
       stop.disabled = true;
       progress.update('stopping');
       if (workRunId) exploration?.progress({ type: 'cancel_requested', run_id: workRunId });
       controller.abort();
     };
+
+    async function prepare(action) {
+      controller.signal.throwIfAborted();
+      let abort;
+      const cancelled = new Promise((_, reject) => {
+        abort = () => reject(controller.signal.reason);
+        controller.signal.addEventListener('abort', abort, { once: true });
+      });
+      try {
+        // Shared workspace and attachment retention tasks must outlive this request's wait.
+        return await Promise.race([action(), cancelled]);
+      } finally {
+        controller.signal.removeEventListener('abort', abort);
+      }
+    }
+
     try {
-      const workspaceContext = options.recoveryId ? {} : await getWorkspaceContext();
+      const workspaceContext = options.recoveryId ? {} : await prepare(getWorkspaceContext);
+      requestScope = workspaceContext;
       controller.signal.throwIfAborted();
       if (requestViewVersion !== state.conversationLoadVersion) throw new DOMException('Conversation changed during preparation.', 'AbortError');
       const explorationContext = options.recoveryId ? {} : exploration?.selection() || {};
-      const attachmentSelection = options.recoveryId ? {} : await getAttachmentSelection({ regenerating: options.regenerateMessageIndex != null });
+      const attachmentSelection = options.recoveryId ? {} : await prepare(() => getAttachmentSelection({ regenerating: options.regenerateMessageIndex != null }));
       controller.signal.throwIfAborted();
       if (requestViewVersion !== state.conversationLoadVersion) throw new DOMException('Conversation changed during preparation.', 'AbortError');
       requestSubmitted = true;
@@ -718,16 +743,18 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
         const feedback = await readResponseError(response);
         throw Object.assign(new Error(feedback.message), { feedback });
       }
-      const reader = response.body.getReader();
+      reader = response.body.getReader();
       const decoder = new TextDecoder();
       const buffer = { value: '' };
-      while (true) {
+      while (!responseCompleted) {
+        controller.signal.throwIfAborted();
         const { done, value } = await reader.read();
         if (done) break;
         buffer.value += decoder.decode(value, { stream: true });
         const frames = buffer.value.split(/\r?\n\r?\n/);
         buffer.value = frames.pop();
         for (const frame of frames) {
+          controller.signal.throwIfAborted();
           if (!frame.startsWith('data: ')) continue;
           const event = JSON.parse(frame.slice(6));
           if (event.type === 'start') {
@@ -799,6 +826,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
           }
           if (event.type === 'done') {
             responseCompleted = true;
+            stop.disabled = true;
             progress.destroy();
             responseProgress.delete(assistant.el);
             responseSummaries.get(assistant.el)?.setProgress(null);
@@ -816,7 +844,9 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
       }
       if (!responseCompleted) throw new Error('The response stream ended before completion. Review the saved conversation before trying again.');
     } catch (error) {
-      if (!requestSubmitted) {
+      if (responseCompleted) {
+        // A transport failure after the saved completion cannot undo the answer or its usage.
+      } else if (!requestSubmitted) {
         disposeMessageDisclosures(assistant.el);
         assistant.el.remove();
         user?.el.remove();
@@ -826,11 +856,12 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
         }
         if (error.name !== 'AbortError') toast(error.message || 'Review the workspace before sending.', 'error');
       } else if (error.name === 'AbortError') {
+        interrupted = true;
         if (workRunId) {
           disposeMessageDisclosures(assistant.el);
           assistant.el.remove();
           exploration?.progress({ type: 'cancel_requested', run_id: workRunId });
-        } else onAbort(assistant, answer);
+        }
       } else {
         if (!requestStarted && !options.preserveDraft && requestViewVersion === state.conversationLoadVersion && state.conversationId === requestConversationId && !prompt.value) {
           prompt.value = text;
@@ -850,6 +881,26 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
         }
       }
     } finally {
+      reader?.releaseLock();
+      let stopState = null;
+      if (interrupted) {
+        try {
+          const scope = new URLSearchParams();
+          if (requestFeedback.conversationId) scope.set('conversation_id', requestFeedback.conversationId);
+          else if (requestScope.workspace_session_id) scope.set('workspace_session_id', requestScope.workspace_session_id);
+          if (scope.size) {
+            const response = await fetch(`/api/chat/status?${scope}`, { signal: AbortSignal.timeout(12000) });
+            if (!response.ok) throw new Error('Unable to confirm request cleanup.');
+            stopState = await response.json();
+            if (stopState.conversation_id && requestViewVersion === state.conversationLoadVersion) {
+              requestFeedback.conversationId = stopState.conversation_id;
+              onStart({ conversation_id: stopState.conversation_id });
+            }
+          }
+        } catch {
+          // The server still serializes paid work when cleanup cannot be confirmed by this tab.
+        }
+      }
       progress.destroy();
       responseProgress.delete(assistant.el);
       responseSummaries.get(assistant.el)?.setProgress(null);
@@ -857,11 +908,49 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
       state.controller = null;
       state.cancelRequest = null;
       try {
-        if ((requestSubmitted || options.preserveDraft) && state.conversationId && state.conversationId === requestFeedback.conversationId) {
-          await openConversation(state.conversationId, true);
+        let saved = null;
+        const isCurrent = requestViewVersion === state.conversationLoadVersion && state.conversationId === requestFeedback.conversationId;
+        if ((requestSubmitted || options.preserveDraft) && state.conversationId && isCurrent) {
+          saved = await openConversation(state.conversationId, true);
         } else {
           loadConversations();
         }
+        if (interrupted && isCurrent && (saved || requestViewVersion === state.conversationLoadVersion)) {
+          const sourceIndex = saved?.messages?.findIndex(message => message.role === 'user' && message.created_at === requestFeedback.sourceCreatedAt) ?? -1;
+          const sourceChanged = Boolean(saved && requestFeedback.sourceCreatedAt && sourceIndex < 0);
+          const reply = sourceIndex >= 0 ? saved.messages[sourceIndex + 1] : null;
+          const alreadyCompleted = reply?.role === 'assistant' && (options.appendUser !== false || reply.created_at !== options.previousReplyCreatedAt);
+          if (!workRunId && alreadyCompleted) {
+            toast('The response completed before it could be stopped.', 'info');
+          } else if (!workRunId) {
+            const summaries = [...summaryCalls.values()].flat().map(part => part.status === 'in_progress' ? { ...part, status: 'incomplete' } : part);
+            if (!sourceChanged && (answer.value || summaries.length)) {
+              const partial = saved ? appendMessage('assistant', '', null, false) : assistant;
+              partial.setMeta({ reasoning_summary: summaries });
+              onAbort(partial, answer);
+            } else if (!saved) {
+              disposeMessageDisclosures(assistant.el);
+              assistant.el.remove();
+            }
+            addRequestFeedback(requestFeedback, 'info', {
+              title: stopState?.in_progress === false ? 'Response stopped' : 'Stop requested',
+              message: 'Only completed answers are saved. Any incomplete output is temporary and is not included in follow-up requests.',
+              details: [
+                ...(sourceChanged ? ['The original question changed or was removed. Its incomplete output is not shown in this branch.'] : []),
+                ...(!stopState || stopState.in_progress ? ['Server cleanup is not yet confirmed. Wait before sending again or changing the Workspace.'] : []),
+                'Reported usage is retained. Calls without final usage remain unknown; stopping does not make them free.',
+              ],
+              actions: ['question', 'usage'],
+            });
+          }
+          if (!requestStarted && !options.preserveDraft && !prompt.value) {
+            prompt.value = text;
+            autoResize();
+          }
+        }
+      } catch {
+        if (interrupted && assistant.el.isConnected && !workRunId) onAbort(assistant, answer);
+        toast('Could not refresh the saved conversation. Reopen it and review usage before continuing.', 'warning');
       } finally {
         setGenerating(false);
       }
@@ -902,12 +991,13 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
       confirmLabel: 'Regenerate', danger: hasFollowing })) return;
     if (state.generating || state.conversationId !== conversationId || state.conversationVersion !== version) return;
     // The server keeps the original branch until regeneration completes successfully.
+    const previousReplyCreatedAt = messageMetadata.get([...chat.querySelectorAll('.message.user, .message.assistant')][userIndex + 1])?.created_at;
     [...chat.querySelectorAll('.message.user, .message.assistant')].slice(userIndex + 1).forEach((message) => {
       disposeMessageDisclosures(message);
       message.remove();
     });
     sendMessage({ prompt: content, regenerateMessageIndex: userIndex, appendUser: false,
-      preserveDraft: true, expectedConversationVersion: state.conversationVersion });
+      preserveDraft: true, expectedConversationVersion: state.conversationVersion, previousReplyCreatedAt });
   }
 
   async function recoverResponse(recovery) {
@@ -920,6 +1010,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
       confirmLabel: 'Allow summary & retry', danger: recovery.replaces_following === true })) return;
     if (state.generating || state.conversationId !== conversationId || state.conversationVersion !== version || recovery.used) return;
     recovery.used = true;
+    const previousReplyCreatedAt = messageMetadata.get([...chat.querySelectorAll('.message.user, .message.assistant')][recovery.user_index + 1])?.created_at;
     if (Number.isSafeInteger(recovery.user_index) && recovery.user_index >= 0) {
       [...chat.querySelectorAll('.message.user, .message.assistant')].slice(recovery.user_index + 1).forEach(message => {
         disposeMessageDisclosures(message);
@@ -928,6 +1019,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     }
     sendMessage({ prompt: 'Recover failed request', recoveryId: recovery.id, operationId: crypto.randomUUID(),
       appendUser: false, preserveDraft: true,
+      previousReplyCreatedAt,
       sourceCreatedAt: messageMetadata.get([...chat.querySelectorAll('.message.user, .message.assistant')][recovery.user_index])?.created_at });
   }
 

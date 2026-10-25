@@ -1,9 +1,11 @@
-"""Keep short-lived failed-request receipts and serialize explicitly authorized recovery work."""
+"""Keep short-lived recovery receipts and coordinate chat request ownership and cleanup."""
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from time import monotonic
 from uuid import uuid4
+
+import anyio
 
 
 class RecoveryError(RuntimeError):
@@ -41,13 +43,13 @@ class ChatOperation:
     closed: bool = False
     release_workspace: Callable[[], None] | None = field(default=None, repr=False)
     release_attachments: Callable[[], None] | None = field(default=None, repr=False)
+    finished: anyio.Event = field(default_factory=anyio.Event, repr=False)
 
     def close(self) -> None:
         """Release ownership once and discard private inputs after a recovery attempt."""
         if self.closed:
             return
         self.closed = True
-        self.registry._busy.discard(self.conversation_id)
         if self.release_workspace is not None:
             self.release_workspace()
             self.release_workspace = None
@@ -56,6 +58,9 @@ class ChatOperation:
         if self.release_attachments is not None:
             self.release_attachments()
             self.release_attachments = None
+        self.registry._busy.discard(self.conversation_id)
+        self.registry._operations.pop(self.conversation_id, None)
+        self.finished.set()
 
 
 class ContextRecoveryRegistry:
@@ -69,6 +74,7 @@ class ContextRecoveryRegistry:
         self.ttl, self.max_tickets, self.max_bytes = ttl, max_tickets, max_bytes
         self._tickets: dict[str, RecoveryTicket] = {}
         self._busy: set[str] = set()
+        self._operations: dict[str, ChatOperation] = {}
         self.on_attachments_changed: Callable[[set[str]], None] | None = None
 
     def _prune(self, *, notify: bool = True) -> set[str]:
@@ -208,8 +214,17 @@ class ContextRecoveryRegistry:
                 raise RecoveryError("This recovery request was already attempted. No additional call was started.")
             ticket.used, ticket.operation_id = True, operation_id
         self._busy.add(conversation_id)
-        return ChatOperation(self, conversation_id, ticket)
+        operation = ChatOperation(self, conversation_id, ticket)
+        self._operations[conversation_id] = operation
+        return operation
 
     def is_busy(self, conversation_id: str) -> bool:
         """Report whether a conversation still owns a preparation or streaming request."""
         return conversation_id in self._busy
+
+    async def wait_for_idle(self, conversation_id: str, *, timeout: float = 10) -> None:
+        """Wait for the current owner to release resources without starting any paid work."""
+        operation = self._operations.get(conversation_id)
+        if operation is not None:
+            with anyio.move_on_after(timeout):
+                await operation.finished.wait()
