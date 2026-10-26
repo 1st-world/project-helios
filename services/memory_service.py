@@ -33,9 +33,10 @@ class MemoryPolicyChangedError(RuntimeError):
 
 @dataclass
 class _MemoryPolicyRevision:
-    """Share revocation state across immutable application settings snapshots."""
+    """Share application and per-profile revocation across request settings snapshots."""
 
     value: int = 0
+    profiles: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,7 @@ class MemoryPolicySnapshot:
 
     policy: dict
     revision: int
+    profile_revision: int
     settings: tuple
     profile: ConnectionProfile | None = field(repr=False)
     ai_service: AIService = field(repr=False)
@@ -86,10 +88,15 @@ class ConversationMemoryService:
         self._revision = _MemoryPolicyRevision()
         self._settings_revision = 0
 
-    def invalidate_policy(self) -> None:
-        """Revoke outstanding work after successfully publishing a policy change."""
-        self._revision.value += 1
-        self._settings_revision = self._revision.value
+    def invalidate_policy(self, profile_id: str | None = None) -> None:
+        """Revoke one profile's work or all work after a durable policy publication."""
+        if profile_id is not None:
+            self._revision.profiles[profile_id] = (
+                self._revision.profiles.get(profile_id, 0) + 1
+            )
+        else:
+            self._revision.value += 1
+            self._settings_revision = self._revision.value
 
     def _settings_signature(self) -> tuple:
         """Identify settings used for planning without including mutable runtime state."""
@@ -110,11 +117,19 @@ class ConversationMemoryService:
 
     def policy_is_current(self, snapshot: MemoryPolicySnapshot) -> bool:
         """Check revocation and the captured connection before using summarized input."""
+        profile = (
+            self._profile(snapshot.profile.id)
+            if snapshot.profile is not None else None
+        )
         return (
             snapshot.revision == self._revision.value == self._settings_revision
             and snapshot.settings == self._settings_signature()
             and snapshot.profile is not None
-            and snapshot.profile == self._profile(snapshot.profile.id)
+            and profile is not None
+            and snapshot.profile_revision == self._revision.profiles.get(
+                profile.id, 0,
+            )
+            and snapshot.profile.request_settings() == profile.request_settings()
         )
 
     def _check_policy(self, snapshot: MemoryPolicySnapshot) -> None:
@@ -193,8 +208,13 @@ class ConversationMemoryService:
             "revision": self._revision.value, "one_shot": one_shot,
         }
         snapshot = MemoryPolicySnapshot(
-            policy, self._revision.value, self._settings_signature(), profile,
-            self.ai_service,
+            policy=policy, revision=self._revision.value,
+            profile_revision=(
+                self._revision.profiles.get(profile.id, 0)
+                if profile is not None else 0
+            ),
+            settings=self._settings_signature(), profile=profile,
+            ai_service=self.ai_service,
         )
         if profile is not None and isinstance(self.ai_service, AIService):
             snapshot = replace(snapshot, ai_service=self.ai_service.with_profile(

@@ -19,6 +19,7 @@ from services.project_access import (
 from services.workspace_service import WorkspaceAccessError
 
 WORKSPACE_MANIFEST_LIMIT = 100_000
+CONNECTION_FINGERPRINT_VERSION = 2
 _EXCLUDED_PATH_REASONS = {"hidden_path", "ignored_path", "protected_path"}
 
 
@@ -33,10 +34,24 @@ def _digest(value: object) -> str:
 
 def connection_fingerprint(
     profile, memory_policy=None, *, context: object = None,
+    version: int = CONNECTION_FINGERPRINT_VERSION, legacy_name: str | None = None,
 ) -> str:
-    """Compare complete pinned settings through a digest rather than saved credentials."""
+    """Hash request settings, accepting older checkpoints with their recorded display name."""
     try:
+        if (
+            type(version) is not int
+            or version not in {1, CONNECTION_FINGERPRINT_VERSION}
+        ):
+            raise ValueError("Unsupported connection fingerprint version.")
         profile_data = asdict(profile) if is_dataclass(profile) else profile
+        if isinstance(profile_data, dict):
+            if version == CONNECTION_FINGERPRINT_VERSION:
+                profile_data = {
+                    key: value for key, value in profile_data.items()
+                    if key != "name"
+                }
+            elif legacy_name is not None:
+                profile_data = {**profile_data, "name": legacy_name}
         policy_data = getattr(memory_policy, "policy", memory_policy)
         if isinstance(policy_data, dict):
             # Live guards check process-local memory revocation separately.

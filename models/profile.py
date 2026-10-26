@@ -177,6 +177,12 @@ class ConnectionProfile:
             and self.deployment.strip()
         )
 
+    def request_settings(self) -> dict:
+        """Return private request settings without the display-only profile name."""
+        return {
+            key: value for key, value in asdict(self).items() if key != "name"
+        }
+
     def to_dict(
         self,
         include_sensitive: bool = False,

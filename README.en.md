@@ -94,6 +94,8 @@ Microsoft's [v1 API and model support guide](https://learn.microsoft.com/en-us/a
 
 **Settings → Context & attachments** contains app defaults. **Connections → profile → Context & memory** contains profile settings. A profile can replace the app's input budget and Input check mode. For output, the smaller explicit app or profile limit applies. Saved changes apply to new requests.
 
+Each request pins its selected connection, model, pricing and policy at the start. Changing the active selection, adding/editing/deleting another profile, renaming a profile, or saving identical values does not revoke that request's memory summary or resumed work. Changes to the pinned profile's actual request settings, or its deletion, revoke only that profile's authorization. Restoring values or turning memory back on does not revive previously revoked work. Shared app policy changes retain validation that revokes existing requests across profiles.
+
 ### Input and output
 
 | Setting | Fresh-install default | Meaning |
@@ -335,6 +337,8 @@ Request cancellation or disconnect stops work, holding the Workspace lease until
 `POST /api/work-runs/{run_id}/pause` accepts `{ "conversation_id": "..." }` to request a safe step boundary. After cleanup, the stream ends with `paused`; final answers end with `done`. `/resume` additionally requires `expected_conversation_version` and streams the same run through SSE. `/stop` persists explicit cancellation for active or paused runs without replacing completed results. A conversation request slot and atomic checkpoint claim prevent duplicate continuations. `/api/chat` and message edits in a paused conversation return `409 work_run_paused` while preserving the checkpoint. Conversation and work-history responses include `paused_run` independently of history pagination.
 
 Private resume input is retained in a separate `work_runs.sqlite3` table without copying connection credentials. A bounded metadata manifest checks automatic read scope and ignore policies; explicit Workspace files and upload originals are verified with SHA-256. Metadata-preserving external edits and filesystem races after verification remain possible; this is not a filesystem snapshot. Old MCP cursors are rejected as `cursor_expired` after resumption and the model is instructed to restart pagination in its new tool session.
+
+Connection validation compares actual request settings while excluding the display name. Renaming a profile preserves valid checkpoints, and the run and its resumed calls keep the name recorded at the start. Older connection fingerprints remain verifiable using their recorded original name while retaining credential, model, pricing and permission checks.
 
 `GET /api/chat/status?conversation_id=<id>` waits up to 10 seconds for the conversation's current request cleanup and returns `conversation_id` and `in_progress`. Before a new chat's start event, query with `workspace_session_id=<id>` to recover the draft's adopted conversation. It waits on the cleanup event without repeated polling, Provider calls, MCP execution, or folder listing. A request still marked `in_progress: true` retains ownership after the timeout. This endpoint does not cancel or resume work.
 

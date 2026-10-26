@@ -66,7 +66,8 @@ from services.work_run_store import (
     ACTIVE_STATES, WorkContextUnavailableError, WorkRunStore,
 )
 from services.work_resume import (
-    connection_fingerprint, selected_files_fingerprint, workspace_fingerprint,
+    CONNECTION_FINGERPRINT_VERSION, connection_fingerprint,
+    selected_files_fingerprint, workspace_fingerprint,
 )
 from services.file_picker_service import FilePickerService
 from services.folder_picker_service import (
@@ -685,15 +686,18 @@ async def create_profile(payload: CreateProfileRequest):
         raise HTTPException(
             status_code=400, detail="Could not create connection profile."
         )
-    memory_service.invalidate_policy()
     return profile_service.get_summary()
 
 
 @app.put("/api/profiles/{profile_id}")
 async def update_profile(profile_id: str, payload: UpdateProfileRequest):
     """Apply profile changes and return the refreshed profile summary."""
+    previous = profile_service.get_profile(profile_id)
+    previous_settings = (
+        previous.request_settings() if previous is not None else None
+    )
     try:
-        profile_service.update_profile(
+        updated = profile_service.update_profile(
             profile_id,
             name=payload.name,
             endpoint=payload.endpoint,
@@ -733,7 +737,8 @@ async def update_profile(profile_id: str, payload: UpdateProfileRequest):
         raise HTTPException(
             status_code=400, detail="Could not update connection profile."
         )
-    memory_service.invalidate_policy()
+    if previous_settings != updated.request_settings():
+        memory_service.invalidate_policy(profile_id)
     return profile_service.get_summary()
 
 
@@ -753,7 +758,7 @@ async def delete_profile(profile_id: str):
     deleted = profile_service.delete_profile(profile_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Profile not found.")
-    memory_service.invalidate_policy()
+    memory_service.invalidate_policy(profile_id)
     return profile_service.get_summary()
 
 
@@ -764,7 +769,6 @@ async def set_active_profile(profile_id: str):
         profile_service.set_active_profile(profile_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    memory_service.invalidate_policy()
     return profile_service.get_summary()
 
 
@@ -869,7 +873,10 @@ def work_resume_configuration(app_settings=None) -> dict:
     }
 
 
-def work_connection_fingerprint(profile_id: str) -> str:
+def work_connection_fingerprint(
+    profile_id: str, *, version: int = CONNECTION_FINGERPRINT_VERSION,
+    legacy_name: str | None = None,
+) -> str:
     """Compare current credentials and memory permission without persisting either."""
     profile = profile_service.get_profile(profile_id)
     if profile is None:
@@ -877,6 +884,7 @@ def work_connection_fingerprint(profile_id: str) -> str:
     return connection_fingerprint(
         profile, memory_service.capture_policy(profile_id),
         context=work_resume_configuration(),
+        version=version, legacy_name=legacy_name,
     )
 
 
@@ -897,7 +905,11 @@ def require_resume_authority(run: dict, conversation, workspace, saved: dict | N
             or str(workspace.root) != binding.get("root")
             or workspace.revision != binding.get("revision")
             or workspace.session_id != binding.get("session_id")
-            or work_connection_fingerprint(snapshot.get("profile", {}).get("id"))
+            or work_connection_fingerprint(
+                snapshot.get("profile", {}).get("id"),
+                version=saved.get("connection_fingerprint_version", 1),
+                legacy_name=snapshot.get("profile", {}).get("name"),
+            )
             != saved.get("connection_fingerprint")):
         raise ContextChangedError("The conversation, Workspace, connection, or input policy changed. Prepare a new request instead of resuming this run.")
     return saved
@@ -967,7 +979,10 @@ async def resume_work_run(run_id: str, payload: WorkRunControlRequest, request: 
         require_resume_authority(run, conversation, workspace, saved)
         request_messages = conversation.messages
         profile_id = run["snapshot"]["profile"]["id"]
-        profile = replace(profile_service.get_profile(profile_id))
+        profile = replace(
+            profile_service.get_profile(profile_id),
+            name=run["snapshot"]["profile"]["name"],
+        )
         request_ai = ai_service.with_profile(profile)
         policy = ContextPolicy(**run["snapshot"]["context_policy"])
         request_memory = memory_service
@@ -977,9 +992,10 @@ async def resume_work_run(run_id: str, payload: WorkRunControlRequest, request: 
         def authority():
             """Require the validated branch and permissions before every resumed action."""
             require_resume_authority(run, conversation, workspace, saved)
-            if (conversation.messages is not request_messages
-                    or not request_memory.policy_is_current(resume_memory_policy)):
+            if conversation.messages is not request_messages:
                 raise ContextChangedError("Conversation changed during resumed work.")
+            if not request_memory.policy_is_current(resume_memory_policy):
+                raise ContextChangedError("The saved connection or memory policy changed during resumed work. Prepare a new request.")
 
         def inputs():
             """Replay the exact prepared base input without generating a fresh summary."""
@@ -2475,6 +2491,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                             "selected_files": resume_selected_files,
                             "selected_files_fingerprint": resume_selected_fingerprint,
                             "selected_files_max_bytes": request_attachments.MAX_TOTAL_BYTES,
+                            "connection_fingerprint_version": CONNECTION_FINGERPRINT_VERSION,
                             "connection_fingerprint": connection_fingerprint(
                                 pinned_profile, request_memory_policy,
                                 context=work_resume_configuration(request_settings),
