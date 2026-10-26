@@ -243,6 +243,9 @@ export function createProfiles({ isGenerating }) {
       } else {
         labelEl.textContent = 'No model';
       }
+      $('#model-trigger').title = activeProfile
+        ? `Model profile: ${activeProfile.name} (${activeProfile.deployment || 'No deployment'})`
+        : 'Select model profile';
     }
 
     const popoverList = $('#model-profile-list');
@@ -366,7 +369,10 @@ export function createProfiles({ isGenerating }) {
       const data = await response.json();
       el.className = `status ${data.configured ? 'hidden' : 'error'}`;
       el.textContent = data.configured ? '' : 'Add a model in Settings to start chatting.';
-      const modelTitle = data.configured ? 'Model for the next response' : 'No configured model';
+      const active = state.profiles.find(profile => profile.id === state.activeProfileId);
+      const modelTitle = data.configured && active
+        ? `Model profile: ${active.name} (${active.deployment || 'No deployment'})`
+        : 'Select model profile · Connection needs setup';
       if ($('#profile-select')) $('#profile-select').title = modelTitle;
       if ($('#model-trigger')) $('#model-trigger').title = modelTitle;
     } catch {
@@ -415,7 +421,9 @@ export function createProfiles({ isGenerating }) {
     const modelPicker = $('#model-picker');
     if (modelPicker) {
       if (value) modelPicker.open = false;
-      modelPicker.inert = value;
+      const summary = modelPicker.querySelector('summary');
+      summary.setAttribute('aria-disabled', String(value));
+      summary.tabIndex = value ? -1 : 0;
     }
   }
 

@@ -137,6 +137,13 @@ export function initializeUI({ beforeDialogClose }) {
   popoverResizeObserver.observe(composerFooter);
   composerPopovers.forEach((popover) => {
     const details = popover.closest('details');
+    const summary = details.querySelector('summary');
+    summary.addEventListener('click', (event) => {
+      if (summary.getAttribute('aria-disabled') === 'true') event.preventDefault();
+    });
+    summary.addEventListener('keydown', (event) => {
+      if (summary.getAttribute('aria-disabled') === 'true' && ['Enter', ' '].includes(event.key)) event.preventDefault();
+    });
     details.addEventListener('toggle', positionComposerPopovers);
     popoverResizeObserver.observe(details);
   });

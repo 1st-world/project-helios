@@ -134,7 +134,6 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
     }
     const folderName = data.root?.split(/[/\\]/).filter(Boolean).pop() || 'No workspace';
     $('#workspace-folder-name').textContent = folderName;
-    $('#workspace-file-count').textContent = data.root ? 'Folder connected' : 'Optional · Chat without a folder';
     $('#workspace-card').title = data.root ? `Manage workspace: ${data.root}` : 'Choose an optional workspace';
     $('#composer-workspace-name').textContent = folderName;
     if (state.inspection && !inspectionIsCurrent()) invalidateInspection();
@@ -429,6 +428,20 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
   function updateWorkspaceControls() {
     const busy = state.generating || state.changingWorkspace || picker.isPicking() || !state.workspaceSessionId;
     const connected = Boolean(state.workspaceRoot);
+    const iconName = connected ? 'folder' : 'folder-plus';
+    ['#workspace-card', '#workspace-context-chip'].forEach(selector => {
+      const control = $(selector);
+      control.dataset.connected = String(connected);
+      const icon = control.querySelector('[data-workspace-icon]');
+      if (icon && icon.getAttribute('data-lucide') !== iconName) {
+        const replacement = document.createElement('i');
+        replacement.setAttribute('data-lucide', iconName);
+        replacement.setAttribute('data-workspace-icon', '');
+        replacement.setAttribute('aria-hidden', 'true');
+        icon.replaceWith(replacement);
+        refreshIcons(control);
+      }
+    });
     $('#workspace-path-input').disabled = busy;
     picker.update();
     $('#apply-workspace').disabled = busy;
@@ -439,10 +452,10 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
     $('#composer-workspace-sub').hidden = !connected;
     $('#composer-workspace-sub').textContent = state.workspaceAvailable ? 'Project context' : 'Unavailable';
     $('#workspace-context-chip').title = connected ? 'Project context is included with messages. Open Workspace to preview it or change folders.'
-      : 'Chat without a project, or choose a Workspace to add project context.';
-    if (connected) {
-      $('#workspace-file-count').textContent = state.workspaceAvailable ? 'Folder connected' : 'Folder unavailable · Choose another folder';
-    }
+      : 'Chat without a folder, or choose a Workspace to add project context.';
+    $('#workspace-file-count').textContent = connected
+      ? state.workspaceAvailable ? 'Chat with a connected folder' : 'Folder unavailable · Choose another folder'
+      : 'Chat without a folder · Optional';
   }
 
   async function previewProjectContext() {

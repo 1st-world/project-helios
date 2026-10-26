@@ -18,6 +18,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     conversationLoadVersion: 0,
     controller: null,
     generating: false,
+    stopping: false,
     pausedRun: null,
     showConversationUsage: true,
     showResponseUsage: true,
@@ -36,7 +37,6 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
   let messageEditor = null;
   const prompt = $('#prompt');
   const send = $('#send');
-  const stop = $('#stop');
   const pauseResponse = $('#pause-response');
   const feedbackRegion = document.createElement('aside');
   feedbackRegion.className = 'chat-request-notices';
@@ -118,9 +118,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
   function setGenerating(value) {
     const wasNearBottom = isNearBottom();
     state.generating = value;
-    send.disabled = value;
-    stop.classList.toggle('hidden', !value);
-    stop.disabled = false;
+    state.stopping = false;
     pauseResponse.classList.add('hidden');
     pauseResponse.disabled = false;
     onGeneratingChange(value);
@@ -132,18 +130,41 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
 
   function updateComposerState() {
     const locked = Boolean(state.pausedRun) && !state.generating;
-    const inputs = $('#composer-inputs');
-    inputs.disabled = locked;
+    const optionsLocked = locked || state.generating;
+    $('#composer-inputs').dataset.locked = String(locked);
+    $('#composer-context-inputs').disabled = locked;
+    $('#composer-option-inputs').disabled = optionsLocked;
+    prompt.disabled = locked;
     $('#composer-pause-notice').hidden = !locked;
-    send.disabled = state.generating || Boolean(state.pausedRun);
-    inputs.querySelectorAll('details').forEach(details => {
-      details.inert = locked;
-      details.querySelector('summary')?.setAttribute('aria-disabled', String(locked));
-      if (locked) details.open = false;
+    $('#composer-option-inputs').querySelectorAll('details').forEach(details => {
+      const summary = details.querySelector('summary');
+      summary.setAttribute('aria-disabled', String(optionsLocked));
+      summary.tabIndex = optionsLocked ? -1 : 0;
+      if (optionsLocked) details.open = false;
     });
+    const action = state.generating ? 'stop' : locked ? 'resume' : 'send';
+    const labels = { send: 'Send message', stop: 'Stop response', resume: 'Resume run' };
+    const icons = { send: 'arrow-up', stop: 'square', resume: 'play' };
+    if (send.dataset.action !== action) {
+      send.dataset.action = action;
+      send.innerHTML = `<i data-lucide="${icons[action]}" aria-hidden="true"></i>`;
+      refreshIcons(send);
+    }
+    send.setAttribute('aria-label', labels[action]);
+    send.title = labels[action];
+    send.disabled = state.stopping || action === 'resume' && (!pausedSource() || state.pausedRun.resume_available === false);
+    if (action === 'resume' && send.disabled) send.title = 'Resume unavailable. Review or discard the saved run.';
     chat.querySelectorAll('[data-requires-resolved-work]').forEach(button => {
       button.disabled = state.generating || Boolean(state.pausedRun);
     });
+  }
+
+  function pausedSource() {
+    const index = state.pausedRun?.message_link?.user_index;
+    if (!Number.isInteger(index)) return null;
+    const element = [...chat.querySelectorAll('.message.user')].find(message => Number(message.dataset.messageIndex) === index);
+    const meta = element && messageMetadata.get(element);
+    return meta ? { index, content: meta.content, created_at: meta.created_at } : null;
   }
 
   function setPausedRun(id, run) {
@@ -517,6 +538,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
       return { ...message, index, element: view.el };
     });
     exploration?.show(data.id, messageTargets, data.paused_run);
+    updateComposerState();
     renderRequestFeedback();
     updateConversationUsage();
     onConversationChange(state.conversationId);
@@ -730,7 +752,8 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     state.controller = controller;
     state.cancelRequest = () => {
       if (controller.signal.aborted || responseCompleted) return;
-      stop.disabled = true;
+      state.stopping = true;
+      send.disabled = true;
       pauseResponse.disabled = true;
       progress.update('stopping');
       if (workRunId) {
@@ -903,7 +926,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
           }
           if (event.type === 'done') {
             responseCompleted = true;
-            stop.disabled = true;
+            send.disabled = true;
             pauseResponse.disabled = true;
             progress.destroy();
             responseProgress.delete(assistant.el);
@@ -916,7 +939,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
           }
           if (event.type === 'paused') {
             responseCompleted = true;
-            stop.disabled = true;
+            send.disabled = true;
             pauseResponse.disabled = true;
             progress.destroy();
             responseProgress.delete(assistant.el);
@@ -1172,8 +1195,12 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
   function init() {
     $('#new-chat').onclick = newChat;
 
-    send.onclick = () => sendMessage();
-    stop.onclick = () => state.cancelRequest?.();
+    send.onclick = () => {
+      if (send.disabled) return;
+      if (state.generating) return state.cancelRequest?.();
+      if (state.pausedRun) return resumeWorkRun({ conversationId: state.conversationId, run: state.pausedRun, source: pausedSource() });
+      return sendMessage();
+    };
     pauseResponse.onclick = () => state.pauseRequest?.();
     prompt.oninput = autoResize;
     document.addEventListener('text-size-change', autoResize);

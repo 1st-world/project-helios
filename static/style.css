@@ -462,7 +462,7 @@ footer {
     border-color var(--motion-duration) ease,
     background-color var(--motion-duration) ease;
 }
-.workspace-card:hover {
+.workspace-card:not(:disabled):hover {
   border-color: var(--border-focus);
   background: var(--bg-surface-active);
 }
@@ -480,6 +480,9 @@ footer {
   width: 15px;
   height: 34px;
   color: var(--accent);
+}
+.workspace-card[data-connected="false"] .workspace-card-icon {
+  color: var(--text-muted);
 }
 .workspace-card-info {
   display: flex;
@@ -573,7 +576,7 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card {
   border-color: transparent;
   background: transparent;
 }
-body.sidebar-collapsed:not(.mobile-layout) .workspace-card:hover {
+body.sidebar-collapsed:not(.mobile-layout) .workspace-card:not(:disabled):hover {
   border-color: var(--border);
   background: var(--bg-element);
 }
@@ -1568,22 +1571,31 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:hover {
 /* ========================================
    Composer Input Area
    ======================================== */
-.composer-inputs {
+.composer-inputs,
+.context-bar,
+.composer-options {
   min-width: 0;
   margin: 0;
   padding: 0;
   border: 0;
 }
-.composer-inputs:disabled .composer-control,
-.composer-inputs:disabled .context-chip {
+.composer-inputs .composer-control:is(:disabled, [aria-disabled="true"]) {
+  background: transparent;
+  color: var(--text-muted);
   cursor: not-allowed;
   opacity: 0.45;
 }
-.composer-inputs:disabled textarea {
+.composer-inputs .context-bar:disabled .context-chip,
+.composer-inputs .context-chip:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.composer-inputs textarea:disabled {
   color: var(--text-muted);
   cursor: not-allowed;
 }
-.composer-inputs:disabled ~ .composer-caption .hint {
+.composer-inputs[data-locked="true"] ~ .composer-caption .hint {
   display: none;
 }
 
@@ -1627,6 +1639,12 @@ textarea::placeholder {
   margin-top: 8px;
   gap: 9px;
 }
+.composer-options {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 9px;
+}
 
 .quiet {
   display: inline-flex;
@@ -1646,27 +1664,24 @@ textarea::placeholder {
   line-height: var(--line-height-description);
 }
 
-.send,
-.stop {
+.composer-primary {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   padding: 7px 12px;
   gap: 7px;
   border-radius: 5px;
+  background: var(--accent);
+  color: var(--accent-fg);
   font-weight: var(--font-weight-action);
   font-size: var(--font-size-control);
   line-height: var(--line-height-control);
 }
-.send {
-  justify-content: center;
-  background: var(--accent);
-  color: var(--accent-fg);
-}
-.send:disabled,
+.composer-primary:disabled,
 .composer-submit .composer-control:disabled {
   opacity: 0.45;
 }
-.stop {
+.composer-primary[data-action="stop"] {
   background: var(--danger-subtle);
   color: var(--danger-text);
 }
@@ -1684,9 +1699,9 @@ textarea::placeholder {
   font-size: var(--font-size-control);
   line-height: var(--line-height-control);
 }
-.composer-control:not(:disabled):hover,
-.work-tools[open] > summary,
-.model-picker[open] > summary {
+.composer-control:not(:disabled):not([aria-disabled="true"]):hover,
+.work-tools[open] > summary:not([aria-disabled="true"]),
+.model-picker[open] > summary:not([aria-disabled="true"]) {
   background: var(--bg-element);
   color: var(--text-main);
 }
@@ -1899,9 +1914,6 @@ textarea::placeholder {
   flex: 0 1 auto;
   min-width: 0;
 }
-.model-picker[inert] {
-  opacity: 0.5;
-}
 .model-trigger {
   max-width: 260px;
   list-style: none;
@@ -2085,13 +2097,16 @@ textarea::placeholder {
 .context-chip.workspace {
   cursor: pointer;
 }
-.context-chip.workspace:hover {
+.context-chip.workspace:not(:disabled):hover {
   border-color: var(--border-focus);
   background: var(--bg-surface-active);
   color: var(--text-main);
 }
 .context-chip.workspace svg {
   color: var(--accent);
+}
+.context-chip.workspace[data-connected="false"] svg {
+  color: var(--text-muted);
 }
 .context-chip .chip-sub {
   flex: none;
@@ -2121,7 +2136,7 @@ textarea::placeholder {
   color: var(--text-muted);
   cursor: pointer;
 }
-.context-chip button:hover {
+.context-chip button:not(:disabled):hover {
   background: var(--bg-element-hover);
   color: var(--danger-text);
 }
@@ -4581,7 +4596,9 @@ button svg,
 }
 
 .quiet:disabled > svg,
-.composer-control:disabled > svg {
+.composer-inputs .composer-control:is(:disabled, [aria-disabled="true"]) > svg,
+.composer-inputs .context-bar:disabled .context-chip > svg,
+.composer-inputs .context-chip:disabled > svg {
   color: var(--text-muted);
 }
 
@@ -4648,7 +4665,8 @@ button svg,
   footer {
     padding: 16px 12px 12px;
   }
-  .composer-actions {
+  .composer-actions,
+  .composer-options {
     gap: 4px;
   }
   .composer-control {
