@@ -79,6 +79,7 @@ export function describeRequestError(payload, fallback = 'Request failed.', stat
     : code === 'provider_context_length_exceeded' ? 'Provider context limit exceeded'
     : code === 'context_recovery_unavailable' ? 'One-time recovery unavailable'
     : code === 'conversation_request_in_progress' ? 'Conversation request in progress'
+    : code === 'work_run_paused' ? 'Conversation paused'
     : code === 'attachment_model_unsupported' ? 'Attachment unsupported by model'
     : code.startsWith('attachment_') ? 'Attachment request failed' : 'Request failed');
   if (detail?.phase === 'summary') title = `Memory summary: ${title}`;
@@ -112,7 +113,7 @@ export function describeRequestError(payload, fallback = 'Request failed.', stat
   const statusAlreadyShown = status === `HTTP ${detail?.http_status}` && details.includes(`Provider HTTP status: ${detail?.http_status}`);
   if (status && !statusAlreadyShown) details.push(status);
   return { title, message: message || fallback, details: details.filter(Boolean),
-    ...(blocked ? { tone: 'warning' } : {}),
+    ...(blocked || code === 'work_run_paused' ? { tone: 'warning' } : {}),
     actions: recoveryActions(code),
     ...(code === 'provider_context_length_exceeded' && detail.recovery?.available === true ? { recovery: detail.recovery } : {}) };
 }

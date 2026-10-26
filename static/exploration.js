@@ -21,7 +21,7 @@ function node(tag, text, className) {
   return element;
 }
 
-export function createExploration({ getWorkspace, chooseWorkspace, getLimits = () => ({}), onAction = () => {}, renderContent = render => render() }) {
+export function createExploration({ getWorkspace, chooseWorkspace, getLimits = () => ({}), onAction = () => {}, renderContent = render => render(), onPausedChange = () => {} }) {
   const choice = $('#explore-project');
   const tools = $('#work-tools');
   const evidence = $('#exploration-evidence-dialog');
@@ -48,6 +48,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
   let historyMore = null;
   let historyRetry = null;
   let historyPaged = false;
+  let runStateRevision = 0;
 
   function updateChoice() {
     choice.disabled = busy;
@@ -233,8 +234,8 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       card.outcomeSignature = null;
       card.controls = [];
       card.progressView ||= createResponseProgress({ startedAt: card.targets?.startedAt ?? card.run.started_at,
-        label: card.run.cancellationRequested ? 'stopping' : card.phase || 'Preparing request' });
-      card.progressView.update(card.run.cancellationRequested ? 'stopping' : card.phase || 'Preparing request');
+        label: card.run.cancellationRequested ? 'stopping' : card.run.pauseRequested || card.run.pause_requested ? 'pausing' : card.phase || 'Preparing request' });
+      card.progressView.update(card.run.cancellationRequested ? 'stopping' : card.run.pauseRequested || card.run.pause_requested ? 'pausing' : card.phase || 'Preparing request');
       card.summaryView.setProgress(card.details.hidden ? null : card.progressView);
       if (card.result) {
         card.resultMetadata.update(workRunMetadata(card.run));
@@ -247,7 +248,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     card.resultMetadata.update(workRunMetadata(card.run));
     card.resultMetadata.setUsageVisibility(historyVisibility);
     const source = sourceMessage(card);
-    const actions = outcome.actions.filter(action => action !== 'prepare-request' || source);
+    const actions = outcome.actions.filter(action => !['prepare-request', 'resume-run'].includes(action) || source);
     const signature = JSON.stringify([outcome, card.phase, actions, source?.index, source?.created_at, source?.content]);
     if (signature === card.outcomeSignature) return;
     const section = card.outcome || node('section', null, 'exploration-run-outcome status-callout');
@@ -261,7 +262,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       const control = button(WORK_ACTION_LABELS[action], async () => {
         if (busy || !card.result?.isConnected || !cards.has(card.run.id)) return;
         const currentSource = sourceMessage(card);
-        if (action === 'prepare-request' && !currentSource) return;
+        if (['prepare-request', 'resume-run'].includes(action) && !currentSource) return;
         control.disabled = true;
         try { await onAction(action, { conversationId, run: card.run, source: currentSource }); }
         catch { toast('Unable to open this action. Please try again.', 'error'); }
@@ -563,9 +564,10 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
         card.activityRevision = (card.activityRevision || 0) + 1;
         card.loaded = false;
       }
-      card.run = !activeStates.has(card.run.status) && activeStates.has(run.status)
+      card.run = !live && !activeStates.has(card.run.status) && activeStates.has(run.status)
         ? { ...card.run, ...run, status: card.run.status, adopted: card.run.adopted, reason: card.run.reason, failure: card.run.failure }
-        : { ...run, cancellationRequested: activeStates.has(run.status) && card.run.cancellationRequested };
+        : { ...(live ? card.run : {}), ...run, cancellationRequested: activeStates.has(run.status) && card.run.cancellationRequested,
+          pauseRequested: activeStates.has(run.status) && (run.pause_requested || !live && card.run.pauseRequested) };
       card.sourceIdentity = null;
       if (live) card.live = true;
       if (!activeStates.has(card.run.status)) {
@@ -600,6 +602,8 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     if (!conversationId || pageLoading) return;
     pageLoading = true;
     const version = generation;
+    const revisions = new Map([...cards].map(([id, card]) => [id, card.activityRevision || 0]));
+    const stateRevision = runStateRevision;
     if (before != null) historyMore?.remove();
     historyRetry?.remove();
     historyError?.remove();
@@ -608,7 +612,15 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     try {
       const data = await json(`${base()}${before == null ? '' : `?before=${before}`}`, historyController.signal, 'Work history');
       if (version !== generation) return;
-      [...data.runs].reverse().forEach(run => addCard(run));
+      [...data.runs].reverse().forEach(run => {
+        const card = cards.get(run.id);
+        if (run.status === 'paused' && card?.live && activeStates.has(card.run.status)
+            && revisions.get(run.id) !== (card.activityRevision || 0)) return;
+        addCard(run);
+      });
+      if (stateRevision === runStateRevision && Object.hasOwn(data, 'paused_run')) {
+        onPausedChange(conversationId, data.paused_run);
+      }
       if (before != null || !historyPaged) nextBefore = data.next_before;
       if (before != null) historyPaged = true;
       if (nextBefore != null && historyMore?.parentElement !== region) {
@@ -627,6 +639,11 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
         pageLoading = false;
         clearTimeout(refreshTimer);
         if ([...cards.values()].some(card => activeStates.has(card.run.status))) refreshTimer = setTimeout(() => loadPage(), 1500);
+        else {
+          const deadlines = [...cards.values()].filter(card => card.run.status === 'paused')
+            .map(card => Date.parse(card.run.pause_expires_at)).filter(value => value > Date.now());
+          if (deadlines.length) refreshTimer = setTimeout(() => loadPage(), Math.min(...deadlines) - Date.now());
+        }
       }
     }
   }
@@ -657,7 +674,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     focusedControl = null;
   }
 
-  function show(id, messages = []) {
+  function show(id, messages = [], pausedRun = null) {
     const sameConversation = id && id === conversationId;
     generation++;
     clearTimeout(refreshTimer);
@@ -696,6 +713,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     }
     conversationId = id;
     messageTargets = messages;
+    if (pausedRun?.status === 'paused') addCard(pausedRun);
     cards.forEach(card => {
       card.run.adopted = messages.some(message => message.role === 'assistant' && message.run_id === card.run.id);
       updateCard(card);
@@ -710,16 +728,25 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
 
   function updateProgress(event, targets) {
     if (!event.run_id) return;
+    if (['start', 'paused', 'error', 'done'].includes(event.type)) runStateRevision++;
     if (event.type === 'start') {
+      onPausedChange(event.conversation_id, null);
       resetChoice();
       if (conversationId !== event.conversation_id) show(event.conversation_id);
-      addCard({ id: event.run_id, status: 'preparing', has_tool_activity: false, goals: {}, profile: {} }, true, targets);
+      const previous = cards.get(event.run_id);
+      if (previous?.run.status === 'paused') {
+        previous.progressView?.destroy();
+        previous.progressView = null;
+        previous.summaryView.finish(true);
+      }
+      addCard({ ...(previous ? {} : { has_tool_activity: false, goals: {}, profile: {} }), id: event.run_id,
+        status: 'preparing', pause_requested: false }, true, targets);
       attach();
     }
     const card = cards.get(event.run_id);
     if (!card) return;
     if (targets) card.targets = targets;
-    if (['work_progress', 'work_usage', 'error', 'done'].includes(event.type)) {
+    if (['work_progress', 'work_usage', 'error', 'done', 'paused'].includes(event.type)) {
       card.activityRevision = (card.activityRevision || 0) + 1;
       card.loaded = false;
     }
@@ -765,6 +792,25 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       card.run.cancellationRequested = true;
       card.phase = null;
     }
+    if (event.type === 'pause_requested') {
+      card.run.pauseRequested = true;
+      card.phase = null;
+    }
+    if (event.type === 'pause_failed') {
+      card.run.pauseRequested = false;
+      card.run.pause_requested = false;
+      card.phase = null;
+    }
+    if (event.type === 'paused') {
+      Object.assign(card.run, event.run || {}, { status: 'paused', adopted: false,
+        usage: event.usage || event.run?.usage || card.run.usage,
+        resume_available: event.run?.resume_available ?? event.resume_available ?? true,
+        cancellationRequested: false, pauseRequested: false, pause_requested: false });
+      card.phase = null;
+      card.live = false;
+      card.showingAnswer = false;
+      onPausedChange(conversationId, card.run);
+    }
     if (event.type === 'error' || event.type === 'done') {
       if (event.type === 'done') beginAnswer(card);
       card.run.status = event.run_status || (event.type === 'done' ? 'completed' : 'failed');
@@ -772,6 +818,8 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       if (event.response_metadata?.has_tool_activity === true) card.hasTools = true;
       card.run.usage = event.run_usage || card.run.usage;
       card.run.cancellationRequested = false;
+      card.run.pauseRequested = false;
+      card.run.pause_requested = false;
       card.showingAnswer = false;
       if (event.type === 'error') {
         card.run.reason = event.code;

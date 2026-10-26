@@ -6,7 +6,6 @@ The caller owns input consent, conversation adoption, and the Workspace lease.
 import asyncio
 import json
 import logging
-import time
 from collections.abc import Callable
 from contextlib import AsyncExitStack, aclosing
 from copy import deepcopy
@@ -16,9 +15,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from services.ai_service import AIService
 from services.context_budget import ContextBudgetExceeded, ContextChangedError
 from services.context_policy import ContextPolicy
+from services.local_work import run_local
 from services.project_access import ProjectAccess, ProjectReadError
 from services.project_tools import TOOL_NAMES, tool_definitions, validate_arguments
 from services.work_run_store import ACTIVE_STATES, WorkRunStore
+from services.work_resume import selected_files_fingerprint, workspace_fingerprint
 
 FUNCTION_PREFIX = "helios_project_"
 logger = logging.getLogger(__name__)
@@ -101,12 +102,13 @@ class ProjectExplorer:
         visual_tokens: int = 0, limits: ExplorationLimits | None = None,
         protected: list | None = None,
         on_assessment: Callable[[dict], None] | None = None,
+        resumed: bool = False,
     ) -> None:
         """Pin one run, trusted boundaries, and callbacks that are checked before each action."""
         self.ai, self.store, self.run_id = ai, store, run_id
         run = store.get(run_id)
-        if run["status"] != "preparing":
-            raise ValueError("Exploration requires a new run.")
+        if run["status"] not in ({"preparing", "tools"} if resumed else {"preparing"}):
+            raise ValueError("Exploration requires an exclusively claimed run.")
         self.conversation_id = run["conversation_id"]
         self.workspace = workspace
         self.root, self.revision = workspace.root, workspace.revision
@@ -120,7 +122,8 @@ class ProjectExplorer:
         self.limits = limits or ExplorationLimits()
         self.on_assessment = on_assessment
         self.tools = project_function_tools()
-        self.started = time.monotonic()
+        self.resumed = resumed
+        self.current_cursors: set[str] = set()
 
     def _client(self):
         """Import and start the bundled MCP client only after a valid function request."""
@@ -130,6 +133,9 @@ class ProjectExplorer:
 
     def _guard(self) -> None:
         """Recheck current authority without adopting mutable connection or tool settings."""
+        run = self.store.get(self.run_id)
+        if run["status"] == "cancelled" and run.get("reason") == "user_stopped":
+            raise ExplorationError("request_cancelled", "This run was stopped. Recorded usage is retained.", stopped=True)
         self.check_authority()
         if (self.workspace.root != self.root or self.workspace.revision != self.revision
                 or self.workspace.session_id != self.session_id):
@@ -145,7 +151,7 @@ class ProjectExplorer:
                 "exploration_call_limit", "The selected model-call limit was reached.", stopped=True,
             )
         if (self.limits.elapsed_time_target_seconds is not None
-                and time.monotonic() - self.started >= self.limits.elapsed_time_target_seconds):
+                and self.store.active_elapsed(self.run_id) >= self.limits.elapsed_time_target_seconds):
             raise ExplorationError(
                 "exploration_time_target", "The selected elapsed-time target was reached.", stopped=True,
             )
@@ -170,6 +176,13 @@ class ProjectExplorer:
                 self.run_id, self.conversation_id, completed=False,
             ))
         instructions += EXPLORATION_INSTRUCTIONS
+        if self.resumed:
+            instructions += (
+                "\n\nThis run was explicitly resumed in a new local tool session. "
+                "Saved tool results are historical observations. Previous pagination cursors "
+                "are expired; restart any unfinished listing, search, or read without a cursor. "
+                "Reuse completed evidence rather than repeating already completed reads unnecessarily."
+            )
         assessment = self.policy.assess(
             instructions, inputs, tools=self.tools, visual_tokens=self.visual_tokens,
         )
@@ -187,9 +200,28 @@ class ProjectExplorer:
         except Exception as exc:
             logger.error("Could not finalize work run (error_type=%s)", type(exc).__name__)
 
+    async def _pause(self) -> bool:
+        """Commit a resumable boundary only after authority and local files still match."""
+        if not self.store.pause_requested(self.run_id):
+            return False
+        self._guard()
+        saved = self.store.resume_context(self.run_id) or {}
+        fingerprint = await run_local(workspace_fingerprint, self.workspace, self.protected)
+        self._guard()
+        if fingerprint != saved.get("workspace_fingerprint"):
+            raise ContextChangedError("Workspace files changed. Prepare a new request instead of resuming saved work.")
+        if await run_local(
+            selected_files_fingerprint, self.workspace, saved.get("selected_files", []),
+            max_total_bytes=saved.get("selected_files_max_bytes", 50_000_000),
+        ) != saved.get("selected_files_fingerprint"):
+            raise ContextChangedError("Selected Workspace files changed. Prepare a new request.")
+        self._guard()
+        return self.store.pause(self.run_id, checkpoint={"version": 1})
+
     async def stream(self, profile_id: str | None = None):
         """Run until a final response, explicit goal, cancellation, or unrecoverable failure."""
         ready = False
+        paused = False
         ai = self.ai.with_run(
             self.run_id, before_call=self._guard, prepare_call=self._prepare_call,
         )
@@ -199,6 +231,57 @@ class ProjectExplorer:
                 client = None
                 while True:
                     self._guard()
+                    if await self._pause():
+                        paused = True
+                        break
+                    pending = self.store.pending_tools(self.run_id)
+                    if pending:
+                        for call in pending:
+                            self._guard()
+                            if await self._pause():
+                                paused = True
+                                break
+                            self._check_limits()
+                            name = call["name"].removeprefix(FUNCTION_PREFIX)
+                            if call["name"] != FUNCTION_PREFIX + name or name not in TOOL_NAMES:
+                                raise ExplorationError("exploration_unknown_tool", "The model requested a tool that is not authorized for this run.")
+                            if not self.store.begin_tool(self.run_id, call["response_id"], call["call_id"]):
+                                raise ExplorationError("exploration_tool_claim", "This tool request is no longer executable.")
+                            yield {"type": "work_progress", "run_id": self.run_id,
+                                   "phase": "tool", "response_id": call["response_id"],
+                                   "call_id": call["call_id"], "name": call["name"]}
+                            self._guard()
+                            arguments = call["parsed_arguments"]
+                            try:
+                                validate_arguments(name, arguments)
+                                self.access.normalize(arguments.get("path", "."))
+                                if (self.resumed and arguments.get("cursor")
+                                        and arguments["cursor"] not in self.current_cursors):
+                                    raise ProjectReadError("cursor_expired")
+                            except ProjectReadError as exc:
+                                payload = {"contract_version": "0.1", "error": {"code": exc.code}}
+                                text = json.dumps(payload, ensure_ascii=False)
+                            else:
+                                if client is None:
+                                    client = await stack.enter_async_context(self._client())
+                                self._guard()
+                                self._check_limits()
+                                original = await client.call_tool_result(name, arguments)
+                                payload, text = original["payload"], original["text"]
+                                if isinstance(payload.get("next_cursor"), str):
+                                    self.current_cursors.add(payload["next_cursor"])
+                            self._guard()
+                            self.store.tool_result(
+                                self.run_id, call["response_id"], call["call_id"], text,
+                                failed="error" in payload,
+                                references=project_references(name, arguments, payload),
+                            )
+                            yield {"type": "work_progress", "run_id": self.run_id,
+                                   "phase": "tool_completed", "response_id": call["response_id"],
+                                   "call_id": call["call_id"], "name": call["name"], "failed": "error" in payload}
+                        if paused:
+                            break
+                        continue
                     yield {"type": "work_progress", "run_id": self.run_id, "phase": "model"}
                     outcome = None
                     async with aclosing(ai.stream_response(
@@ -250,45 +333,15 @@ class ProjectExplorer:
                         yield {"type": "done", "run_id": self.run_id}
                         ready = True
                         return
-                    mapping = {FUNCTION_PREFIX + name: name for name in TOOL_NAMES}
                     if any(
-                        call.name not in mapping for call in outcome.function_calls
+                        call.name not in {FUNCTION_PREFIX + name for name in TOOL_NAMES}
+                        for call in outcome.function_calls
                     ):
                         raise ExplorationError("exploration_unknown_tool", "The model requested a tool that is not authorized for this run.")
-                    for call in outcome.function_calls:
-                        self._guard()
-                        self._check_limits()
-                        name = mapping[call.name]
-                        if not self.store.begin_tool(
-                            self.run_id, outcome.response_id, call.call_id,
-                        ):
-                            raise ExplorationError("exploration_tool_claim", "This tool request is no longer executable.")
-                        yield {"type": "work_progress", "run_id": self.run_id,
-                               "phase": "tool", "response_id": outcome.response_id,
-                               "call_id": call.call_id, "name": call.name}
-                        self._guard()
-                        try:
-                            validate_arguments(name, call.parsed_arguments)
-                            self.access.normalize(call.parsed_arguments.get("path", "."))
-                        except ProjectReadError as exc:
-                            payload = {"contract_version": "0.1", "error": {"code": exc.code}}
-                            text = json.dumps(payload, ensure_ascii=False)
-                        else:
-                            if client is None:
-                                client = await stack.enter_async_context(self._client())
-                            self._guard()
-                            self._check_limits()
-                            original = await client.call_tool_result(name, call.parsed_arguments)
-                            payload, text = original["payload"], original["text"]
-                        self.store.tool_result(
-                            self.run_id, outcome.response_id, call.call_id, text,
-                            failed="error" in payload,
-                            references=project_references(name, call.parsed_arguments, payload),
-                        )
-                        yield {"type": "work_progress", "run_id": self.run_id,
-                               "phase": "tool_completed", "response_id": outcome.response_id,
-                               "call_id": call.call_id,
-                               "name": call.name, "failed": "error" in payload}
+            if paused:
+                yield {"type": "paused", "run_id": self.run_id,
+                       "run": self.store.public_metadata(self.store.get(self.run_id)),
+                       "usage": self.store.usage(self.run_id, self.ai.call_usage_store)}
         except ExplorationError as exc:
             self._finish("stopped" if exc.stopped else "failed", exc.code)
             raise

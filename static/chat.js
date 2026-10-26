@@ -18,6 +18,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     conversationLoadVersion: 0,
     controller: null,
     generating: false,
+    pausedRun: null,
     showConversationUsage: true,
     showResponseUsage: true,
     // Keep the latest request's feedback per conversation without storing estimates as transcript usage.
@@ -36,6 +37,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
   const prompt = $('#prompt');
   const send = $('#send');
   const stop = $('#stop');
+  const pauseResponse = $('#pause-response');
   const feedbackRegion = document.createElement('aside');
   feedbackRegion.className = 'chat-request-notices';
   feedbackRegion.setAttribute('aria-label', 'Latest request status');
@@ -119,10 +121,35 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     send.disabled = value;
     stop.classList.toggle('hidden', !value);
     stop.disabled = false;
+    pauseResponse.classList.add('hidden');
+    pauseResponse.disabled = false;
     onGeneratingChange(value);
     chat.querySelectorAll('[data-mutates-conversation]').forEach((button) => { button.disabled = value; });
+    updateComposerState();
     updateConversationUsage();
     if (!value && wasNearBottom) scrollDown(false);
+  }
+
+  function updateComposerState() {
+    const locked = Boolean(state.pausedRun) && !state.generating;
+    const inputs = $('#composer-inputs');
+    inputs.disabled = locked;
+    $('#composer-pause-notice').hidden = !locked;
+    send.disabled = state.generating || Boolean(state.pausedRun);
+    inputs.querySelectorAll('details').forEach(details => {
+      details.inert = locked;
+      details.querySelector('summary')?.setAttribute('aria-disabled', String(locked));
+      if (locked) details.open = false;
+    });
+    chat.querySelectorAll('[data-requires-resolved-work]').forEach(button => {
+      button.disabled = state.generating || Boolean(state.pausedRun);
+    });
+  }
+
+  function setPausedRun(id, run) {
+    if (id !== state.conversationId) return;
+    state.pausedRun = run?.status === 'paused' ? run : null;
+    updateComposerState();
   }
 
   function updateConversationUsage() {
@@ -336,7 +363,8 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
       edit.className = 'message-action-btn';
       edit.type = 'button';
       edit.dataset.mutatesConversation = '';
-      edit.disabled = state.generating;
+      edit.dataset.requiresResolvedWork = '';
+      edit.disabled = state.generating || Boolean(state.pausedRun);
       edit.innerHTML = '<i data-lucide="pencil"></i>';
       edit.setAttribute('title', 'Edit message');
       edit.setAttribute('aria-label', 'Edit message');
@@ -348,7 +376,8 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
       regenerate.className = 'message-action-btn';
       regenerate.type = 'button';
       regenerate.dataset.mutatesConversation = '';
-      regenerate.disabled = state.generating;
+      regenerate.dataset.requiresResolvedWork = '';
+      regenerate.disabled = state.generating || Boolean(state.pausedRun);
       regenerate.innerHTML = '<i data-lucide="rotate-cw"></i>';
       regenerate.setAttribute('title', 'Regenerate response');
       regenerate.setAttribute('aria-label', 'Regenerate response');
@@ -454,6 +483,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     messageEditor = null;
     state.conversationId = data.id;
     state.conversationVersion = data.version;
+    setPausedRun(data.id, data.paused_run);
     selectWorkspace?.(data.id, { ...data.workspace, available: data.workspace_available }, { preserveSelection: preserveScroll });
     if (!preserveScroll) {
       exploration?.resetChoice();
@@ -486,7 +516,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
       if (summary && summaryStates.has(summaryKey)) summary.el.open = summaryStates.get(summaryKey);
       return { ...message, index, element: view.el };
     });
-    exploration?.show(data.id, messageTargets);
+    exploration?.show(data.id, messageTargets, data.paused_run);
     renderRequestFeedback();
     updateConversationUsage();
     onConversationChange(state.conversationId);
@@ -503,6 +533,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     messageEditor = null;
     closeMobileSidebar();
     state.conversationId = null;
+    setPausedRun(null, null);
     onConversationChange(null);
     state.requestFeedback.delete(null);
     clearFocusFiles();
@@ -546,7 +577,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
   }
 
   function editUserMessage(messageIndex, currentContent, message, editButton) {
-    if (state.generating || !state.conversationId) return;
+    if (state.generating || state.pausedRun || !state.conversationId) return;
     if (messageEditor) {
       messageEditor.input.focus();
       return;
@@ -599,7 +630,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     form.onsubmit = async event => {
       event.preventDefault();
       const content = input.value.trim();
-      if (editor.saving || state.generating || !content || content === currentContent.trim()) return;
+      if (editor.saving || state.generating || state.pausedRun || !content || content === currentContent.trim()) return;
       if (state.conversationId !== conversationId || !form.isConnected) return;
       editor.saving = true;
       input.disabled = save.disabled = cancel.disabled = true;
@@ -657,6 +688,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
 
   async function sendMessage(options = {}) {
     if (messageEditor) return toast('Save or cancel your message edit before sending.', 'info');
+    if (state.pausedRun && !options.resumeRun) return toast('Resume or discard the paused run before sending another message.', 'info');
     const text = options.prompt ?? prompt.value.trim();
     if (!text || state.generating) return;
     chat.querySelectorAll('[data-transient-response]').forEach(message => {
@@ -689,15 +721,51 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     let requestScope = {};
     let reader = null;
     const summaryCalls = new Map();
-    let workRunId = null;
+    let workRunId = options.resumeRun?.id || null;
+    let workStartedAt = progressStartedAt;
+    let pauseRequested = false;
+    let pauseAvailable = false;
+    let stopRequest = null;
     const controller = new AbortController();
     state.controller = controller;
     state.cancelRequest = () => {
       if (controller.signal.aborted || responseCompleted) return;
       stop.disabled = true;
+      pauseResponse.disabled = true;
       progress.update('stopping');
-      if (workRunId) exploration?.progress({ type: 'cancel_requested', run_id: workRunId });
+      if (workRunId) {
+        exploration?.progress({ type: 'cancel_requested', run_id: workRunId });
+        // A durable stop also closes a checkpoint committed just before this stream disconnects.
+        stopRequest = (async () => {
+          try {
+            const response = await fetch(`/api/work-runs/${encodeURIComponent(workRunId)}/stop`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
+              body: JSON.stringify({ conversation_id: requestFeedback.conversationId }), signal: AbortSignal.timeout(10000)
+            });
+            return response.ok;
+          } catch { return false; }
+        })();
+      }
       controller.abort();
+    };
+    state.pauseRequest = async () => {
+      if (!workRunId || !pauseAvailable || pauseRequested || controller.signal.aborted || responseCompleted) return;
+      pauseRequested = true;
+      pauseResponse.disabled = true;
+      exploration?.progress({ type: 'pause_requested', run_id: workRunId });
+      try {
+        const response = await fetch(`/api/work-runs/${encodeURIComponent(workRunId)}/pause`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversation_id: requestFeedback.conversationId }), signal: AbortSignal.timeout(10000)
+        });
+        if (!response.ok) throw new Error((await readResponseError(response)).message);
+      } catch (error) {
+        if (responseCompleted || controller.signal.aborted) return;
+        pauseRequested = false;
+        pauseResponse.disabled = false;
+        exploration?.progress({ type: 'pause_failed', run_id: workRunId });
+        toast(`Could not confirm the pause. Work may still be running. ${error.message || 'Review the saved state or use Stop.'}`, 'warning');
+      }
     };
 
     async function prepare(action) {
@@ -716,19 +784,22 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     }
 
     try {
-      const workspaceContext = options.recoveryId ? {} : await prepare(getWorkspaceContext);
+      const workspaceContext = options.recoveryId || options.resumeRun ? {} : await prepare(getWorkspaceContext);
       requestScope = workspaceContext;
       controller.signal.throwIfAborted();
       if (requestViewVersion !== state.conversationLoadVersion) throw new DOMException('Conversation changed during preparation.', 'AbortError');
-      const explorationContext = options.recoveryId ? {} : exploration?.selection() || {};
-      const attachmentSelection = options.recoveryId ? {} : await prepare(() => getAttachmentSelection({ regenerating: options.regenerateMessageIndex != null }));
+      const explorationContext = options.recoveryId || options.resumeRun ? {} : exploration?.selection() || {};
+      const attachmentSelection = options.recoveryId || options.resumeRun ? {} : await prepare(() => getAttachmentSelection({ regenerating: options.regenerateMessageIndex != null }));
       controller.signal.throwIfAborted();
       if (requestViewVersion !== state.conversationLoadVersion) throw new DOMException('Conversation changed during preparation.', 'AbortError');
       requestSubmitted = true;
-      const response = await fetch('/api/chat', {
+      const response = await fetch(options.resumeRun ? `/api/work-runs/${encodeURIComponent(options.resumeRun.id)}/resume` : '/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: JSON.stringify(options.resumeRun ? {
+          conversation_id: requestConversationId,
+          expected_conversation_version: options.expectedConversationVersion
+        } : {
           prompt: text,
           conversation_id: state.conversationId,
           ...attachmentSelection,
@@ -763,6 +834,9 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
           if (event.type === 'start') {
             workRunId = event.run_id || null;
             if (workRunId) {
+              pauseAvailable = event.pause_available !== false;
+              pauseResponse.classList.toggle('hidden', !pauseAvailable);
+              if (options.resumeRun && Number.isFinite(event.active_elapsed_seconds)) workStartedAt = Date.now() - Math.max(0, event.active_elapsed_seconds) * 1000;
               assistant.setMeta({ run_id: workRunId });
               assistant.el.hidden = true;
               progress.destroy();
@@ -779,8 +853,8 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
             assistant.setMeta({ run_id: workRunId, reasoning_summary: [...summaryCalls.values()].flat() });
           }
           if (state.conversationId === requestFeedback.conversationId) exploration?.progress(workRunId ? { ...event, run_id: event.run_id || workRunId } : event, {
-            user: user?.el || [...chat.querySelectorAll('.message.user')].find(message => Number(message.dataset.messageIndex) === (event.user_index ?? options.regenerateMessageIndex)),
-            assistant: assistant.el, startedAt: progressStartedAt
+            user: user?.el || [...chat.querySelectorAll('.message.user')].find(message => Number(message.dataset.messageIndex) === (event.user_index ?? options.regenerateMessageIndex ?? options.resumeUserIndex)),
+            assistant: assistant.el, startedAt: workStartedAt
           });
           if (event.type === 'context_policy') contextPolicy = event;
           if (event.type === 'attachments' && Array.isArray(event.files)) {
@@ -830,19 +904,31 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
           if (event.type === 'done') {
             responseCompleted = true;
             stop.disabled = true;
+            pauseResponse.disabled = true;
             progress.destroy();
             responseProgress.delete(assistant.el);
             responseSummaries.get(assistant.el)?.setProgress(null);
             assistant.el.querySelector('.message-text').setAttribute('aria-busy', 'false');
             assistant.el.hidden = false;
-            if (!options.recoveryId) onAttachmentsSaved();
+            if (!options.recoveryId && !options.resumeRun) onAttachmentsSaved();
             if (event.created_at || event.response_metadata) assistant.setMeta({ created_at: event.created_at, response_metadata: event.response_metadata });
             onFinish();
+          }
+          if (event.type === 'paused') {
+            responseCompleted = true;
+            stop.disabled = true;
+            pauseResponse.disabled = true;
+            progress.destroy();
+            responseProgress.delete(assistant.el);
+            disposeMessageDisclosures(assistant.el);
+            assistant.el.remove();
+            if (!options.resumeRun) onAttachmentsSaved();
           }
           if (event.type === 'error') {
             const feedback = describeRequestError(event, 'Unable to generate a response.');
             throw Object.assign(new Error(feedback.message), { feedback, workRun: event.run_id ? { status: event.run_status, reason: event.code, failure: event } : null });
           }
+          if (responseCompleted) break;
         }
       }
       if (!responseCompleted) throw new Error('The response stream ended before completion. Review the saved conversation before trying again.');
@@ -873,8 +959,13 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
         if ((error.workRun || workRunId) && exploration) {
           disposeMessageDisclosures(assistant.el);
           assistant.el.remove();
-          const outcome = describeWorkRun(error.workRun || { status: 'unavailable' });
-          toast(outcome.label, outcome.tone === 'neutral' ? 'info' : outcome.tone);
+          if (error.feedback && !error.workRun) {
+            addRequestFeedback(requestFeedback, error.feedback.tone || 'warning', error.feedback);
+            toast(error.feedback.title, error.feedback.tone || 'warning');
+          } else {
+            const outcome = describeWorkRun(error.workRun || { status: 'unavailable' });
+            toast(outcome.label, outcome.tone === 'neutral' ? 'info' : outcome.tone);
+          }
         } else {
           assistant.render(answer.value || '_Unable to generate a response._');
           const feedback = error.feedback || describeRequestError({ message: error.message });
@@ -886,6 +977,12 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     } finally {
       reader?.releaseLock();
       let stopState = null;
+      const stopConfirmed = stopRequest ? await stopRequest : null;
+      if (interrupted && workRunId && stopConfirmed === false) {
+        addRequestFeedback(requestFeedback, 'warning', { title: 'Stop could not be confirmed',
+          message: 'The stream disconnected, but the app could not confirm the saved stop request. Review this run’s saved state before continuing.',
+          details: ['A saved paused checkpoint may still be available. Use Discard run to end it.'], actions: ['usage'] });
+      }
       if (interrupted) {
         try {
           const scope = new URLSearchParams();
@@ -910,6 +1007,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
       assistant.el.querySelector('.message-text').setAttribute('aria-busy', 'false');
       state.controller = null;
       state.cancelRequest = null;
+      state.pauseRequest = null;
       try {
         let saved = null;
         const isCurrent = requestViewVersion === state.conversationLoadVersion && state.conversationId === requestFeedback.conversationId;
@@ -960,7 +1058,52 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     }
   }
 
+  async function resumeWorkRun({ conversationId, run, source }) {
+    if (state.generating || messageEditor || run.status !== 'paused' || !source) return;
+    const version = state.conversationVersion;
+    const viewVersion = state.conversationLoadVersion;
+    const isCurrent = () => !state.generating && !messageEditor && state.conversationId === conversationId
+      && state.conversationVersion === version && state.conversationLoadVersion === viewVersion;
+    if (!isCurrent()) return;
+    const regenerating = run.kind === 'regeneration';
+    if (!await showActionDialog({ title: 'Resume this run?',
+      description: 'Continue from the saved step using this run’s original connection, tools, attachments and limits. The app checks the question, Workspace and saved file results before continuing. Further model calls may incur costs. Previous calls, cost and active time remain cumulative; time spent paused is excluded. Your message draft stays unchanged.'
+        + (regenerating ? ' Once completed, the regenerated answer replaces the previous answer and all following messages in this branch.' : ''),
+      confirmLabel: 'Resume' }) || !isCurrent()) return;
+    const previousReplyCreatedAt = regenerating
+      ? messageMetadata.get([...chat.querySelectorAll('.message.user, .message.assistant')][source.index + 1])?.created_at : undefined;
+    if (regenerating) {
+      [...chat.querySelectorAll('.message.user, .message.assistant')].slice(source.index + 1).forEach(message => {
+        disposeMessageDisclosures(message);
+        message.remove();
+      });
+    }
+    return sendMessage({ prompt: source.content, appendUser: false, preserveDraft: true,
+      resumeRun: run, resumeUserIndex: source.index, sourceCreatedAt: source.created_at, expectedConversationVersion: version,
+      regenerateMessageIndex: regenerating ? source.index : undefined, previousReplyCreatedAt });
+  }
+
+  async function stopWorkRun({ conversationId, run }) {
+    if (state.generating || run.status !== 'paused' || state.conversationId !== conversationId) return;
+    const viewVersion = state.conversationLoadVersion;
+    if (!await showActionDialog({ title: 'Discard this paused run?',
+      description: 'Remove this run’s resume checkpoint and unlock the composer. Saved work and reported usage stay available. This run cannot be resumed after discarding.',
+      confirmLabel: 'Discard run', danger: true }) || state.generating || state.conversationId !== conversationId
+      || viewVersion !== state.conversationLoadVersion) return;
+    try {
+      const response = await fetch(`/api/work-runs/${encodeURIComponent(run.id)}/stop`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversation_id: conversationId }), signal: AbortSignal.timeout(12000)
+      });
+      if (!response.ok) throw new Error((await readResponseError(response)).message);
+    } catch (error) {
+      toast(error.message || 'Could not confirm the saved run state. Reopen this conversation before continuing.', 'warning');
+    }
+    if (state.conversationId === conversationId && viewVersion === state.conversationLoadVersion) await openConversation(conversationId, true);
+  }
+
   async function prepareExploration({ conversationId, source }) {
+    if (state.pausedRun) return toast('Resume or discard the paused run before preparing another request.', 'info');
     if (state.generating || messageEditor) return toast('Finish the current response or message edit before preparing a new request.', 'info');
     const viewVersion = state.conversationLoadVersion;
     const isCurrent = () => {
@@ -983,7 +1126,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
   }
 
   async function regenerateResponse({ userIndex, content, hasFollowing }) {
-    if (state.generating || !state.conversationId || messageEditor) return;
+    if (state.generating || state.pausedRun || !state.conversationId || messageEditor) return;
     const conversationId = state.conversationId;
     const version = state.conversationVersion;
     if (!await showActionDialog({ title: 'Regenerate response?',
@@ -1004,7 +1147,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
   }
 
   async function recoverResponse(recovery) {
-    if (state.generating || messageEditor || recovery.used || !state.conversationId) return;
+    if (state.generating || state.pausedRun || messageEditor || recovery.used || !state.conversationId) return;
     const conversationId = state.conversationId;
     const version = state.conversationVersion;
     const calls = Number.isSafeInteger(recovery.summary_call_limit) ? recovery.summary_call_limit : 'the configured number of';
@@ -1031,6 +1174,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
 
     send.onclick = () => sendMessage();
     stop.onclick = () => state.cancelRequest?.();
+    pauseResponse.onclick = () => state.pauseRequest?.();
     prompt.oninput = autoResize;
     document.addEventListener('text-size-change', autoResize);
     document.addEventListener('timezone-change', () => refreshMessageTimestamps(true));
@@ -1048,7 +1192,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     };
   }
 
-  return { init, newChat, prepareExploration, setUsageVisibility, setResponseUsageVisibility, renderUsageContent, usageFooter, isGenerating: () => state.generating,
+  return { init, newChat, prepareExploration, resumeWorkRun, stopWorkRun, setPausedRun, setUsageVisibility, setResponseUsageVisibility, renderUsageContent, usageFooter, isGenerating: () => state.generating,
     setWorkspaceVersion(id, version) { if (id === state.conversationId && Number.isSafeInteger(version)) state.conversationVersion = version; }
   };
 }

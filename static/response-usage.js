@@ -16,8 +16,11 @@ export function workRunMetadata(run = {}) {
     if (meta[field] != null && (unknown || usage.missing_call_ids?.length)) meta.partial_token_fields.push(field);
   }
   meta.estimated_cost = (empty || recorded > (totals.unknown_cost_calls || 0)) && totals.cost_status !== 'unavailable' ? totals.known_estimated_cost : null;
-  const elapsed = Date.parse(run.finished_at) - Date.parse(run.started_at);
+  const activeTime = typeof run.active_elapsed_seconds === 'number' && Number.isFinite(run.active_elapsed_seconds) && run.active_elapsed_seconds >= 0;
+  const elapsed = activeTime ? run.active_elapsed_seconds * 1000 : Date.parse(run.finished_at) - Date.parse(run.started_at);
   if (Number.isFinite(elapsed) && elapsed >= 0) meta.response_time_ms = elapsed;
+  if (activeTime) meta.active_time = true;
+  if (run.active_time_incomplete === true) meta.active_time_incomplete = true;
   return meta;
 }
 
@@ -33,7 +36,7 @@ export function usageView(meta = {}) {
   if (total != null) summary.push({ text: `${total.toLocaleString()} tokens${meta.usage_status === 'partial' ? ' (partial)' : ''}` });
   else if (meta.usage_status) summary.push({ text: 'Tokens unknown' });
   if (Number.isFinite(meta.response_time_ms) && meta.response_time_ms >= 0) {
-    summary.push({ text: `${(meta.response_time_ms / 1000).toFixed(1)}s` });
+    summary.push({ text: `${(meta.response_time_ms / 1000).toFixed(1)}s${meta.active_time_incomplete ? ' (partial)' : ''}` });
   }
   if (Number.isFinite(meta.estimated_cost) && meta.estimated_cost >= 0) {
     const qualifier = meta.cost_status === 'complete' ? '' : meta.cost_status === 'partial' ? ' (Partial estimate)' : ' (Completeness unknown)';
@@ -50,7 +53,10 @@ export function usageView(meta = {}) {
     rows.splice(1, 0, { label: 'Recorded calls', value: meta.recorded_response_calls.toLocaleString() });
   }
   const hints = [];
-  if (aggregate) hints.push('Totals cover all model calls in this response. Elapsed time includes model and tool work.');
+  if (aggregate) hints.push(meta.active_time
+    ? 'Totals cover all model calls in this response across resumes. Active time includes model and tool work; time spent paused is excluded.'
+    : 'Totals cover all model calls in this response. Elapsed time includes model and tool work.');
+  if (meta.active_time_incomplete) hints.push('Active time is incomplete because the app stopped during an unfinished step. App downtime is excluded.');
   if (meta.coverage_incomplete || partial.size || meta.usage_status === 'partial' || meta.cost_status === 'partial') {
     hints.push('Some records are incomplete. Only known usage and cost are shown.');
   }

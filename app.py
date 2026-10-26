@@ -8,7 +8,7 @@ import sqlite3
 from copy import copy
 from contextlib import aclosing, asynccontextmanager
 from dataclasses import asdict, replace
-from datetime import date
+from datetime import date, datetime, timezone
 from hashlib import sha256
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -64,6 +64,9 @@ from services.context_policy import ContextPolicy
 from services.call_usage_store import CallUsageStore
 from services.work_run_store import (
     ACTIVE_STATES, WorkContextUnavailableError, WorkRunStore,
+)
+from services.work_resume import (
+    connection_fingerprint, selected_files_fingerprint, workspace_fingerprint,
 )
 from services.file_picker_service import FilePickerService
 from services.folder_picker_service import (
@@ -129,7 +132,7 @@ workspace_service = WorkspaceService(settings.workspace_root)
 conversation_workspaces = ConversationWorkspaces(conversation_manager)
 attachment_store = AttachmentStore(getattr(
     settings, "attachments_root", settings.profiles_path.parent / "data" / "attachments",
-), referenced=lambda identity: conversation_manager.attachment_is_referenced(identity) or context_recovery.attachment_is_referenced(identity))
+), referenced=lambda identity: conversation_manager.attachment_is_referenced(identity) or context_recovery.attachment_is_referenced(identity) or work_run_store.attachment_is_referenced(identity))
 attachment_service = AttachmentService(
     workspace_service,
     limits=application_settings.attachment_limits(), store=attachment_store,
@@ -150,6 +153,9 @@ call_usage_store = CallUsageStore(settings.logs_root / "usage_calls.sqlite3")
 work_run_store = WorkRunStore(getattr(
     settings, "work_runs_path", settings.profiles_path.parent / "data" / "work_runs.sqlite3",
 ))
+work_run_store.on_attachments_released = attachment_cleanup.notify
+pause_deadline_changed = asyncio.Event()
+work_run_store.on_pause_changed = pause_deadline_changed.set
 try:
     call_usage_store.import_summaries(summary_usage_store)
 except Exception:
@@ -187,17 +193,46 @@ memory_service = ConversationMemoryService(
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """Collect unused attachment copies and close background resources on shutdown."""
+    global pause_deadline_changed
+
     logger.info("Helios started")
+    pause_deadline_changed = asyncio.Event()
+    work_run_store.on_pause_changed = pause_deadline_changed.set
     cleanup = asyncio.create_task(attachment_cleanup.run())
+    pause_expiry = asyncio.create_task(expire_paused_runs())
     try:
         yield
     finally:
         cleanup.cancel()
-        await asyncio.gather(cleanup, return_exceptions=True)
+        pause_expiry.cancel()
+        await asyncio.gather(cleanup, pause_expiry, return_exceptions=True)
         await folder_picker_service.close()
         await file_picker_service.close()
         await ai_service.close()
         logger.info("Helios stopped")
+
+
+async def expire_paused_runs() -> None:
+    """Release paused payloads at their exact deadline without periodic polling."""
+    failures = 0
+    while True:
+        pause_deadline_changed.clear()
+        try:
+            work_run_store.prune_paused()
+            deadline = work_run_store.next_pause_expiry()
+            failures = 0
+        except (sqlite3.Error, OSError):
+            failures += 1
+            logger.warning("Paused checkpoint expiry was deferred because storage is unavailable.")
+            deadline = datetime.now(timezone.utc).timestamp() + min(2 ** min(failures, 6), 60)
+        if deadline is None:
+            await pause_deadline_changed.wait()
+        else:
+            delay = max(0, deadline - datetime.now(timezone.utc).timestamp())
+            try:
+                await asyncio.wait_for(pause_deadline_changed.wait(), timeout=delay)
+            except asyncio.TimeoutError:
+                pass
 
 
 async def collect_attachments(candidates: set[str] | None = None) -> None:
@@ -460,6 +495,15 @@ class ChatRequest(ContextRequestOptions):
         if self.exploration_limits is not None and not self.explore_project:
             raise ValueError("Exploration limits require explicit project exploration.")
         return self
+
+
+class WorkRunControlRequest(BaseModel):
+    """Authorize a saved run action against its conversation and visible version."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    conversation_id: str = Field(min_length=1)
+    expected_conversation_version: int | None = Field(default=None, ge=0, strict=True)
 
 
 class AttachmentSelectionRequest(ContextRequestOptions):
@@ -756,6 +800,7 @@ async def get_conversation(conversation_id: str):
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found.")
     data = conversation.to_dict()
+    data["paused_run"] = paused_work_metadata(conversation)
     for message in data["messages"]:
         if message["role"] != "assistant" or not message.get("run_id"):
             continue
@@ -793,6 +838,243 @@ def require_work_run(conversation_id: str, run_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Work run not found.") from exc
 
 
+def paused_work_metadata(conversation) -> dict | None:
+    """Expose the unresolved pause independently of paged work history."""
+    run = work_run_store.paused_run(conversation.id)
+    if run is None:
+        return None
+    return {
+        **work_run_store.public_metadata(run, messages=conversation.messages),
+        "usage": work_run_store.usage(run["id"], call_usage_store),
+    }
+
+
+def require_resolved_pause(conversation_id: str) -> None:
+    """Protect a saved pause from new turns, regeneration, recovery, and message edits."""
+    run = work_run_store.paused_run(conversation_id)
+    if run is not None:
+        raise HTTPException(status_code=409, detail={
+            "code": "work_run_paused", "run_id": run["id"],
+            "message": "This conversation has a paused run. Resume or discard it before sending another message or editing this branch.",
+        })
+
+
+def work_resume_configuration(app_settings=None) -> dict:
+    """Fingerprint execution policy independently of the saved private model input."""
+    return {
+        "version": 1,
+        "settings": (app_settings or settings_service.current).to_dict(),
+        "tools": project_function_tools(),
+        "resource_limits": asdict(ProjectReadLimits()),
+    }
+
+
+def work_connection_fingerprint(profile_id: str) -> str:
+    """Compare current credentials and memory permission without persisting either."""
+    profile = profile_service.get_profile(profile_id)
+    if profile is None:
+        raise ContextChangedError("The saved connection is no longer available. Prepare a new request.")
+    return connection_fingerprint(
+        profile, memory_service.capture_policy(profile_id),
+        context=work_resume_configuration(),
+    )
+
+
+def require_resume_authority(run: dict, conversation, workspace, saved: dict | None = None) -> dict:
+    """Reject changed branches, bindings, tools, connections, and memory permissions."""
+    snapshot = run.get("snapshot", {})
+    if saved is None:
+        saved = work_run_store.resume_context(run["id"]) or {}
+    binding = snapshot.get("workspace", {})
+    if (not conversation_manager.is_active(conversation)
+            or conversation.version != run["base_version"]
+            or WorkRunStore.message_link(run, conversation.messages)["user_index"] is None
+            or saved.get("version") != 1
+            or not isinstance(saved.get("instructions"), str)
+            or not isinstance(saved.get("input_messages"), list)
+            or not saved.get("input_messages")
+            or not all(isinstance(item, dict) for item in saved["input_messages"])
+            or str(workspace.root) != binding.get("root")
+            or workspace.revision != binding.get("revision")
+            or workspace.session_id != binding.get("session_id")
+            or work_connection_fingerprint(snapshot.get("profile", {}).get("id"))
+            != saved.get("connection_fingerprint")):
+        raise ContextChangedError("The conversation, Workspace, connection, or input policy changed. Prepare a new request instead of resuming this run.")
+    return saved
+
+
+@app.post("/api/work-runs/{run_id}/pause")
+async def pause_work_run(run_id: str, payload: WorkRunControlRequest):
+    """Request a safe boundary while allowing the current paid step to finish."""
+    run = require_work_run(payload.conversation_id, run_id)
+    if not run.get("snapshot", {}).get("has_resume_context"):
+        raise HTTPException(status_code=409, detail={
+            "code": "pause_unavailable", "message": "A safe checkpoint is unavailable for this run. Stop remains available.",
+        })
+    if not work_run_store.request_pause(run_id):
+        raise HTTPException(status_code=409, detail="This run is no longer accepting a pause request.")
+    conversation = conversation_manager.get(payload.conversation_id)
+    return {"run": work_run_store.public_metadata(
+        work_run_store.get(run_id), messages=conversation.messages,
+    )}
+
+
+@app.post("/api/work-runs/{run_id}/stop")
+async def stop_work_run(run_id: str, payload: WorkRunControlRequest):
+    """Persist explicit Stop intent without releasing an active request's cleanup leases."""
+    run = require_work_run(payload.conversation_id, run_id)
+    if run["status"] in ACTIVE_STATES | {"paused"}:
+        work_run_store.finish(run_id, "cancelled", reason="user_stopped")
+    conversation = conversation_manager.get(payload.conversation_id)
+    return {"run": work_run_store.public_metadata(
+        work_run_store.get(run_id), messages=conversation.messages,
+    ), "usage": work_run_store.usage(run_id, call_usage_store)}
+
+
+@app.post("/api/work-runs/{run_id}/resume")
+async def resume_work_run(run_id: str, payload: WorkRunControlRequest, request: Request = None):
+    """Validate an explicit continuation before claiming any new tool or Provider work."""
+    operation = None
+    try:
+        run = require_work_run(payload.conversation_id, run_id)
+        conversation = conversation_manager.get(payload.conversation_id)
+        if run["status"] != "paused":
+            raise HTTPException(status_code=409, detail="This run has no paused checkpoint to resume.")
+        if payload.expected_conversation_version != conversation.version:
+            raise ContextChangedError("Conversation changed. Reload before resuming saved work.")
+        workspace = conversation_workspaces.for_conversation(conversation)
+        saved = require_resume_authority(run, conversation, workspace)
+        operation = context_recovery.begin(conversation.id)
+        operation.release_workspace = claim_workspace(workspace)
+        upload_ids = [
+            source["attachment_id"] for source in saved.get("attachment_sources", [])
+            if source.get("source") == "upload"
+        ]
+        operation.release_attachments = attachment_store.claim(upload_ids)
+
+        def validate_checkpoint():
+            """Recheck local input identities without opening a Provider or MCP session."""
+            if workspace_fingerprint(workspace, project_protected_paths()) != saved.get("workspace_fingerprint"):
+                raise ContextChangedError("Workspace files changed while paused. Prepare a new request instead of resuming saved work.")
+            if selected_files_fingerprint(
+                workspace, saved.get("selected_files", []),
+                max_total_bytes=attachment_service.MAX_TOTAL_BYTES,
+            ) != saved.get("selected_files_fingerprint"):
+                raise ContextChangedError("Selected Workspace files changed while paused. Prepare a new request.")
+            attachment_store.validate_originals(upload_ids)
+
+        await until_disconnect(request, run_local, validate_checkpoint)
+        require_resume_authority(run, conversation, workspace, saved)
+        request_messages = conversation.messages
+        profile_id = run["snapshot"]["profile"]["id"]
+        profile = replace(profile_service.get_profile(profile_id))
+        request_ai = ai_service.with_profile(profile)
+        policy = ContextPolicy(**run["snapshot"]["context_policy"])
+        request_memory = memory_service
+        resume_memory_policy = request_memory.capture_policy(profile_id)
+        background_tasks = BackgroundTasks()
+
+        def authority():
+            """Require the validated branch and permissions before every resumed action."""
+            require_resume_authority(run, conversation, workspace, saved)
+            if (conversation.messages is not request_messages
+                    or not request_memory.policy_is_current(resume_memory_policy)):
+                raise ContextChangedError("Conversation changed during resumed work.")
+
+        def inputs():
+            """Replay the exact prepared base input without generating a fresh summary."""
+            authority()
+            return saved["instructions"], saved["input_messages"]
+
+        async def events():
+            """Stream the claimed continuation and adopt its answer exactly once."""
+            claimed = False
+            completed = False
+            try:
+                authority()
+                work_run_store.claim_resume(run_id)
+                claimed = True
+                yield f"data: {json.dumps({'type': 'start', 'conversation_id': conversation.id, 'run_id': run_id, 'user_index': run['snapshot']['source_message']['user_index'], 'pause_available': True, 'active_elapsed_seconds': work_run_store.active_elapsed(run_id)})}\n\n"
+                explorer = ProjectExplorer(
+                    request_ai, work_run_store, run_id, workspace,
+                    prepare_input=inputs, check_authority=authority, policy=policy,
+                    visual_tokens=saved.get("visual_tokens", 0),
+                    limits=ExplorationLimits(**run["snapshot"].get("goals", {})),
+                    protected=project_protected_paths(), resumed=True,
+                )
+                async with aclosing(explorer.stream(profile_id)) as source:
+                    async for event in source:
+                        if event["type"] == "done":
+                            completed = True
+                            continue
+                        if event["type"] == "paused":
+                            operation.close()
+                            event["run"] = work_run_store.public_metadata(
+                                work_run_store.get(run_id), messages=conversation.messages,
+                            )
+                        yield f"data: {json.dumps(event)}\n\n"
+                        if event["type"] == "paused":
+                            return
+                if not completed:
+                    raise RuntimeError("Resumed work ended without a saved boundary.")
+                authority()
+                message = conversation_manager.adopt_run_reply(
+                    conversation, run_id, work_run_store,
+                    expected_messages=request_messages,
+                    user_attachment_sources=saved.get("attachment_sources"),
+                )
+                background_tasks.add_task(
+                    request_memory.compact_if_needed, conversation,
+                    profile_id=profile_id, summary_policy=resume_memory_policy,
+                )
+                yield f"data: {json.dumps({'type': 'done', 'run_id': run_id, 'created_at': message.created_at.isoformat(), 'response_metadata': response_display_metadata(run_id, conversation.id)})}\n\n"
+            except (ContextChangedError, ContextBudgetExceeded, ExplorationError, ProviderFailure) as exc:
+                code = getattr(exc, "code", None) or (
+                    "input_policy_blocked" if isinstance(exc, ContextBudgetExceeded) else "authority_changed"
+                )
+                error = exc.detail() if isinstance(exc, ProviderFailure) else {"code": code, "message": str(exc)}
+                current_status = work_run_store.get(run_id)["status"]
+                if ((claimed and current_status in ACTIVE_STATES)
+                        or (isinstance(exc, ContextChangedError) and current_status == "paused")):
+                    work_run_store.finish(run_id, "stopped" if isinstance(exc, (ContextChangedError, ContextBudgetExceeded)) else "failed", reason=code)
+                work_run_store.record_failure(run_id, error)
+                yield f"data: {json.dumps({'type': 'error', **error, 'run_id': run_id, 'run_status': work_run_store.get(run_id)['status'], 'run_usage': work_run_store.usage(run_id, call_usage_store)})}\n\n"
+            except Exception as exc:
+                logger.error("Resumed work failed (error_type=%s)", type(exc).__name__)
+                if claimed and work_run_store.get(run_id)["status"] in ACTIVE_STATES:
+                    work_run_store.finish(run_id, "failed", reason="request_failed")
+                yield f"data: {json.dumps({'type': 'error', 'code': 'request_failed', 'message': 'Saved work could not finish. Recorded usage is retained.', 'run_id': run_id, 'run_status': work_run_store.get(run_id)['status']})}\n\n"
+            finally:
+                try:
+                    if claimed and work_run_store.get(run_id)["status"] in ACTIVE_STATES:
+                        work_run_store.finish(run_id, "cancelled", reason="request_closed")
+                except Exception as exc:
+                    logger.error("Could not finalize resumed work (error_type=%s)", type(exc).__name__)
+                finally:
+                    operation.close()
+
+        return ChatStreamingResponse(
+            events(), operation=operation, media_type="text/event-stream",
+            background=background_tasks,
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+    except (ContextChangedError, RecoveryError, AttachmentError) as exc:
+        if operation is not None:
+            operation.close()
+        if (isinstance(exc, (ContextChangedError, AttachmentError))
+                and run["status"] == "paused"
+                and (conversation.version != run["base_version"]
+                     or payload.expected_conversation_version == conversation.version)):
+            work_run_store.finish(run_id, "stopped", reason="resume_context_changed")
+        raise HTTPException(status_code=getattr(exc, "status", getattr(exc, "status_code", 409)), detail={
+            "code": "resume_context_changed", "message": str(exc),
+        }) from None
+    except BaseException:
+        if operation is not None:
+            operation.close()
+        raise
+
+
 @app.get("/api/conversations/{conversation_id}/work-runs")
 async def work_history(conversation_id: str, before: int | None = None):
     """Return lightweight saved work, including unsuccessful and replaced attempts."""
@@ -811,6 +1093,7 @@ async def work_history(conversation_id: str, before: int | None = None):
     for run in page["runs"]:
         run["adopted"] = run["id"] in adopted
         run["usage"] = work_run_store.usage(run["id"], call_usage_store)
+    page["paused_run"] = paused_work_metadata(conversation)
     return page
 
 
@@ -865,6 +1148,7 @@ async def delete_conversation(conversation_id: str):
         raise HTTPException(status_code=404, detail="Conversation not found.")
     conversation_workspaces.forget(conversation_id)
     context_recovery.forget_conversation(conversation_id)
+    work_run_store.forget_conversation(conversation_id)
     await collect_attachments(candidates)
     return {"deleted": True}
 
@@ -874,6 +1158,7 @@ async def edit_message(
     conversation_id: str, message_index: int, payload: EditMessageRequest
 ):
     """Edit a user message and return the truncated conversation branch."""
+    require_resolved_pause(conversation_id)
     try:
         conversation = conversation_manager.edit_user_message(
             conversation_id, message_index, payload.content
@@ -1707,6 +1992,7 @@ async def chat(payload: ChatRequest, request: Request = None):
                     payload.workspace_revision, payload.workspace_session_id, live_workspace,
                 )
                 require_selected_workspace(live_workspace)
+        require_resolved_pause(conversation.id)
         operation = context_recovery.begin(
             conversation.id, ticket=ticket,
             operation_id=operation_id,
@@ -1784,6 +2070,25 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
     request_attachments.workspace = request_workspace
     request_budget = context_budget
     request_settings = settings_service.current
+    resume_workspace_fingerprint = None
+    resume_selected_fingerprint = None
+    resume_selected_files = (
+        payload.workspace_files + payload.attachment_files
+        + ([payload.workspace_file] if payload.workspace_file else [])
+        + [source.path for source in payload.attachment_sources or [] if source.source == "workspace"]
+    )
+    if payload.explore_project:
+        try:
+            resume_workspace_fingerprint = await run_local(
+                workspace_fingerprint, request_workspace, project_protected_paths(),
+            )
+            resume_selected_fingerprint = await run_local(
+                selected_files_fingerprint, request_workspace, resume_selected_files,
+                max_total_bytes=request_attachments.MAX_TOTAL_BYTES,
+            )
+        except ContextChangedError:
+            resume_workspace_fingerprint = None
+            logger.info("Pause is unavailable because the Workspace checkpoint could not be verified.")
     validate_selection_entries(
         payload.workspace_files + payload.attachment_files + (payload.attachment_sources or [])
         + ([payload.workspace_file] if payload.workspace_file else []),
@@ -2054,7 +2359,8 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                     or live_workspace.revision != request_workspace.revision
                     or live_workspace.session_id != request_workspace.session_id):
                 raise ContextChangedError("Workspace changed during exploration. Start a new request.")
-            if memory_submitted and not request_memory.policy_is_current(request_memory_policy):
+            if ((memory_submitted or (run_id is not None and work_run_store.pause_requested(run_id)))
+                    and not request_memory.policy_is_current(request_memory_policy)):
                 raise ContextChangedError("Conversation memory permission changed during exploration. Start a new request.")
 
         def exploration_input() -> tuple[str, list[dict]]:
@@ -2159,6 +2465,21 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                         "tools": exploration_tools,
                         "resource_limits": asdict(ProjectReadLimits()),
                         "goals": (payload.exploration_limits or ExplorationLimits()).model_dump(),
+                        **({"resume_context": {
+                            "version": 1,
+                            "instructions": outgoing_instructions,
+                            "input_messages": outgoing_messages,
+                            "visual_tokens": attachments.visual_tokens,
+                            "attachment_sources": saved_attachment_sources or [],
+                            "workspace_fingerprint": resume_workspace_fingerprint,
+                            "selected_files": resume_selected_files,
+                            "selected_files_fingerprint": resume_selected_fingerprint,
+                            "selected_files_max_bytes": request_attachments.MAX_TOTAL_BYTES,
+                            "connection_fingerprint": connection_fingerprint(
+                                pinned_profile, request_memory_policy,
+                                context=work_resume_configuration(request_settings),
+                            ),
+                        }} if resume_workspace_fingerprint else {}),
                     },
                 )
             start_event = {
@@ -2168,6 +2489,8 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
             if run_id is not None:
                 start_event["run_id"] = run_id
                 start_event["user_index"] = source_user_index
+                start_event["pause_available"] = bool(resume_workspace_fingerprint)
+                start_event["active_elapsed_seconds"] = work_run_store.active_elapsed(run_id)
             yield f"data: {json.dumps(start_event)}\n\n"
             if attachments.metadata:
                 metadata_event = {
@@ -2209,7 +2532,14 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                     elif event["type"] == "done":
                         completed = True
                         continue
+                    elif event["type"] == "paused":
+                        operation.close()
+                        event["run"] = work_run_store.public_metadata(
+                            work_run_store.get(run_id), messages=conversation.messages,
+                        )
                     yield f"data: {json.dumps(event)}\n\n"
+                    if event["type"] == "paused":
+                        return
 
             if not completed:
                 raise RuntimeError("Response stream ended before completion.")

@@ -1568,6 +1568,32 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:hover {
 /* ========================================
    Composer Input Area
    ======================================== */
+.composer-inputs {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.composer-inputs:disabled .composer-control,
+.composer-inputs:disabled .context-chip {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.composer-inputs:disabled textarea {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+.composer-inputs:disabled ~ .composer-caption .hint {
+  display: none;
+}
+
+.composer-pause-notice {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+}
+
 .composer {
   padding: 12px 13px 8px;
   border: 1px solid var(--border-strong);
@@ -1636,7 +1662,8 @@ textarea::placeholder {
   background: var(--accent);
   color: var(--accent-fg);
 }
-.send:disabled {
+.send:disabled,
+.composer-submit .composer-control:disabled {
   opacity: 0.45;
 }
 .stop {
@@ -1657,7 +1684,7 @@ textarea::placeholder {
   font-size: var(--font-size-control);
   line-height: var(--line-height-control);
 }
-.composer-control:hover,
+.composer-control:not(:disabled):hover,
 .work-tools[open] > summary,
 .model-picker[open] > summary {
   background: var(--bg-element);
