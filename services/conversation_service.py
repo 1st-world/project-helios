@@ -1,4 +1,4 @@
-"""Manage live conversations and persist transcript and memory changes as local JSON."""
+"""Persist live transcripts, memory, and independently versioned model selections as local JSON."""
 
 import json
 import logging
@@ -23,12 +23,20 @@ class ConversationUnavailableError(ValueError):
     """A pending operation holds a deleted or unregistered conversation."""
 
 
+class ConversationProfileConflictError(ValueError):
+    """A model selection was updated after the caller read its independent revision."""
+
+
 class ConversationManager:
     """Mutations run synchronously on one event loop in a single server process."""
 
-    def __init__(self, storage_root: Path) -> None:
+    def __init__(
+        self, storage_root: Path, *,
+        default_profile_id: Callable[[], str | None] | None = None,
+    ) -> None:
         """Create the storage directory and load existing conversations into memory."""
         self._storage_root = storage_root
+        self._default_profile_id = default_profile_id or (lambda: None)
         self._storage_root.mkdir(parents=True, exist_ok=True)
         self._conversations: dict[str, Conversation] = {}
         self._reference_lock = RLock()
@@ -145,9 +153,17 @@ class ConversationManager:
                 setattr(conversation, name, value)
             raise
 
-    def create(self, workspace: WorkspaceBinding | None = None) -> Conversation:
+    def create(
+        self, workspace: WorkspaceBinding | None = None, *,
+        profile_id: str | None = None,
+    ) -> Conversation:
         """Register and persist an empty conversation, rolling back on save failure."""
-        conversation = Conversation(workspace=workspace or WorkspaceBinding())
+        conversation = Conversation(
+            workspace=workspace or WorkspaceBinding(),
+            profile_id=(
+                profile_id if profile_id is not None else self._default_profile_id()
+            ),
+        )
         self._conversations[conversation.id] = conversation
         try:
             self._save(conversation)
@@ -156,6 +172,40 @@ class ConversationManager:
             conversation.is_deleted = True
             raise
         return conversation
+
+    def set_profile(
+        self, conversation: Conversation, profile_id: str | None, *,
+        expected_revision: int | None = None,
+    ) -> None:
+        """Save model selection atomically without changing transcript authority or recency."""
+        self._require_active(conversation)
+        if (
+            expected_revision is not None
+            and expected_revision != conversation.profile_revision
+        ):
+            raise ConversationProfileConflictError(
+                "The model selection changed. Reload it before selecting again."
+            )
+        if (
+            conversation.profile_initialized
+            and conversation.profile_id == profile_id
+        ):
+            return
+        previous = (
+            conversation.profile_id, conversation.profile_revision,
+            conversation.profile_initialized,
+        )
+        conversation.profile_id = profile_id
+        conversation.profile_revision += int(conversation.profile_initialized)
+        conversation.profile_initialized = True
+        try:
+            self._save(conversation)
+        except Exception:
+            (
+                conversation.profile_id, conversation.profile_revision,
+                conversation.profile_initialized,
+            ) = previous
+            raise
 
     def set_workspace(
         self, conversation: Conversation, workspace: WorkspaceBinding,

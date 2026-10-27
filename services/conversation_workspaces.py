@@ -66,7 +66,9 @@ class ConversationWorkspaces:
             self.drafts.move_to_end(session_id)
         return draft
 
-    def adopt(self, workspace: WorkspaceService):
+    def adopt(
+        self, workspace: WorkspaceService, *, profile_id: str | None = None,
+    ):
         """Save a draft once and reuse it if preparation failed before the start event."""
         draft = self.draft(workspace.session_id)
         if draft is not None and draft.conversation_id is not None:
@@ -74,7 +76,9 @@ class ConversationWorkspaces:
             if conversation is None:
                 raise ValueError("The draft conversation is no longer available.")
             return conversation
-        conversation = self.manager.create(self.binding(workspace))
+        conversation = self.manager.create(
+            self.binding(workspace), profile_id=profile_id,
+        )
         self.saved[conversation.id] = copy(workspace)
         self.owners[id(self.saved[conversation.id])] = conversation.id
         if draft is not None:

@@ -58,6 +58,7 @@ from services.context_budget import (
 )
 from services.conversation_service import (
     ConversationManager,
+    ConversationProfileConflictError,
     ConversationUnavailableError,
 )
 from services.context_policy import ContextPolicy
@@ -76,6 +77,7 @@ from services.folder_picker_service import (
 )
 from services.context_recovery import ContextRecoveryRegistry, RecoveryError
 from services.conversation_workspaces import ConversationWorkspaces
+from services.conversation_profiles import ConversationProfiles
 from services.memory_service import (
     ConversationMemoryService, MemoryPolicyChangedError,
 )
@@ -128,7 +130,12 @@ profile_service = ProfileService(
     app_settings=(settings_service.migration_origin or settings_service.current)
     if settings_service.source_exists else None,
 )
-conversation_manager = ConversationManager(settings.conversations_root)
+conversation_manager = ConversationManager(
+    settings.conversations_root,
+    default_profile_id=lambda: getattr(
+        profile_service.get_active_profile(), "id", None,
+    ),
+)
 workspace_service = WorkspaceService(settings.workspace_root)
 conversation_workspaces = ConversationWorkspaces(conversation_manager)
 attachment_store = AttachmentStore(getattr(
@@ -154,6 +161,9 @@ call_usage_store = CallUsageStore(settings.logs_root / "usage_calls.sqlite3")
 work_run_store = WorkRunStore(getattr(
     settings, "work_runs_path", settings.profiles_path.parent / "data" / "work_runs.sqlite3",
 ))
+conversation_profiles = ConversationProfiles(
+    conversation_manager, profile_service, work_run_store,
+)
 work_run_store.on_attachments_released = attachment_cleanup.notify
 pause_deadline_changed = asyncio.Event()
 work_run_store.on_pause_changed = pause_deadline_changed.set
@@ -477,7 +487,8 @@ class ChatRequest(ContextRequestOptions):
     workspace_structure: WorkspaceStructureRequest | None = None
     explore_project: bool = Field(default=False, strict=True)
     exploration_limits: ExplorationLimits | None = None
-    profile_id: str | None = None
+    profile_id: str | None = Field(default=None, min_length=1, strict=True)
+    expected_profile_revision: int | None = Field(default=None, ge=0, strict=True)
     regenerate_message_index: int | None = Field(default=None, ge=0)
     expected_conversation_version: int | None = Field(default=None, ge=0)
     recovery_id: UUID | None = None
@@ -537,6 +548,14 @@ class RenameConversationRequest(BaseModel):
     """Validate the requested conversation title."""
 
     title: str = Field(min_length=1, max_length=100)
+
+
+class ConversationProfileRequest(BaseModel):
+    """Validate an explicit conversation model selection against its own revision."""
+
+    model_config = ConfigDict(extra="forbid")
+    profile_id: str = Field(min_length=1, strict=True)
+    expected_profile_revision: int = Field(ge=0, strict=True)
 
 
 class EditMessageRequest(BaseModel):
@@ -775,13 +794,94 @@ async def set_active_profile(profile_id: str):
 @app.get("/api/conversations")
 async def conversations():
     """Return conversation summaries ordered by their latest update."""
-    return conversation_manager.list()
+    items = conversation_manager.list()
+    for item in items:
+        conversation = conversation_manager.get(item["id"])
+        item.update(conversation_profile_selection(conversation))
+    return items
 
 
 @app.post("/api/conversations")
 async def create_conversation():
     """Create and persist an empty conversation."""
-    return conversation_manager.create().to_dict()
+    conversation = conversation_manager.create()
+    return {
+        **conversation.to_dict(), **conversation_profile_selection(conversation),
+    }
+
+
+def conversation_profile_selection(conversation) -> dict:
+    """Initialize a durable choice without publishing uncommitted selection metadata."""
+    try:
+        return conversation_profiles.selection(conversation)
+    except OSError as exc:
+        logger.error("Could not save conversation profile (error_type=%s)", type(exc).__name__)
+        raise HTTPException(status_code=500, detail={
+            "code": "conversation_profile_save_failed",
+            "message": "Could not save this conversation's model selection. Please try again.",
+        }) from None
+
+
+def resolve_conversation_profile(
+    conversation, explicit_id: str | None, expected_revision: int | None = None,
+) -> str:
+    """Pin an explicit selection or the durable preference without a default fallback."""
+    selection = conversation_profile_selection(conversation)
+    if (
+        expected_revision is not None
+        and expected_revision != selection["profile_revision"]
+    ):
+        raise HTTPException(status_code=409, detail={
+            "code": "conversation_profile_changed",
+            "message": "The model selection changed. Reload it before sending again.",
+        })
+    selected_id = (
+        explicit_id if explicit_id is not None else selection["profile_id"]
+    )
+    if selected_id is None or (
+        explicit_id is None and not selection["profile_available"]
+    ):
+        raise HTTPException(status_code=409, detail={
+            "code": "conversation_profile_unavailable",
+            "message": "Choose an available model profile for this conversation before sending a message.",
+        })
+    return ai_service.resolve_profile_id(selected_id)
+
+
+@app.get("/api/conversations/{conversation_id}/profile")
+async def get_conversation_profile(conversation_id: str):
+    """Read the next-response model selection without loading the full transcript."""
+    conversation = conversation_manager.get(conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    return conversation_profile_selection(conversation)
+
+
+@app.patch("/api/conversations/{conversation_id}/profile")
+async def select_conversation_profile(
+    conversation_id: str, payload: ConversationProfileRequest,
+):
+    """Change the next response's saved model without invalidating active or paused work."""
+    conversation = conversation_manager.get(conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    try:
+        return conversation_profiles.select(
+            conversation, payload.profile_id,
+            expected_revision=payload.expected_profile_revision,
+        )
+    except ConversationProfileConflictError as exc:
+        raise HTTPException(status_code=409, detail={
+            "code": "conversation_profile_changed", "message": str(exc),
+        }) from None
+    except ProfileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    except OSError as exc:
+        logger.error("Could not save conversation profile (error_type=%s)", type(exc).__name__)
+        raise HTTPException(status_code=500, detail={
+            "code": "conversation_profile_save_failed",
+            "message": "Could not save this conversation's model selection. Your previous selection is unchanged.",
+        }) from None
 
 
 def response_display_metadata(run_id: str, conversation_id: str) -> dict:
@@ -803,7 +903,9 @@ async def get_conversation(conversation_id: str):
     conversation = conversation_manager.get(conversation_id)
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found.")
+    selection = conversation_profile_selection(conversation)
     data = conversation.to_dict()
+    data.update(selection)
     data["paused_run"] = paused_work_metadata(conversation)
     for message in data["messages"]:
         if message["role"] != "assistant" or not message.get("run_id"):
@@ -1931,6 +2033,7 @@ async def inspect_attachments(
 async def chat(payload: ChatRequest, request: Request = None):
     """Claim one conversation and honor explicit, one-use recovery authorization."""
     operation = None
+    requested_profile_id = payload.profile_id
     try:
         operation_id = str(payload.operation_id) if payload.operation_id else None
         ticket = (
@@ -1974,14 +2077,39 @@ async def chat(payload: ChatRequest, request: Request = None):
                 )
             if chat_uses_workspace(payload):
                 require_selected_workspace(live_workspace)
-            ai_service.resolve_profile_id(payload.profile_id)
             conversation = (
                 conversation_manager.get(payload.conversation_id or "")
                 if payload.conversation_id is not None or payload.regenerate_message_index is not None
-                else conversation_workspaces.adopt(live_workspace)
+                else None
             )
-            if conversation is None:
+            draft = conversation_workspaces.draft(live_workspace.session_id)
+            if (
+                conversation is None and payload.conversation_id is None
+                and draft is not None and draft.conversation_id is not None
+            ):
+                conversation = conversation_manager.get(draft.conversation_id)
+            if conversation is None and (
+                payload.conversation_id is not None
+                or payload.regenerate_message_index is not None
+                or (draft is not None and draft.conversation_id is not None)
+            ):
                 raise HTTPException(status_code=404, detail="Conversation not found.")
+            if conversation is not None:
+                request_profile_id = resolve_conversation_profile(
+                    conversation, payload.profile_id,
+                    payload.expected_profile_revision,
+                )
+            else:
+                if payload.expected_profile_revision not in {None, 0}:
+                    raise HTTPException(status_code=409, detail={
+                        "code": "conversation_profile_changed",
+                        "message": "A new conversation has no saved model revision. Review the selected model and try again.",
+                    })
+                request_profile_id = ai_service.resolve_profile_id(payload.profile_id)
+                conversation = conversation_workspaces.adopt(
+                    live_workspace, profile_id=request_profile_id,
+                )
+            payload = payload.model_copy(update={"profile_id": request_profile_id})
             live_workspace = conversation_workspaces.for_conversation(conversation)
             index = payload.regenerate_message_index
             if (
@@ -2013,6 +2141,18 @@ async def chat(payload: ChatRequest, request: Request = None):
             conversation.id, ticket=ticket,
             operation_id=operation_id,
         )
+        if ticket is None and requested_profile_id is not None:
+            try:
+                conversation_manager.set_profile(
+                    conversation, request_profile_id,
+                    expected_revision=payload.expected_profile_revision,
+                )
+            except OSError as exc:
+                logger.error("Could not save request profile selection (error_type=%s)", type(exc).__name__)
+                raise HTTPException(status_code=500, detail={
+                    "code": "conversation_profile_save_failed",
+                    "message": "Could not save this conversation's model selection. No request was sent.",
+                }) from None
         workspace_bound = (
             data.get("workspace_bound", data.get("workspace_root") is not None)
             if ticket is not None else (

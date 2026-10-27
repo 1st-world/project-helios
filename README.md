@@ -300,6 +300,18 @@ Workspace를 연결한 뒤 **Tools → Explore project**를 선택하면 다음 
 .\.venv\Scripts\python.exe app.py
 ```
 
+### 대화별 모델 선택 API
+
+대화 JSON은 다음 응답에 사용할 `profile_id`와 독립적인 `profile_revision`을 저장합니다. 자격 증명과 연결 설정은 프로필 저장소에서 공유하며 대화에 복제하지 않습니다. 새 대화는 생성 시점의 활성 프로필을 초기값으로 저장합니다. 이후 활성 프로필 변경은 기존 선택에 영향을 주지 않습니다. 모델 선택 저장은 본문 `version`·메모리·Workspace·메시지·대화 정렬 시각을 바꾸지 않습니다.
+
+대화 목록·상세 조회와 `GET /api/conversations/{id}/profile`은 `profile_id`, `profile_revision`, `profile_available`을 반환합니다. `PATCH /api/conversations/{id}/profile`에 `{"profile_id":"<profile ID>","expected_profile_revision":0}`을 보내 선택을 저장합니다. 선택이 달라지면 갱신 번호가 증가하며 같은 값 저장은 유지합니다. 오래된 갱신 번호는 `409 conversation_profile_changed`, 존재하지 않는 프로필은 `404`입니다. 저장 실패는 이전 선택을 유지합니다.
+
+기존 대화에서 `POST /api/chat`의 `profile_id`를 생략하면 저장된 선택을 사용합니다. 명시하면 해당 요청과 이후 응답의 선택으로 저장하며, 다른 대화나 전역 활성 프로필은 바꾸지 않습니다. 선택적인 `expected_profile_revision`은 다른 탭이 바꾼 모델로 전송하거나 오래된 선택으로 덮어쓰는 일을 제출 전에 막습니다. 새 대화에서 명시한 모델은 최초 선택으로 저장하고, 준비 실패 후 같은 초안을 재시도해도 그 선택을 유지합니다. 중복 전송·Paused 상태로 거절된 전송은 선택을 바꾸지 않습니다.
+
+선택 필드가 없는 이전 대화는 목록·상세·선택 조회 또는 요청 시 마지막으로 확인 가능한 응답의 프로필로 한 번 초기화합니다. 도구 답변은 실행 기록의 프로필을 확인합니다. 응답에서 확인할 수 없으면 현재 활성 프로필을 초기값으로 저장합니다. 삭제된 프로필의 기록이 있으면 그 ID를 유지하고 `profile_available: false`로 알립니다. 선택이 없거나 사용할 수 없을 때는 자동 대체 없이 `409 conversation_profile_unavailable`로 전송을 거절합니다.
+
+진행 중이거나 Paused인 실행의 다음 응답용 선택도 API로 변경할 수 있습니다. 이미 시작한 요청·명시적 Resume·일회성 복구는 원래 준비 자료와 프로필을 사용하며 새 선택을 덮어쓰지 않습니다. Composer와 Connections에서 이 API를 사용하는 UI 연결은 후속 작업 단위입니다.
+
 ### 로컬 MCP 프로젝트 읽기 기반
 
 `ProjectMCPClient`는 선택한 Workspace에 대해 앱에 포함된 stdio 서버의 `list_files`, `search_text`, `read_file`을 호출합니다. 공식 Python MCP SDK `2.3.0`과 프로토콜 `2026-07-28`을 고정합니다. Explore project UI와 아래의 명시적 탐색 API에서 반복 실행을 지원합니다. 도구 Off의 일반 채팅·Settings·Attach와 저장된 탐색 조회는 MCP 서버를 시작하지 않습니다.

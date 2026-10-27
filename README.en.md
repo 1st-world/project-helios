@@ -300,6 +300,18 @@ For automatic reload during development, run:
 .\.venv\Scripts\python.exe app.py
 ```
 
+### Conversation model selection API
+
+Conversation JSON stores the next response's `profile_id` and an independent `profile_revision`. Credentials and connection settings remain in the shared profile registry. A new conversation captures the active profile at creation; later active-profile changes do not retarget it. Saving a model choice leaves the transcript `version`, memory, Workspace, messages and conversation recency unchanged.
+
+Conversation list/detail responses and `GET /api/conversations/{id}/profile` return `profile_id`, `profile_revision` and `profile_available`. Send `{"profile_id":"<profile ID>","expected_profile_revision":0}` to `PATCH /api/conversations/{id}/profile`. A changed selection advances its revision; an identical selection retains it. Stale revisions return `409 conversation_profile_changed`, and missing profiles return `404`. Failed persistence preserves the previous choice.
+
+For an existing conversation, omitting `profile_id` from `POST /api/chat` uses its saved choice. An explicit profile is saved for that request and future responses without changing other conversations or the global active profile. Optional `expected_profile_revision` rejects stale sends before they use an unseen model or overwrite another tab's newer choice. A new conversation saves its explicit initial profile, and retries of an adopted draft keep that choice after preparation failure. Sends rejected because the conversation is busy or paused do not change the selection.
+
+Older conversations without selection fields initialize once, during list/detail/selection reads or requests, from the last identifiable response profile. Tool responses consult their saved run metadata. If no response identifies a profile, the current active profile becomes the stored initial choice. A recorded deleted profile retains its ID with `profile_available: false`. Missing or unavailable selections reject sends with `409 conversation_profile_unavailable` instead of automatically substituting another model.
+
+The API can update the next-response choice during active or paused work. Already started requests, explicit Resume and one-use recovery retain their original prepared input and profile, and do not overwrite a newer choice. Wiring Composer and Connections to these APIs is a subsequent implementation unit.
+
 ### Local MCP project-reading foundation
 
 `ProjectMCPClient` calls the bundled stdio server's `list_files`, `search_text`, and `read_file` for a selected Workspace. It pins the official Python MCP SDK to `2.3.0` and protocol `2026-07-28`. Explore project UI and the explicit API below support repeated calls. Ordinary chat with tools Off, Settings, Attach, and saved exploration queries do not start an MCP server.

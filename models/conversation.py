@@ -1,4 +1,4 @@
-"""Represent persisted conversations, including message history and summary memory."""
+"""Represent persisted conversations, transcript memory, and independent model selections."""
 
 import logging
 from dataclasses import dataclass, field
@@ -11,7 +11,7 @@ from models.workspace import WorkspaceBinding
 
 @dataclass
 class Conversation:
-    """Hold a transcript, summary coverage, and version used to reject stale updates."""
+    """Hold transcript authority and an independent revision for the next response's model."""
 
     id: str = field(default_factory=lambda: str(uuid4()))
     title: str = "New conversation"
@@ -25,6 +25,9 @@ class Conversation:
     memory_summary: str = ""
     summarized_message_count: int = 0
     version: int = 0
+    profile_id: str | None = None
+    profile_revision: int = 0
+    profile_initialized: bool = field(default=True, repr=False, compare=False)
     workspace: WorkspaceBinding = field(default_factory=WorkspaceBinding)
     is_deleted: bool = field(default=False, repr=False, compare=False)
 
@@ -40,6 +43,11 @@ class Conversation:
             "version": self.version,
             "workspace": self.workspace.model_dump(),
         }
+        # Preserve absent legacy fields until the selection is initialized durably.
+        if self.profile_initialized:
+            data.update(
+                profile_id=self.profile_id, profile_revision=self.profile_revision,
+            )
         if include_messages:
             data["messages"] = [message.to_dict() for message in self.messages]
         return data
@@ -64,6 +72,17 @@ class Conversation:
         version = data.get("version", 0)
         if type(version) is not int or version < 0:
             raise ValueError("Invalid conversation version.")
+        profile_id = data.get("profile_id")
+        profile_revision = data.get("profile_revision", 0)
+        if (
+            profile_id is not None
+            and (not isinstance(profile_id, str) or not profile_id.strip())
+        ):
+            raise ValueError("Invalid conversation profile.")
+        if type(profile_revision) is not int or profile_revision < 0:
+            raise ValueError("Invalid conversation profile revision.")
+        if "profile_revision" in data and "profile_id" not in data:
+            raise ValueError("Conversation profile selection is incomplete.")
         messages = [Message.from_dict(message) for message in messages_data]
         if (
             summarized_message_count < 0
@@ -85,5 +104,7 @@ class Conversation:
             memory_summary=memory_summary,
             summarized_message_count=summarized_message_count,
             version=version,
+            profile_id=profile_id, profile_revision=profile_revision,
+            profile_initialized="profile_id" in data,
             workspace=WorkspaceBinding.model_validate(data.get("workspace", {})),
         )
