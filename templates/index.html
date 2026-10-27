@@ -101,10 +101,12 @@
                 </summary>
                 <div class="model-popover">
                   <div class="model-popover-header">
-                    <strong>Model profile</strong>
-                    <button type="button" id="model-popover-settings" class="model-popover-link">Settings</button>
+                    <strong>Conversation model</strong>
+                    <button type="button" id="model-popover-settings" class="model-popover-link" aria-label="Connection settings" aria-haspopup="dialog" aria-controls="settings-dialog">Settings</button>
                   </div>
+                  <p id="model-selection-status" class="model-selection-status" role="status">Loading model selection...</p>
                   <div id="model-profile-list" class="model-profile-list" role="listbox" aria-label="Available models"></div>
+                  <button type="button" id="reload-model-selection" class="model-popover-link" hidden><i data-lucide="refresh-cw" aria-hidden="true"></i> Reload selection</button>
                 </div>
               </details>
               <select id="profile-select" class="sr-only" aria-hidden="true" tabindex="-1"><option>{{ model_name }}</option></select>
@@ -378,7 +380,7 @@
             <div class="settings-panel-heading"><h3 id="context-summary-title">Memory summaries</h3></div>
             <div class="settings-group-body">
               <p class="field-hint">Defaults for conversation memory, enabled per profile in Connections. Summaries make additional paid API calls and replace older request text; saved messages stay intact.</p>
-              <div class="settings-policy-summary"><p id="app-memory-status" class="settings-policy-values" role="status">Active profile memory: —.</p></div>
+              <div class="settings-policy-summary"><p id="app-memory-status" class="settings-policy-values" role="status">Default profile memory: —.</p></div>
               <div class="settings-preference-row">
                 <div class="settings-preference-copy"><span id="context-token-budget-label" class="settings-preference-label">Summary work budget (tokens)</span><small id="context-token-budget-help">Maximum estimated input per summary call, within the declared deployment capacity. Separate from the chat input budget.</small></div>
                 <div class="settings-preference-control">

@@ -10,10 +10,11 @@ import { createExploration } from './exploration.js';
 import { createWorkToolSettings } from './work-tool-settings.js';
 
 const workspace = createWorkspace({
-  getActiveProfileId: () => profiles.getActiveProfileId(),
+  getActiveProfileId: () => profiles.getSelectedProfileId(),
+  getModelContextSignature: () => profiles.getModelContextSignature(),
   onWorkspaceSaved: (id, version) => chat.setWorkspaceVersion(id, version)
 });
-const profiles = createProfiles({ isGenerating: () => chat.isGenerating() });
+const profiles = createProfiles({ isGenerating: () => chat.isGenerating(), onModelContextChange: () => workspace.modelContextChanged() });
 const exploration = createExploration({
   getWorkspace: workspace.getWorkspaceInfo,
   chooseWorkspace: workspace.chooseWorkspace,
@@ -32,7 +33,12 @@ const exploration = createExploration({
 });
 const chat = createChat({
   exploration,
-  getActiveProfileId: profiles.getActiveProfileId,
+  getActiveProfileId: profiles.getSelectedProfileId,
+  prepareRequestProfile: profiles.prepareRequestProfile,
+  selectModel: profiles.selectConversation,
+  startModelDraft: profiles.startDraft,
+  adoptModel: profiles.adoptConversation,
+  refreshModelSelection: profiles.refreshModelSelection,
   getAttachmentSelection: workspace.getAttachmentSelection,
   restoreAttachments: workspace.restoreAttachments,
   onAttachmentsSaved: workspace.markAttachmentsSaved,

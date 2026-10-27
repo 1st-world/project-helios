@@ -77,8 +77,8 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     const trigger = valueOf(fields.get('summary_trigger_tokens'));
     const policy = state.summaryPolicy;
     $('#app-memory-status').textContent = policy?.state
-      ? `Active profile (saved): ${describeMemoryState(policy)}.`
-      : 'Active profile memory is unavailable. Reopen Settings to retry.';
+      ? `New-chat default profile (saved): ${describeMemoryState(policy)}.`
+      : 'Default profile memory is unavailable. Reopen Settings to retry.';
     $('#summary-trigger-tokens-help').textContent = trigger === null
       ? 'Blank uses 90% of the declared input allowance. Enter 0 to pause summaries.'
       : trigger === 0 ? 'Summaries are disabled. Requests use original conversation history.'

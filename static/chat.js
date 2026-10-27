@@ -11,11 +11,12 @@ import { createResponseFooter } from './response-footer.js';
 import { createResponseProgress } from './response-progress.js';
 import { createReasoningSummary } from './reasoning-summary.js';
 
-export function createChat({ getActiveProfileId, getAttachmentSelection, restoreAttachments, onAttachmentsSaved, getWorkspaceContext = () => ({}), selectWorkspace, startWorkspaceDraft, adoptWorkspace, onAttachmentMetadata, clearFocusFiles, onGeneratingChange, onConversationChange, openSettings, exploration }) {
+export function createChat({ getActiveProfileId, prepareRequestProfile = async () => ({ profile_id: getActiveProfileId() }), selectModel, startModelDraft, adoptModel, refreshModelSelection, getAttachmentSelection, restoreAttachments, onAttachmentsSaved, getWorkspaceContext = () => ({}), selectWorkspace, startWorkspaceDraft, adoptWorkspace, onAttachmentMetadata, clearFocusFiles, onGeneratingChange, onConversationChange, openSettings, exploration }) {
   const state = {
     conversationId: null,
     conversationVersion: null,
     conversationLoadVersion: 0,
+    conversationLoading: false,
     controller: null,
     generating: false,
     stopping: false,
@@ -130,11 +131,11 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
 
   function updateComposerState() {
     const locked = Boolean(state.pausedRun) && !state.generating;
-    const optionsLocked = locked || state.generating;
+    const optionsLocked = locked || state.generating || state.conversationLoading;
     $('#composer-inputs').dataset.locked = String(locked);
-    $('#composer-context-inputs').disabled = locked;
+    $('#composer-context-inputs').disabled = locked || state.conversationLoading;
     $('#composer-option-inputs').disabled = optionsLocked;
-    prompt.disabled = locked;
+    prompt.disabled = locked || state.conversationLoading;
     $('#composer-pause-notice').hidden = !locked;
     $('#composer-option-inputs').querySelectorAll('details').forEach(details => {
       const summary = details.querySelector('summary');
@@ -152,7 +153,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     }
     send.setAttribute('aria-label', labels[action]);
     send.title = labels[action];
-    send.disabled = state.stopping || action === 'resume' && (!pausedSource() || state.pausedRun.resume_available === false);
+    send.disabled = state.stopping || (!state.generating && state.conversationLoading) || action === 'resume' && (!pausedSource() || state.pausedRun.resume_available === false);
     if (action === 'resume' && send.disabled) send.title = 'Resume unavailable. Review or discard the saved run.';
     chat.querySelectorAll('[data-requires-resolved-work]').forEach(button => {
       button.disabled = state.generating || Boolean(state.pausedRun);
@@ -230,7 +231,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
       }
       const controls = document.createElement('div');
       controls.className = 'chat-request-notice-actions status-callout-actions';
-      const labels = { question: 'Review question', attachments: 'Review attachments', connections: 'Connection settings', usage: 'Review usage', limits: 'Review input budget', output: 'Review output limits' };
+      const labels = { question: 'Review question', attachments: 'Review attachments', model: 'Review model', connections: 'Connection settings', usage: 'Review usage', limits: 'Review input budget', output: 'Review output limits' };
       actions.forEach(action => {
         if (!labels[action]) return;
         const button = document.createElement('button');
@@ -242,6 +243,11 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
         button.onclick = () => {
           if (state.generating) return;
           if (action === 'attachments') $('#load-file').click();
+          else if (action === 'model') {
+            if ($('#model-trigger').getAttribute('aria-disabled') === 'true') return;
+            $('#model-picker').open = true;
+            $('#model-trigger').focus();
+          }
           else if (action === 'question') {
             const source = sourceCreatedAt && [...chat.querySelectorAll('.message.user')].find(node => messageMetadata.get(node)?.created_at === sourceCreatedAt);
             if (source) {
@@ -429,9 +435,10 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     return { el, render, setMeta };
   }
 
-  function onStart(event) {
+  function onStart(event, preparedProfile) {
     state.conversationId = event.conversation_id;
     adoptWorkspace?.(state.conversationId);
+    adoptModel?.(state.conversationId, preparedProfile);
   }
 
   function onDelta(event, assistant, answer) {
@@ -495,15 +502,28 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
   async function openConversation(id, preserveScroll = false) {
     if (messageEditor?.saving && !preserveScroll) return;
     const loadVersion = ++state.conversationLoadVersion;
+    state.conversationLoading = true;
+    updateComposerState();
     closeMobileSidebar();
-    const response = await fetch(`/api/conversations/${id}`);
-    if (loadVersion !== state.conversationLoadVersion) return false;
-    if (!response.ok) return toast('Could not open conversation.', 'error');
-    const data = await response.json();
+    let data;
+    try {
+      const response = await fetch(`/api/conversations/${id}`);
+      if (!response.ok) throw new Error('Could not open conversation.');
+      data = await response.json();
+    } catch {
+      if (loadVersion === state.conversationLoadVersion) {
+        state.conversationLoading = false;
+        updateComposerState();
+        toast('Could not open conversation.', 'error');
+      }
+      return false;
+    }
     if (loadVersion !== state.conversationLoadVersion) return false;
     messageEditor = null;
     state.conversationId = data.id;
     state.conversationVersion = data.version;
+    state.conversationLoading = false;
+    selectModel?.(data.id, data);
     setPausedRun(data.id, data.paused_run);
     selectWorkspace?.(data.id, { ...data.workspace, available: data.workspace_available }, { preserveSelection: preserveScroll });
     if (!preserveScroll) {
@@ -555,6 +575,8 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     messageEditor = null;
     closeMobileSidebar();
     state.conversationId = null;
+    state.conversationLoading = false;
+    startModelDraft?.();
     setPausedRun(null, null);
     onConversationChange(null);
     state.requestFeedback.delete(null);
@@ -705,12 +727,13 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     } catch (error) {
       if (error.name === 'AbortError') throw error;
     }
-    return describeRequestError(payload, 'Request failed.', status);
+    return { ...describeRequestError(payload, 'Request failed.', status), code: payload?.detail?.code };
   }
 
   async function sendMessage(options = {}) {
     if (messageEditor) return toast('Save or cancel your message edit before sending.', 'info');
     if (state.pausedRun && !options.resumeRun) return toast('Resume or discard the paused run before sending another message.', 'info');
+    if (state.conversationLoading) return toast('Wait for the conversation to finish loading.', 'info');
     const text = options.prompt ?? prompt.value.trim();
     if (!text || state.generating) return;
     chat.querySelectorAll('[data-transient-response]').forEach(message => {
@@ -736,6 +759,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     responseProgress.set(assistant.el, progress);
     const answer = { value: '' };
     let contextPolicy = null;
+    let requestProfile = null;
     let requestStarted = false;
     let requestSubmitted = false;
     let responseCompleted = false;
@@ -807,6 +831,8 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
     }
 
     try {
+      requestProfile = options.recoveryId || options.resumeRun ? null : await prepare(prepareRequestProfile);
+      if (requestViewVersion !== state.conversationLoadVersion || requestConversationId !== state.conversationId) throw new DOMException('Conversation changed during preparation.', 'AbortError');
       const workspaceContext = options.recoveryId || options.resumeRun ? {} : await prepare(getWorkspaceContext);
       requestScope = workspaceContext;
       controller.signal.throwIfAborted();
@@ -824,11 +850,12 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
           expected_conversation_version: options.expectedConversationVersion
         } : {
           prompt: text,
-          conversation_id: state.conversationId,
+          conversation_id: requestConversationId,
           ...attachmentSelection,
           ...workspaceContext,
           ...explorationContext,
-          profile_id: getActiveProfileId(),
+          profile_id: requestProfile?.profile_id,
+          expected_profile_revision: requestProfile?.expected_profile_revision,
           regenerate_message_index: options.regenerateMessageIndex,
           expected_conversation_version: options.expectedConversationVersion,
           recovery_id: options.recoveryId,
@@ -838,6 +865,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
       });
       if (!response.ok) {
         const feedback = await readResponseError(response);
+        if (feedback.code?.startsWith('conversation_profile_')) await refreshModelSelection?.(requestConversationId);
         throw Object.assign(new Error(feedback.message), { feedback });
       }
       reader = response.body.getReader();
@@ -868,7 +896,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
             requestStarted = true;
             requestFeedback.conversationId = event.conversation_id;
             requestFeedback.sourceCreatedAt = event.user_created_at || requestFeedback.sourceCreatedAt;
-            if (requestViewVersion === state.conversationLoadVersion) onStart(event);
+            if (requestViewVersion === state.conversationLoadVersion) onStart(event, requestProfile);
             if (event.user_created_at) user?.setMeta({ created_at: event.user_created_at });
             if (user && Number.isInteger(event.user_index)) user.el.dataset.messageIndex = String(event.user_index);
           }
@@ -1017,7 +1045,7 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
             stopState = await response.json();
             if (stopState.conversation_id && requestViewVersion === state.conversationLoadVersion) {
               requestFeedback.conversationId = stopState.conversation_id;
-              onStart({ conversation_id: stopState.conversation_id });
+              onStart({ conversation_id: stopState.conversation_id }, requestProfile);
             }
           }
         } catch {
@@ -1089,8 +1117,10 @@ export function createChat({ getActiveProfileId, getAttachmentSelection, restore
       && state.conversationVersion === version && state.conversationLoadVersion === viewVersion;
     if (!isCurrent()) return;
     const regenerating = run.kind === 'regeneration';
+    const model = run.profile?.name || 'the original model profile';
+    const deployment = run.profile?.deployment ? ` (${run.profile.deployment})` : '';
     if (!await showActionDialog({ title: 'Resume this run?',
-      description: 'Continue from the saved step using this run’s original connection, tools, attachments and limits. The app checks the question, Workspace and saved file results before continuing. Further model calls may incur costs. Previous calls, cost and active time remain cumulative; time spent paused is excluded. Your message draft stays unchanged.'
+      description: `Continue with ${model}${deployment} using this run’s original connection, tools, attachments and limits. The selected model for the next response does not change this run. The app checks the question, Workspace and saved file results before continuing. Further model calls may incur costs. Previous calls, cost and active time remain cumulative; time spent paused is excluded. Your message draft stays unchanged.`
         + (regenerating ? ' Once completed, the regenerated answer replaces the previous answer and all following messages in this branch.' : ''),
       confirmLabel: 'Resume' }) || !isCurrent()) return;
     const previousReplyCreatedAt = regenerating

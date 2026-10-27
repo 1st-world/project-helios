@@ -9,7 +9,7 @@ import { describeRequestError } from './chat-feedback.js';
 import { createDisclosure } from './disclosure.js';
 import { showActionDialog } from './dialogs.js';
 
-export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
+export function createWorkspace({ getActiveProfileId, getModelContextSignature = getActiveProfileId, onWorkspaceSaved }) {
   // Bound selected-file rendering without changing attachment resource limits.
   const selectionPageSize = 200;
   const state = {
@@ -561,6 +561,7 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
     const inspection = state.inspection;
     return Boolean(inspection && inspection.root === state.workspaceRoot && inspection.revision === state.workspaceRevision
       && inspection.sessionId === state.workspaceSessionId && inspection.profileId === getActiveProfileId()
+      && inspection.modelSignature === getModelContextSignature()
       && inspection.version === state.fileDialogVersion && sameSelection(inspection.files, state.pendingFiles));
   }
 
@@ -626,10 +627,17 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
     const sessionId = state.workspaceSessionId;
     const version = state.fileDialogVersion;
     const profileId = getActiveProfileId();
+    if (!profileId) {
+      state.inspectionFeedback = { type: 'error', message: 'Select a model in the composer before checking files.' };
+      renderInspection();
+      return;
+    }
+    const modelSignature = getModelContextSignature();
     const controller = new AbortController();
     const isCurrent = () => state.inspectionController === controller && $('#file-dialog').open && !state.generating
       && version === state.fileDialogVersion && root === state.workspaceRoot && revision === state.workspaceRevision
       && sessionId === state.workspaceSessionId && profileId === getActiveProfileId()
+      && modelSignature === getModelContextSignature()
       && sameSelection(files, state.pendingFiles);
     state.inspectionController = controller;
     state.attachingFile = true;
@@ -655,7 +663,7 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
       }
       data.files = data.files.map(file => ({ ...file, reference: file.reference || workspaceFile(file.path).reference }));
       if (!sameSelection(data.files, files)) throw new Error('The checked sources changed. Check the selection again.');
-      state.inspection = { files, root, revision, sessionId, version, profileId, data };
+      state.inspection = { files, root, revision, sessionId, version, profileId, modelSignature, data };
       state.inspectionFeedback = null;
       renderInspection();
     } catch (error) {
@@ -722,6 +730,7 @@ export function createWorkspace({ getActiveProfileId, onWorkspaceSaved }) {
     init, load: loadWorkspace, startDraft, selectConversation, adoptConversation, clearFocusFiles, setGenerating, beforeDialogClose, beforeAttachmentDialogClose, chooseWorkspace,
     restorePicker: picker.restore, getAttachmentSelection, restoreAttachments, getWorkspaceContext, updateAttachmentMetadata,
     getWorkspaceInfo() { return { root: state.workspaceRoot, revision: state.workspaceRevision, sessionId: state.workspaceSessionId }; },
+    modelContextChanged() { invalidateInspection(); updateSelection(); },
     markAttachmentsSaved() { state.selectionEdited = false; }
   };
 }

@@ -42,8 +42,12 @@ The default configuration is a local, single-user app without login or per-user 
 
 1. Open **Settings → Connections → New profile**.
 2. Enter a descriptive **Profile name**, the actual **Deployment name**, the **Foundry endpoint**, and an **API key**.
-3. Select **Save changes**. The first profile becomes active automatically; use **Use** in the list to select an additional profile.
-4. Send a message in chat. Basic chat does not require model capacity, pricing, or memory configuration.
+3. Select **Save changes**. The first profile becomes the default for new chats. Use **Set as default** in the list to change it; the **Default** badge identifies it.
+4. Choose the profile for this conversation's next response in the composer's **Conversation model**, then send a message. Basic chat does not require model capacity, pricing, or memory configuration.
+
+Model selections are saved per conversation and restored when reopened. A new chat captures the default when its draft opens; later default changes leave existing conversations and already selected drafts unchanged. Editing a profile in Settings is separate from choosing the new-chat default.
+
+Sending while a model selection is saving waits for confirmation. Failed saves or changes from another tab reload the current choice, preserve the question draft, and do not automatically resend. If readback also fails, use **Reload selection** to verify it. Deleted selections show **Unavailable model** without automatically substituting another profile. Attachment checks also use this conversation's selected model and settings.
 
 Use a resource endpoint or an endpoint ending in `/openai/v1/`. This field does not accept an individual `/responses` URL or a Foundry project management URL.
 
@@ -310,7 +314,7 @@ For an existing conversation, omitting `profile_id` from `POST /api/chat` uses i
 
 Older conversations without selection fields initialize once, during list/detail/selection reads or requests, from the last identifiable response profile. Tool responses consult their saved run metadata. If no response identifies a profile, the current active profile becomes the stored initial choice. A recorded deleted profile retains its ID with `profile_available: false`. Missing or unavailable selections reject sends with `409 conversation_profile_unavailable` instead of automatically substituting another model.
 
-The API can update the next-response choice during active or paused work. Already started requests, explicit Resume and one-use recovery retain their original prepared input and profile, and do not overwrite a newer choice. Wiring Composer and Connections to these APIs is a subsequent implementation unit.
+The API can update the next-response choice during active or paused work. Already started requests, explicit Resume and one-use recovery retain their original prepared input and profile, and do not overwrite a newer choice. Composer saves the conversation's choice; the Connections default initializes new chats. Resume confirmation names the original run's profile and deployment and explains that the next-response choice is separate. Composer remains locked during generation and while paused; Connections can still change the new-chat default.
 
 ### Local MCP project-reading foundation
 

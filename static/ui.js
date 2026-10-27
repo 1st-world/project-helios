@@ -117,15 +117,24 @@ export function initializeUI({ beforeDialogClose }) {
     const style = getComputedStyle(composerFooter);
     const left = bounds.left + parseFloat(style.paddingLeft);
     const right = bounds.right - parseFloat(style.paddingRight);
+    const viewportTop = window.visualViewport?.offsetTop || 0;
+    const navigation = $('#mobile-sidebar-toggle')?.getBoundingClientRect();
+    const topLimit = Math.max(viewportTop + 16, navigation?.height ? navigation.bottom + 8 : 0);
 
     composerPopovers.forEach((popover) => {
       if (!popover.closest('details').open) {
         popover.style.removeProperty('--popover-max-width');
+        popover.style.removeProperty('--popover-max-height');
         popover.style.removeProperty('--popover-offset-x');
         return;
       }
 
       popover.style.setProperty('--popover-max-width', `${Math.max(0, right - left)}px`);
+      const popoverStyle = getComputedStyle(popover);
+      const anchorBottom = popover.closest('details').getBoundingClientRect().bottom;
+      // Keep expanded menus inside the visible viewport and below the mobile navigation control.
+      const availableHeight = Math.max(0, anchorBottom - parseFloat(popoverStyle.bottom) - topLimit);
+      popover.style.setProperty('--popover-max-height', `${availableHeight}px`);
       popover.style.setProperty('--popover-offset-x', '0px');
       const rect = popover.getBoundingClientRect();
       const adjustedLeft = Math.max(left, Math.min(rect.left, right - rect.width));
@@ -147,6 +156,8 @@ export function initializeUI({ beforeDialogClose }) {
     details.addEventListener('toggle', positionComposerPopovers);
     popoverResizeObserver.observe(details);
   });
+  window.visualViewport?.addEventListener('resize', positionComposerPopovers);
+  window.visualViewport?.addEventListener('scroll', positionComposerPopovers);
 
   const sidebarEl = $('#sidebar');
   if (sidebarEl) {
@@ -197,6 +208,7 @@ export function initializeUI({ beforeDialogClose }) {
     if (window.innerWidth > 720 && document.body.classList.contains('sidebar-open')) {
       document.body.classList.remove('sidebar-open');
     }
+    positionComposerPopovers();
   });
 
   window.addEventListener('keydown', (event) => {

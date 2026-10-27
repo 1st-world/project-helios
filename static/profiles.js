@@ -5,6 +5,7 @@ import { selectSettingsPanel } from './settings.js';
 import { createProfileContext } from './profile-context.js';
 import { describeRequestError } from './chat-feedback.js';
 import { showActionDialog } from './dialogs.js';
+import { createModelSelection } from './model-selection.js';
 
 const CACHE_PRICE_FIELDS = [
   ['azure-cache-read-price', 'cache_read_price_per_million', 'clear_cache_read_price'],
@@ -26,9 +27,12 @@ function readPrice(id) {
   return { value: input.value === '' || invalid ? null : input.valueAsNumber, invalid };
 }
 
-export function createProfiles({ isGenerating }) {
-  const state = { activeProfileId: null, editingProfileId: null, profiles: [], formBaseline: null, saving: false, feedback: null };
+export function createProfiles({ isGenerating, onModelContextChange = () => {} }) {
+  const state = { defaultProfileId: null, editingProfileId: null, profiles: [], formBaseline: null, saving: false, defaultSaving: false, feedback: null, catalogLoaded: false, catalogError: '', online: true };
   const profileContext = createProfileContext({ isSaving: () => state.saving });
+  const modelSelection = createModelSelection({ onChange: renderModelSelection });
+  let catalogPromise = null;
+  let modelContextSignature = '';
   let cachePriceBaseline = {};
 
   function selectCachePrices(profile) {
@@ -86,7 +90,8 @@ export function createProfiles({ isGenerating }) {
     const status = $('#profile-settings-status');
     status.textContent = state.feedback?.message || (state.saving ? 'Saving changes...' : dirty ? 'Unsaved changes' : '');
     status.dataset.state = state.feedback?.type || (state.saving ? 'info' : dirty ? 'dirty' : 'idle');
-    $('#save-profile-btn').disabled = state.saving || !dirty;
+    $('#save-profile-btn').disabled = state.saving || state.defaultSaving || !dirty;
+    $('#delete-profile-btn').disabled = state.saving || state.defaultSaving;
     $('#discard-profile-edit').disabled = state.saving || !dirty;
     $('#save-profile-label').textContent = state.saving ? 'Saving...' : 'Save changes';
   }
@@ -96,6 +101,7 @@ export function createProfiles({ isGenerating }) {
     $('#azure-settings-form').querySelectorAll('input, select, button').forEach(control => { control.disabled = saving; });
     profileContext.updateControls();
     updateEditorControls();
+    $('#profile-list-container').querySelectorAll('[data-set-default]').forEach(button => { button.disabled = saving || state.defaultSaving; });
     $('#settings-dialog').dispatchEvent(new Event('profile-save-state-change'));
   }
 
@@ -211,42 +217,53 @@ export function createProfiles({ isGenerating }) {
     setStatus('');
   }
 
-  function renderProfiles(data) {
-    state.activeProfileId = data.active_profile_id;
-    state.profiles = data.profiles || [];
-    const activeProfile = state.profiles.find((p) => p.id === state.activeProfileId);
-
+  function renderModelSelection() {
+    const model = modelSelection.snapshot();
+    const activeProfile = model.available === false ? undefined : state.profiles.find(profile => profile.id === model.profileId);
     const select = $('#profile-select');
     if (select) {
       select.innerHTML = '';
-      if (!state.profiles.length) {
+      if (!activeProfile) {
         const opt = document.createElement('option');
-        opt.textContent = 'No profiles configured';
+        opt.value = '';
+        opt.textContent = model.profileId ? 'Unavailable model' : 'Select model';
+        opt.selected = true;
+        opt.disabled = true;
         select.append(opt);
-      } else {
-        state.profiles.forEach((p) => {
-          const opt = document.createElement('option');
-          opt.value = p.id;
-          opt.textContent = `${p.name} (${p.deployment || 'No model'})`;
-          opt.selected = p.id === state.activeProfileId;
-          select.append(opt);
-        });
       }
+      state.profiles.forEach((p) => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = `${p.name} (${p.deployment || 'No model'})`;
+        opt.selected = p.id === activeProfile?.id;
+        select.append(opt);
+      });
     }
 
     const labelEl = $('#model-name-label');
     if (labelEl) {
-      if (activeProfile) {
+      if (model.saving) {
+        labelEl.textContent = 'Saving model...';
+      } else if (!state.catalogLoaded || !model.ready) {
+        labelEl.textContent = model.error || state.catalogError ? 'Check model' : 'Loading model...';
+      } else if (activeProfile) {
         labelEl.textContent = activeProfile.name;
-      } else if (state.profiles.length) {
-        labelEl.textContent = state.profiles[0].name;
       } else {
-        labelEl.textContent = 'No model';
+        labelEl.textContent = model.profileId ? 'Unavailable model' : 'Select model';
       }
-      $('#model-trigger').title = activeProfile
-        ? `Model profile: ${activeProfile.name} (${activeProfile.deployment || 'No deployment'})`
-        : 'Select model profile';
+      $('#model-trigger').setAttribute('aria-busy', String(model.saving));
+      $('#model-trigger').title = model.saving ? 'Saving the model selection for this conversation.' : activeProfile
+        ? `Next response model: ${activeProfile.name} (${activeProfile.deployment || 'No deployment'})`
+        : model.profileId ? 'The saved model profile is unavailable. Choose another model for this conversation.' : 'Select a model for this conversation';
+      if (select) select.title = $('#model-trigger').title;
     }
+
+    $('#model-selection-status').textContent = model.error || state.catalogError || (model.saving ? 'Saving model selection...'
+      : !model.ready ? 'Loading saved model selection...'
+      : !activeProfile ? model.profileId ? 'The saved model is unavailable. Choose another model.' : 'Choose a model for this conversation.'
+      : 'Choose a model for the next response.');
+    $('#reload-model-selection').hidden = model.ready && !model.error && !state.catalogError;
+    $('#reload-model-selection').disabled = model.saving;
 
     const popoverList = $('#model-profile-list');
     if (popoverList) {
@@ -260,10 +277,11 @@ export function createProfiles({ isGenerating }) {
         state.profiles.forEach((p) => {
           const item = document.createElement('button');
           item.type = 'button';
-          item.className = `model-profile-item ${p.id === state.activeProfileId ? 'active' : ''}`;
+          item.className = `model-profile-item ${p.id === activeProfile?.id ? 'active' : ''}`;
+          item.disabled = model.saving || !model.ready;
           item.setAttribute('role', 'option');
-          item.setAttribute('aria-selected', String(p.id === state.activeProfileId));
-          item.title = `Switch to ${p.name} (${p.deployment || 'No deployment'})`;
+          item.setAttribute('aria-selected', String(p.id === activeProfile?.id));
+          item.title = `Use ${p.name} (${p.deployment || 'No deployment'}) for this conversation`;
           item.innerHTML = `
             <span class="model-item-check"><i data-lucide="check"></i></span>
             <span class="model-item-info">
@@ -274,14 +292,38 @@ export function createProfiles({ isGenerating }) {
           item.onclick = async () => {
             const picker = $('#model-picker');
             if (picker) picker.open = false;
-            if (p.id !== state.activeProfileId) {
-              await switchActiveProfile(p.id);
-            }
+            if (isGenerating()) return;
+            try {
+              if (await modelSelection.select(p.id)) toast('Model selected for this conversation.', 'success');
+            } catch (error) { toast(error.message, 'warning'); }
           };
           popoverList.append(item);
         });
       }
     }
+    const status = $('#connection-status');
+    const message = !state.online ? 'Helios is offline. Check the local server.'
+      : model.saving ? '' : state.catalogError || model.error || (!state.catalogLoaded || !model.ready ? 'Loading model selection...'
+      : !activeProfile ? model.profileId ? 'The selected profile is unavailable. Choose another model for the next response.'
+      : state.profiles.length ? 'Select a model for this conversation.' : 'Add a model in Settings to start chatting.'
+      : !activeProfile.is_configured ? 'The selected profile needs connection details in Settings.' : '');
+    status.textContent = message;
+    const loading = state.online && !state.catalogError && !model.error && (!state.catalogLoaded || !model.ready);
+    status.className = `status ${message ? loading ? '' : 'error' : 'hidden'}`;
+    const signature = JSON.stringify([model.profileId, activeProfile && Object.fromEntries(Object.entries(activeProfile).filter(([key]) => key !== 'name'))]);
+    if (signature !== modelContextSignature) {
+      modelContextSignature = signature;
+      onModelContextChange();
+    }
+    refreshIcons();
+  }
+
+  function renderProfiles(data) {
+    state.defaultProfileId = data.active_profile_id;
+    state.profiles = data.profiles || [];
+    state.catalogLoaded = true;
+    state.catalogError = '';
+    modelSelection.setDefault(state.defaultProfileId);
     const container = $('#profile-list-container');
     const emptyState = $('#profile-empty-state');
     container.innerHTML = '';
@@ -291,7 +333,7 @@ export function createProfiles({ isGenerating }) {
       if (emptyState) emptyState.classList.add('hidden');
       state.profiles.forEach((p) => {
         const item = document.createElement('div');
-        item.className = `profile-item ${p.id === state.activeProfileId ? 'active' : ''} ${p.id === state.editingProfileId ? 'editing' : ''}`;
+        item.className = `profile-item ${p.id === state.defaultProfileId ? 'active' : ''} ${p.id === state.editingProfileId ? 'editing' : ''}`;
         item.dataset.profileId = p.id;
         const info = document.createElement('button');
         info.type = 'button';
@@ -303,22 +345,24 @@ export function createProfiles({ isGenerating }) {
         info.innerHTML = `<strong>${escapeHtml(p.name)}</strong><span class="profile-meta" title="${escapeHtml(p.endpoint)}">${escapeHtml(p.deployment)} · ${escapeHtml(p.endpoint)}</span>`;
         const actions = document.createElement('div');
         actions.className = 'profile-actions';
-        if (p.id !== state.activeProfileId) {
+        if (p.id !== state.defaultProfileId) {
           const useBtn = document.createElement('button');
           useBtn.className = 'quiet-btn';
           useBtn.type = 'button';
-          useBtn.textContent = 'Use';
-          useBtn.title = 'Set as active profile';
+          useBtn.textContent = 'Set as default';
+          useBtn.title = 'Use as the initial model for new chats';
+          useBtn.dataset.setDefault = '';
+          useBtn.disabled = state.saving || state.defaultSaving;
           useBtn.onclick = (e) => {
             e.stopPropagation();
-            switchActiveProfile(p.id);
+            switchDefaultProfile(p.id);
           };
           actions.append(useBtn);
         } else {
-          const activeBadge = document.createElement('span');
-          activeBadge.className = 'active-badge';
-          activeBadge.textContent = 'Active';
-          actions.append(activeBadge);
+          const defaultBadge = document.createElement('span');
+          defaultBadge.className = 'default-profile-badge';
+          defaultBadge.textContent = 'Default';
+          actions.append(defaultBadge);
         }
         item.append(info, actions);
         container.append(item);
@@ -339,46 +383,73 @@ export function createProfiles({ isGenerating }) {
   }
 
   async function loadProfiles() {
-    try {
-      const data = await readProfileResponse(await fetch('/api/profiles'), 'Could not load connection profiles.');
-      renderProfiles(data);
-      health();
-    } catch {
-      toast('Could not load connection profiles.', 'error');
-    }
+    if (catalogPromise) return catalogPromise;
+    catalogPromise = (async () => {
+      try {
+        const data = await readProfileResponse(await fetch('/api/profiles', { cache: 'no-store', signal: AbortSignal.timeout(12000) }), 'Could not load connection profiles.');
+        renderProfiles(data);
+        health();
+        return true;
+      } catch {
+        state.catalogError = 'Could not load model profiles. Open the model picker to reload them.';
+        renderModelSelection();
+        toast('Could not load connection profiles.', 'error');
+        return false;
+      } finally { catalogPromise = null; }
+    })();
+    return catalogPromise;
   }
 
-  async function switchActiveProfile(profileId) {
-    if (isGenerating()) return;
+  async function switchDefaultProfile(profileId) {
+    if (state.saving || state.defaultSaving) return;
+    state.defaultSaving = true;
+    updateEditorControls();
+    $('#profile-list-container').querySelectorAll('[data-set-default]').forEach(button => { button.disabled = true; });
     try {
-      const data = await readProfileResponse(await fetch(`/api/profiles/${profileId}/active`, { method: 'POST' }), 'Could not switch active profile.');
+      const data = await readProfileResponse(await fetch(`/api/profiles/${profileId}/active`, { method: 'POST', signal: AbortSignal.timeout(12000) }), 'Could not update the default profile.');
       renderProfiles(data);
       health();
-      toast('Active profile updated.', 'success');
+      toast('Default profile updated for new chats.', 'success');
     } catch (error) {
-      if ($('#profile-select')) $('#profile-select').value = state.activeProfileId || '';
-      toast(error.message || 'Could not switch active profile.', 'error');
+      await loadProfiles();
+      toast(error.message || 'Could not update the default profile.', 'error');
+    } finally {
+      state.defaultSaving = false;
+      updateEditorControls();
+      $('#profile-list-container').querySelectorAll('[data-set-default]').forEach(button => { button.disabled = state.saving; });
     }
   }
 
   async function health() {
-    const el = $('#connection-status');
     try {
       const response = await fetch('/api/health');
       if (!response.ok) throw new Error('Unavailable');
-      const data = await response.json();
-      el.className = `status ${data.configured ? 'hidden' : 'error'}`;
-      el.textContent = data.configured ? '' : 'Add a model in Settings to start chatting.';
-      const active = state.profiles.find(profile => profile.id === state.activeProfileId);
-      const modelTitle = data.configured && active
-        ? `Model profile: ${active.name} (${active.deployment || 'No deployment'})`
-        : 'Select model profile · Connection needs setup';
-      if ($('#profile-select')) $('#profile-select').title = modelTitle;
-      if ($('#model-trigger')) $('#model-trigger').title = modelTitle;
-    } catch {
-      el.className = 'status error';
-      el.textContent = 'Helios is offline. Check the local server.';
-    }
+      state.online = true;
+    } catch { state.online = false; }
+    renderModelSelection();
+  }
+
+  async function prepareRequestProfile() {
+    const context = modelSelection.snapshot().epoch;
+    if (catalogPromise) await catalogPromise;
+    if (!state.catalogLoaded && !await loadProfiles()) throw new Error('Reload model profiles before sending.');
+    if (state.catalogError) throw new Error('Reload model profiles before sending.');
+    if (context !== modelSelection.snapshot().epoch) throw new DOMException('Conversation changed while loading model profiles.', 'AbortError');
+    const prepared = await modelSelection.prepare();
+    const profile = state.profiles.find(item => item.id === prepared.profile_id);
+    if (!profile || modelSelection.snapshot().available === false) throw new Error('The selected profile is unavailable. Choose another model for this conversation.');
+    if (!profile.is_configured) throw new Error('The selected profile needs connection details in Settings.');
+    return prepared;
+  }
+
+  async function refreshModelSelection(id) {
+    await loadProfiles();
+    return modelSelection.refresh(id);
+  }
+
+  function selectConversation(id, data) {
+    modelSelection.selectConversation(id, data);
+    if (state.catalogLoaded && (data.profile_available === false || data.profile_id && !state.profiles.some(profile => profile.id === data.profile_id))) loadProfiles();
   }
 
   async function openSettingsDialog(panelName) {
@@ -386,7 +457,8 @@ export function createProfiles({ isGenerating }) {
     closeMobileSidebar();
     await loadProfiles();
     if (state.profiles.length) {
-      const active = state.profiles.find((p) => p.id === state.activeProfileId) || state.profiles[0];
+      const active = state.profiles.find((p) => p.id === modelSelection.snapshot().profileId)
+        || state.profiles.find((p) => p.id === state.defaultProfileId) || state.profiles[0];
       selectProfileForEditing(active);
     } else {
       resetProfileForm();
@@ -480,7 +552,7 @@ export function createProfiles({ isGenerating }) {
 
     $('#azure-settings-form').onsubmit = async (event) => {
       event.preventDefault();
-      if (state.saving || !hasUnsavedChanges()) return;
+      if (state.saving || state.defaultSaving || !hasUnsavedChanges()) return;
       profileContext.validate();
       validateCachePrices();
       const thresholdInput = $('#azure-long-threshold');
@@ -571,10 +643,10 @@ export function createProfiles({ isGenerating }) {
 
     $('#delete-profile-btn').onclick = async () => {
       const editingId = $('#editing-profile-id').value;
-      if (!editingId || state.saving) return;
+      if (!editingId || state.saving || state.defaultSaving) return;
       const name = state.profiles.find(profile => profile.id === editingId)?.name || 'this profile';
       const deleted = await showActionDialog({ title: 'Delete profile?',
-        description: `Delete “${name}”? This cannot be undone. Unsaved edits to this profile will also be lost.`,
+        description: `Delete “${name}”? Conversations using this profile will need another model selection. Paused runs using this connection cannot resume. This cannot be undone. Unsaved edits to this profile will also be lost.`,
         confirmLabel: 'Delete profile', danger: true,
         async onConfirm() {
           const response = await fetch(`/api/profiles/${editingId}`, { method: 'DELETE' });
@@ -587,7 +659,11 @@ export function createProfiles({ isGenerating }) {
       if (deleted) toast('Profile deleted.', 'success');
     };
 
-    $('#profile-select').onchange = (event) => switchActiveProfile(event.target.value);
+    $('#profile-select').onchange = async event => {
+      try { await modelSelection.select(event.target.value); }
+      catch (error) { toast(error.message, 'warning'); }
+    };
+    $('#reload-model-selection').onclick = () => refreshModelSelection(modelSelection.snapshot().conversationId);
 
     $('#settings-dialog').addEventListener('close', () => {
       if ($('#settings-dialog').open) return;
@@ -597,5 +673,9 @@ export function createProfiles({ isGenerating }) {
     $('#azure-long-threshold').addEventListener('input', updateThresholdLabels);
   }
 
-  return { init, load: loadProfiles, checkHealth: health, setGenerating, hasUnsavedChanges, isSaving: () => state.saving, getActiveProfileId: () => state.activeProfileId, openSettings: openSettingsDialog };
+  return { init, load: loadProfiles, checkHealth: health, setGenerating, hasUnsavedChanges, isSaving: () => state.saving || state.defaultSaving,
+    getSelectedProfileId: () => modelSelection.snapshot().profileId, getModelContextSignature: () => modelContextSignature,
+    prepareRequestProfile, refreshModelSelection, startDraft: modelSelection.startDraft,
+    selectConversation, adoptConversation: modelSelection.adoptConversation,
+    openSettings: openSettingsDialog };
 }

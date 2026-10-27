@@ -46,6 +46,7 @@ const PROVIDER_TITLES = {
 };
 
 function recoveryActions(code) {
+  if (code.startsWith('conversation_profile_')) return ['model', 'connections'];
   if (['connection_not_configured', 'provider_authentication_failed', 'provider_permission_denied', 'provider_resource_not_found', 'provider_deployment_not_found'].includes(code)) return ['connections'];
   if (['provider_throttled', 'provider_quota_exceeded', 'provider_timeout', 'provider_connection_failed', 'provider_unavailable', 'provider_stream_interrupted', 'provider_error', 'request_failed'].includes(code)) return ['usage', 'connections'];
   if (code === 'provider_context_length_exceeded') return ['question', 'attachments', 'connections'];
@@ -80,6 +81,9 @@ export function describeRequestError(payload, fallback = 'Request failed.', stat
     : code === 'context_recovery_unavailable' ? 'One-time recovery unavailable'
     : code === 'conversation_request_in_progress' ? 'Conversation request in progress'
     : code === 'work_run_paused' ? 'Conversation paused'
+    : code === 'conversation_profile_changed' ? 'Model selection changed'
+    : code === 'conversation_profile_unavailable' ? 'Model profile unavailable'
+    : code === 'conversation_profile_save_failed' ? 'Model selection not saved'
     : code === 'attachment_model_unsupported' ? 'Attachment unsupported by model'
     : code.startsWith('attachment_') ? 'Attachment request failed' : 'Request failed');
   if (detail?.phase === 'summary') title = `Memory summary: ${title}`;
