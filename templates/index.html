@@ -87,10 +87,12 @@
                 <div class="tools-popover">
                   <div class="tools-popover-header"><strong>Work tools</strong><button id="work-tools-settings" class="tools-popover-settings" type="button" aria-label="Work tools settings" aria-haspopup="dialog" aria-controls="work-tools-settings-dialog">Settings</button></div>
                   <p>Choose tools for the next response.</p>
-                  <label class="work-tool-choice" for="explore-project"><i data-lucide="folder-search" aria-hidden="true"></i><span class="work-tool-copy"><strong id="explore-project-label">Explore project</strong><small id="explore-project-description">Read-only · repeated model calls</small></span><input id="explore-project" class="work-tool-switch" type="checkbox" role="switch" data-work-tool aria-labelledby="explore-project-label" aria-describedby="explore-project-description"></label>
-                  <button type="button" disabled><i data-lucide="git-compare-arrows"></i><span><strong>Propose changes</strong><small>Review changes across files</small></span><span class="planned-badge">Planned</span></button>
-                  <button type="button" disabled><i data-lucide="file-check"></i><span><strong>Apply changes</strong><small>Apply edits after your review</small></span><span class="planned-badge">Planned</span></button>
-                  <button type="button" disabled><i data-lucide="terminal"></i><span><strong>Run commands</strong><small>Run tests and builds locally</small></span><span class="planned-badge">Planned</span></button>
+                  <div class="work-tools-list" role="group" aria-label="Available work tools" tabindex="0">
+                    <label class="work-tool-choice" for="explore-project"><i data-lucide="folder-search" aria-hidden="true"></i><span class="work-tool-copy"><strong id="explore-project-label">Explore project</strong><small id="explore-project-description">Read-only · repeated model calls</small></span><input id="explore-project" class="work-tool-switch" type="checkbox" role="switch" data-work-tool aria-labelledby="explore-project-label" aria-describedby="explore-project-description"></label>
+                    <button type="button" disabled><i data-lucide="git-compare-arrows"></i><span><strong>Propose changes</strong><small>Review changes across files</small></span><span class="planned-badge">Planned</span></button>
+                    <button type="button" disabled><i data-lucide="file-check"></i><span><strong>Apply changes</strong><small>Apply edits after your review</small></span><span class="planned-badge">Planned</span></button>
+                    <button type="button" disabled><i data-lucide="terminal"></i><span><strong>Run commands</strong><small>Run tests and builds locally</small></span><span class="planned-badge">Planned</span></button>
+                  </div>
                 </div>
               </details>
               <details id="model-picker" class="model-picker">
@@ -105,7 +107,7 @@
                     <button type="button" id="model-popover-settings" class="model-popover-link" aria-label="Connection settings" aria-haspopup="dialog" aria-controls="settings-dialog">Settings</button>
                   </div>
                   <p id="model-selection-status" class="model-selection-status" role="status">Loading model selection...</p>
-                  <div id="model-profile-list" class="model-profile-list" role="listbox" aria-label="Available models"></div>
+                  <div id="model-profile-list" class="model-profile-list" role="listbox" aria-label="Available models" tabindex="0"></div>
                   <button type="button" id="reload-model-selection" class="model-popover-link" hidden><i data-lucide="refresh-cw" aria-hidden="true"></i> Reload selection</button>
                 </div>
               </details>

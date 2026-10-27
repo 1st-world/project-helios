@@ -122,12 +122,8 @@ export function initializeUI({ beforeDialogClose }) {
     const topLimit = Math.max(viewportTop + 16, navigation?.height ? navigation.bottom + 8 : 0);
 
     composerPopovers.forEach((popover) => {
-      if (!popover.closest('details').open) {
-        popover.style.removeProperty('--popover-max-width');
-        popover.style.removeProperty('--popover-max-height');
-        popover.style.removeProperty('--popover-offset-x');
-        return;
-      }
+      // Keep closed menus sized so the browser does not clamp their saved scroll range.
+      if (!popover.closest('details').open) return;
 
       popover.style.setProperty('--popover-max-width', `${Math.max(0, right - left)}px`);
       const popoverStyle = getComputedStyle(popover);
