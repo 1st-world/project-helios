@@ -31,10 +31,8 @@ class ConversationProfiles:
             profile_id = message.profile_id
             if not profile_id and message.run_id:
                 try:
-                    run = self.runs.get(message.run_id, conversation.id)
-                    profile_id = (
-                        run.get("snapshot", {}).get("profile", {}).get("id")
-                    )
+                    self.runs.get(message.run_id, conversation.id)
+                    profile_id = self.runs.current_segment(message.run_id).get("profile", {}).get("id")
                 except (WorkContextUnavailableError, sqlite3.Error):
                     continue
             if isinstance(profile_id, str) and profile_id.strip():

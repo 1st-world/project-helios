@@ -70,6 +70,7 @@ from services.work_resume import (
     CONNECTION_FINGERPRINT_VERSION, connection_fingerprint,
     selected_files_fingerprint, workspace_fingerprint,
 )
+from services.work_handoff import render_handoff_history
 from services.file_picker_service import FilePickerService
 from services.folder_picker_service import (
     FolderPickerService,
@@ -85,8 +86,9 @@ from services.local_work import check_local_cancelled, run_local
 from services.prompt_builder import PromptBuilder
 from services.project_context import build_project_overview
 from services.project_exploration import (
-    EXPLORATION_INSTRUCTIONS, ExplorationError, ExplorationLimits,
-    ProjectExplorer, project_function_tools,
+    EXPLORATION_INSTRUCTIONS, RESUMED_INSTRUCTIONS, ExplorationError,
+    ExplorationLimits, ProjectExplorer, check_exploration_limits,
+    project_function_tools,
 )
 from services.project_reader import ProjectReadLimits
 from services.profile_service import (
@@ -516,6 +518,27 @@ class WorkRunControlRequest(BaseModel):
 
     conversation_id: str = Field(min_length=1)
     expected_conversation_version: int | None = Field(default=None, ge=0, strict=True)
+
+
+class WorkRunResumeRequest(WorkRunControlRequest):
+    """Pin an optional model handoff to a confirmed selection and paused boundary."""
+
+    target_profile_id: str | None = Field(default=None, min_length=1)
+    expected_profile_revision: int | None = Field(default=None, ge=0, strict=True)
+    expected_checkpoint_revision: int | None = Field(default=None, ge=0, strict=True)
+    expected_execution_revision: int | None = Field(default=None, ge=0, strict=True)
+
+    @model_validator(mode="after")
+    def validate_target(self) -> "WorkRunResumeRequest":
+        """Require all switch guards together while retaining the original Resume body."""
+        guards = (
+            self.expected_profile_revision, self.expected_checkpoint_revision,
+            self.expected_execution_revision,
+        )
+        if ((self.target_profile_id is not None and any(value is None for value in guards))
+                or (self.target_profile_id is None and any(value is not None for value in guards))):
+            raise ValueError("A target model requires selection, checkpoint, and execution revisions together.")
+        return self
 
 
 class AttachmentSelectionRequest(ContextRequestOptions):
@@ -990,6 +1013,17 @@ def work_connection_fingerprint(
     )
 
 
+def work_profile_snapshot(profile: ConnectionProfile) -> dict:
+    """Retain model identity and accounting policy without copying connection credentials."""
+    return {name: getattr(profile, name) for name in (
+        "id", "name", "deployment", "reasoning_summary", "input_price_per_million",
+        "output_price_per_million", "long_context_threshold",
+        "long_input_price_per_million", "long_output_price_per_million",
+        "cache_read_price_per_million", "cache_write_price_per_million",
+        "long_cache_read_price_per_million", "long_cache_write_price_per_million",
+    )}
+
+
 def require_resume_authority(run: dict, conversation, workspace, saved: dict | None = None) -> dict:
     """Reject changed branches, bindings, tools, connections, and memory permissions."""
     snapshot = run.get("snapshot", {})
@@ -1014,6 +1048,17 @@ def require_resume_authority(run: dict, conversation, workspace, saved: dict | N
             )
             != saved.get("connection_fingerprint")):
         raise ContextChangedError("The conversation, Workspace, connection, or input policy changed. Prepare a new request instead of resuming this run.")
+    for segment in work_run_store.execution_segments(run["id"]):
+        if segment.get("kind") == "initial" or segment.get("state", "committed") != "committed":
+            continue
+        context = work_run_store.segment_authority(run["id"], segment["id"])
+        profile = segment.get("profile", {})
+        if (not context or work_connection_fingerprint(
+                profile.get("id"),
+                version=context.get("connection_fingerprint_version", 1),
+                legacy_name=profile.get("name"),
+        ) != context.get("connection_fingerprint")):
+            raise ContextChangedError("A connection or policy used by this work changed. Prepare a new request.")
     return saved
 
 
@@ -1046,7 +1091,7 @@ async def stop_work_run(run_id: str, payload: WorkRunControlRequest):
 
 
 @app.post("/api/work-runs/{run_id}/resume")
-async def resume_work_run(run_id: str, payload: WorkRunControlRequest, request: Request = None):
+async def resume_work_run(run_id: str, payload: WorkRunResumeRequest, request: Request = None):
     """Validate an explicit continuation before claiming any new tool or Provider work."""
     operation = None
     try:
@@ -1080,15 +1125,86 @@ async def resume_work_run(run_id: str, payload: WorkRunControlRequest, request: 
         await until_disconnect(request, run_local, validate_checkpoint)
         require_resume_authority(run, conversation, workspace, saved)
         request_messages = conversation.messages
-        profile_id = run["snapshot"]["profile"]["id"]
-        profile = replace(
-            profile_service.get_profile(profile_id),
-            name=run["snapshot"]["profile"]["name"],
-        )
-        request_ai = ai_service.with_profile(profile)
-        policy = ContextPolicy(**run["snapshot"]["context_policy"])
+        original_segment = work_run_store.current_segment(run_id)
+        original_profile = original_segment["profile"]
+        profile_id = payload.target_profile_id or original_profile["id"]
+        switching = profile_id != original_profile["id"]
+
+        def target_selection():
+            """Validate model intent only until claim, keeping later preferences independent."""
+            if payload.target_profile_id is None:
+                return
+            latest = work_run_store.get(run_id, conversation.id)
+            if (latest["status"] != "paused"
+                    or latest.get("checkpoint_revision", 0) != payload.expected_checkpoint_revision
+                    or latest["execution_revision"] != payload.expected_execution_revision
+                    or conversation.profile_id != profile_id
+                    or conversation.profile_revision != payload.expected_profile_revision):
+                raise HTTPException(status_code=409, detail={
+                    "code": "handoff_conflict",
+                    "message": "The selected model or paused boundary changed. Reload before resuming.",
+                })
+
+        target_selection()
+        profile = profile_service.get_profile(profile_id)
+        if profile is None or not profile.is_configured:
+            raise HTTPException(status_code=409, detail={
+                "code": "handoff_target_unavailable",
+                "message": "The selected model connection is unavailable. The paused work is retained.",
+            })
+        profile = replace(profile, name=profile.name if switching else original_profile["name"])
         request_memory = memory_service
         resume_memory_policy = request_memory.capture_policy(profile_id)
+        source_memory_policies = {
+            segment["profile"]["id"]: request_memory.capture_policy(segment["profile"]["id"])
+            for segment in work_run_store.execution_segments(run_id)
+            if segment.get("state", "committed") == "committed"
+        }
+        material = None
+        limits = ExplorationLimits(**run["snapshot"].get("goals", {}))
+        active_saved = work_run_store.segment_context(run_id, original_segment["id"])
+        if not active_saved:
+            raise ContextChangedError("The current model's saved input is unavailable. Prepare a new request.")
+        target_fingerprint = work_connection_fingerprint(profile_id)
+        if switching:
+            try:
+                material = work_run_store.handoff_material(run_id, conversation.id)
+                check_exploration_limits(work_run_store, run_id, call_usage_store, limits)
+            except (WorkContextUnavailableError, ExplorationError) as exc:
+                raise HTTPException(status_code=409, detail={
+                    "code": getattr(exc, "code", "handoff_input_unavailable"),
+                    "message": str(exc),
+                }) from None
+            memory_used = saved.get("memory_used")
+            if memory_used is None:
+                memory_used = "Conversation memory (a faithful summary of older messages):" in saved["instructions"]
+            if memory_used and resume_memory_policy.policy["state"] != "ready":
+                raise HTTPException(status_code=409, detail={
+                    "code": "handoff_memory_policy",
+                    "message": "Saved work uses conversation memory that the selected model does not currently allow. The paused work is retained.",
+                })
+            policy = resolve_context_policy(profile_id, profile_data=profile)
+            active_saved = {
+                **saved, "instructions": material["instructions"],
+                "input_messages": [*material["input_messages"], *render_handoff_history(material)],
+                "memory_used": bool(memory_used),
+                "connection_fingerprint_version": CONNECTION_FINGERPRINT_VERSION,
+                "connection_fingerprint": target_fingerprint,
+            }
+            assessment = policy.assess(
+                active_saved["instructions"] + EXPLORATION_INSTRUCTIONS + RESUMED_INSTRUCTIONS,
+                active_saved["input_messages"], tools=project_function_tools(),
+                visual_tokens=active_saved.get("visual_tokens", 0),
+            )
+            if assessment["blocked"]:
+                raise HTTPException(status_code=413, detail={
+                    "code": "handoff_input_blocked",
+                    "message": "Saved work exceeds the selected model's input budget. The paused work is retained.",
+                    "assessment": assessment,
+                })
+        else:
+            policy = ContextPolicy(**original_segment["context_policy"])
+        request_ai = ai_service.with_output_limit(policy.max_output_tokens).with_profile(profile)
         background_tasks = BackgroundTasks()
 
         def authority():
@@ -1096,32 +1212,78 @@ async def resume_work_run(run_id: str, payload: WorkRunControlRequest, request: 
             require_resume_authority(run, conversation, workspace, saved)
             if conversation.messages is not request_messages:
                 raise ContextChangedError("Conversation changed during resumed work.")
-            if not request_memory.policy_is_current(resume_memory_policy):
+            if any(not request_memory.policy_is_current(snapshot)
+                   for snapshot in source_memory_policies.values()):
                 raise ContextChangedError("The saved connection or memory policy changed during resumed work. Prepare a new request.")
+            try:
+                target_current = work_connection_fingerprint(profile_id) == target_fingerprint
+            except ContextChangedError:
+                target_current = False
+            if not request_memory.policy_is_current(resume_memory_policy) or not target_current:
+                raise ExplorationError(
+                    "handoff_target_changed", "The selected model connection or policy changed. No further work was started.", stopped=True,
+                )
 
         def inputs():
             """Replay the exact prepared base input without generating a fresh summary."""
             authority()
-            return saved["instructions"], saved["input_messages"]
+            return active_saved["instructions"], active_saved["input_messages"]
 
         async def events():
             """Stream the claimed continuation and adopt its answer exactly once."""
             claimed = False
+            claimed_run = None
             completed = False
+            reported_assessment = None
+            current_assessment = None
+
+            def owns_claim(current):
+                """Keep an old request's cleanup from terminating a newer execution segment."""
+                return claimed_run is not None and all(
+                    current.get(key) == claimed_run.get(key)
+                    for key in ("execution_segment_id", "execution_revision")
+                )
+
+            def assess_input(assessment):
+                """Publish the pinned model's actual per-call admission estimate."""
+                nonlocal current_assessment
+                current_assessment = assessment
+
             try:
                 authority()
-                work_run_store.claim_resume(run_id)
+                target_selection()
+                try:
+                    if switching:
+                        check_exploration_limits(work_run_store, run_id, call_usage_store, limits)
+                        claimed_run = work_run_store.claim_handoff(
+                            run_id, material=material,
+                            snapshot={"profile": work_profile_snapshot(profile),
+                                      "context_policy": asdict(policy),
+                                      "memory_policy": resume_memory_policy.policy},
+                            resume_context=active_saved,
+                        )
+                    else:
+                        claimed_run = work_run_store.claim_resume(run_id, expected_run=run)
+                except ValueError:
+                    raise ExplorationError(
+                        "handoff_conflict", "The paused boundary changed before it could be claimed. Reload before resuming.",
+                    ) from None
                 claimed = True
                 yield f"data: {json.dumps({'type': 'start', 'conversation_id': conversation.id, 'run_id': run_id, 'user_index': run['snapshot']['source_message']['user_index'], 'pause_available': True, 'active_elapsed_seconds': work_run_store.active_elapsed(run_id)})}\n\n"
                 explorer = ProjectExplorer(
                     request_ai, work_run_store, run_id, workspace,
                     prepare_input=inputs, check_authority=authority, policy=policy,
-                    visual_tokens=saved.get("visual_tokens", 0),
-                    limits=ExplorationLimits(**run["snapshot"].get("goals", {})),
+                    visual_tokens=active_saved.get("visual_tokens", 0), limits=limits,
                     protected=project_protected_paths(), resumed=True,
+                    on_assessment=assess_input,
                 )
                 async with aclosing(explorer.stream(profile_id)) as source:
                     async for event in source:
+                        if current_assessment is not None and current_assessment != reported_assessment:
+                            reported_assessment = dict(current_assessment)
+                            yield f"data: {json.dumps({'type': 'context_policy', **current_assessment})}\n\n"
+                            if current_assessment["warning"]:
+                                yield f"data: {json.dumps({'type': 'context_warning', 'code': 'context_estimate_exceeded', 'message': 'The estimated input exceeds the selected input budget. This request is allowed in warning mode.'})}\n\n"
                         if event["type"] == "done":
                             completed = True
                             continue
@@ -1151,20 +1313,31 @@ async def resume_work_run(run_id: str, payload: WorkRunControlRequest, request: 
                     "input_policy_blocked" if isinstance(exc, ContextBudgetExceeded) else "authority_changed"
                 )
                 error = exc.detail() if isinstance(exc, ProviderFailure) else {"code": code, "message": str(exc)}
-                current_status = work_run_store.get(run_id)["status"]
-                if ((claimed and current_status in ACTIVE_STATES)
-                        or (isinstance(exc, ContextChangedError) and current_status == "paused")):
+                current = work_run_store.get(run_id)
+                same_boundary = all(current.get(key) == run.get(key) for key in (
+                    "execution_segment_id", "execution_revision", "checkpoint_revision",
+                ))
+                if ((owns_claim(current) and current["status"] in ACTIVE_STATES)
+                        or (not claimed and same_boundary
+                            and isinstance(exc, ContextChangedError) and current["status"] == "paused")):
                     work_run_store.finish(run_id, "stopped" if isinstance(exc, (ContextChangedError, ContextBudgetExceeded)) else "failed", reason=code)
                 work_run_store.record_failure(run_id, error)
                 yield f"data: {json.dumps({'type': 'error', **error, 'run_id': run_id, 'run_status': work_run_store.get(run_id)['status'], 'run_usage': work_run_store.usage(run_id, call_usage_store)})}\n\n"
+            except HTTPException as exc:
+                detail = exc.detail if isinstance(exc.detail, dict) else {
+                    "code": "handoff_conflict", "message": str(exc.detail),
+                }
+                yield f"data: {json.dumps({'type': 'error', **detail, 'run_id': run_id, 'run_status': work_run_store.get(run_id)['status']})}\n\n"
             except Exception as exc:
                 logger.error("Resumed work failed (error_type=%s)", type(exc).__name__)
-                if claimed and work_run_store.get(run_id)["status"] in ACTIVE_STATES:
+                current = work_run_store.get(run_id)
+                if owns_claim(current) and current["status"] in ACTIVE_STATES:
                     work_run_store.finish(run_id, "failed", reason="request_failed")
                 yield f"data: {json.dumps({'type': 'error', 'code': 'request_failed', 'message': 'Saved work could not finish. Recorded usage is retained.', 'run_id': run_id, 'run_status': work_run_store.get(run_id)['status']})}\n\n"
             finally:
                 try:
-                    if claimed and work_run_store.get(run_id)["status"] in ACTIVE_STATES:
+                    current = work_run_store.get(run_id)
+                    if owns_claim(current) and current["status"] in ACTIVE_STATES:
                         work_run_store.finish(run_id, "cancelled", reason="request_closed")
                 except Exception as exc:
                     logger.error("Could not finalize resumed work (error_type=%s)", type(exc).__name__)
@@ -1179,7 +1352,13 @@ async def resume_work_run(run_id: str, payload: WorkRunControlRequest, request: 
     except (ContextChangedError, RecoveryError, AttachmentError) as exc:
         if operation is not None:
             operation.close()
-        if (isinstance(exc, (ContextChangedError, AttachmentError))
+        current = work_run_store.get(run_id) if "run" in locals() else None
+        same_boundary = current is not None and all(
+            current.get(key) == run.get(key) for key in (
+                "execution_segment_id", "execution_revision", "checkpoint_revision",
+            )
+        )
+        if (same_boundary and isinstance(exc, (ContextChangedError, AttachmentError))
                 and run["status"] == "paused"
                 and (conversation.version != run["base_version"]
                      or payload.expected_conversation_version == conversation.version)):
@@ -1238,11 +1417,12 @@ async def work_activity(conversation_id: str, run_id: str, offset: int = 0):
 @app.get("/api/conversations/{conversation_id}/work-runs/{run_id}/evidence")
 async def work_evidence(
     conversation_id: str, run_id: str, response_id: str, call_id: str,
+    segment_id: str | None = Query(default=None, min_length=1),
 ):
     """Open exact persisted evidence without reading current files or starting tools."""
     require_work_run(conversation_id, run_id)
     try:
-        return work_run_store.evidence(run_id, response_id, call_id)
+        return work_run_store.evidence(run_id, response_id, call_id, segment_id=segment_id)
     except WorkContextUnavailableError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -2609,13 +2789,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                             "revision": request_workspace.revision,
                             "session_id": request_workspace.session_id,
                         },
-                        "profile": {name: getattr(pinned_profile, name) for name in (
-                            "id", "name", "deployment", "reasoning_summary", "input_price_per_million",
-                            "output_price_per_million", "long_context_threshold",
-                            "long_input_price_per_million", "long_output_price_per_million",
-                            "cache_read_price_per_million", "cache_write_price_per_million",
-                            "long_cache_read_price_per_million", "long_cache_write_price_per_million",
-                        )},
+                        "profile": work_profile_snapshot(pinned_profile),
                         "context_policy": asdict(policy),
                         "memory_policy": request_memory_policy.policy,
                         "tools": exploration_tools,
@@ -2625,6 +2799,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                             "version": 1,
                             "instructions": outgoing_instructions,
                             "input_messages": outgoing_messages,
+                            "memory_used": (outgoing_instructions, outgoing_messages) != original_context,
                             "visual_tokens": attachments.visual_tokens,
                             "attachment_sources": saved_attachment_sources or [],
                             "workspace_fingerprint": resume_workspace_fingerprint,

@@ -36,6 +36,12 @@ EXPLORATION_INSTRUCTIONS = (
     "Columns are zero-based Unicode positions and byte_end is exclusive. "
     "File revisions are metadata identifiers, not content hashes or snapshots."
 )
+RESUMED_INSTRUCTIONS = (
+    "\n\nThis run was explicitly resumed in a new local tool session. "
+    "Saved tool results are historical observations. "
+    "Previous pagination cursors are expired; restart any unfinished listing, search, or read without a cursor. "
+    "Reuse completed evidence rather than repeating already completed reads unnecessarily."
+)
 
 
 class ExplorationLimits(BaseModel):
@@ -55,6 +61,30 @@ class ExplorationError(RuntimeError):
         super().__init__(message)
         self.code = code
         self.stopped = stopped
+
+
+def check_exploration_limits(store, run_id: str, call_store, limits: ExplorationLimits) -> None:
+    """Apply cumulative run goals before claiming or starting another external action."""
+    count = store.model_call_count(run_id)
+    if limits.max_model_calls is not None and count >= limits.max_model_calls:
+        raise ExplorationError(
+            "exploration_call_limit", "The selected model-call limit was reached.", stopped=True,
+        )
+    if (limits.elapsed_time_target_seconds is not None
+            and store.active_elapsed(run_id) >= limits.elapsed_time_target_seconds):
+        raise ExplorationError(
+            "exploration_time_target", "The selected elapsed-time target was reached.", stopped=True,
+        )
+    if limits.cost_goal_usd is not None and count:
+        totals = store.usage(run_id, call_store)["totals"]
+        if totals["cost_status"] != "complete":
+            raise ExplorationError(
+                "exploration_cost_unknown", "Cost is incomplete; no further exploration call was started.", stopped=True,
+            )
+        if totals["known_estimated_cost"] >= limits.cost_goal_usd:
+            raise ExplorationError(
+                "exploration_cost_goal", "The selected estimated-cost goal was reached.", stopped=True,
+            )
 
 
 def project_function_tools() -> list[dict]:
@@ -110,6 +140,8 @@ class ProjectExplorer:
         if run["status"] not in ({"preparing", "tools"} if resumed else {"preparing"}):
             raise ValueError("Exploration requires an exclusively claimed run.")
         self.conversation_id = run["conversation_id"]
+        self.segment_id = store.current_segment(run_id)["id"]
+        self.execution_revision = run["execution_revision"]
         self.workspace = workspace
         self.root, self.revision = workspace.root, workspace.revision
         self.session_id = workspace.session_id
@@ -136,6 +168,26 @@ class ProjectExplorer:
         run = self.store.get(self.run_id)
         if run["status"] == "cancelled" and run.get("reason") == "user_stopped":
             raise ExplorationError("request_cancelled", "This run was stopped. Recorded usage is retained.", stopped=True)
+        if (run.get("execution_segment_id") != self.segment_id
+                or run.get("execution_revision") != self.execution_revision):
+            restored = (
+                run["status"] == "paused"
+                and run.get("last_handoff_failure") == "handoff_output_unusable"
+            )
+            target_changed = (
+                run["status"] == "paused"
+                and run.get("last_handoff_failure") == "handoff_target_changed"
+            )
+            raise ExplorationError(
+                "handoff_output_unusable" if restored else (
+                    "handoff_target_changed" if target_changed else "work_execution_changed"
+                ),
+                "The target model did not produce usable work. The source checkpoint is retained for explicit resumption."
+                if restored else (
+                    "The selected model connection or policy changed. The source checkpoint is retained for explicit resumption."
+                    if target_changed else "The execution boundary changed. This request cannot continue the newer work."
+                ),
+            )
         self.check_authority()
         if (self.workspace.root != self.root or self.workspace.revision != self.revision
                 or self.workspace.session_id != self.session_id):
@@ -144,45 +196,24 @@ class ProjectExplorer:
 
     def _check_limits(self) -> None:
         """Stop only at explicit user goals, before starting another action."""
-        count = self.store.model_call_count(self.run_id)
-        if (self.limits.max_model_calls is not None
-                and count >= self.limits.max_model_calls):
-            raise ExplorationError(
-                "exploration_call_limit", "The selected model-call limit was reached.", stopped=True,
-            )
-        if (self.limits.elapsed_time_target_seconds is not None
-                and self.store.active_elapsed(self.run_id) >= self.limits.elapsed_time_target_seconds):
-            raise ExplorationError(
-                "exploration_time_target", "The selected elapsed-time target was reached.", stopped=True,
-            )
-        if self.limits.cost_goal_usd is not None and count:
-            totals = self.store.usage(self.run_id, self.ai.call_usage_store)["totals"]
-            if totals["cost_status"] != "complete":
-                raise ExplorationError(
-                    "exploration_cost_unknown", "Cost is incomplete; no further exploration call was started.", stopped=True,
-                )
-            if totals["known_estimated_cost"] >= self.limits.cost_goal_usd:
-                raise ExplorationError(
-                    "exploration_cost_goal", "The selected estimated-cost goal was reached.", stopped=True,
-                )
+        check_exploration_limits(
+            self.store, self.run_id, self.ai.call_usage_store, self.limits,
+        )
 
     def _prepare_call(self) -> tuple[str, list[dict]]:
         """Rebuild current authorized base context and replay every complete run bundle."""
         self._check_limits()
         instructions, base = self.prepare_input()
         inputs = deepcopy(base)
-        if self.store.model_call_count(self.run_id):
+        segment_id = self.store.current_segment(self.run_id)["id"]
+        if self.store.model_call_count(self.run_id, segment_id=segment_id):
             inputs.extend(self.store.context(
                 self.run_id, self.conversation_id, completed=False,
+                segment_id=segment_id,
             ))
         instructions += EXPLORATION_INSTRUCTIONS
         if self.resumed:
-            instructions += (
-                "\n\nThis run was explicitly resumed in a new local tool session. "
-                "Saved tool results are historical observations. Previous pagination cursors "
-                "are expired; restart any unfinished listing, search, or read without a cursor. "
-                "Reuse completed evidence rather than repeating already completed reads unnecessarily."
-            )
+            instructions += RESUMED_INSTRUCTIONS
         assessment = self.policy.assess(
             instructions, inputs, tools=self.tools, visual_tokens=self.visual_tokens,
         )
@@ -195,7 +226,10 @@ class ProjectExplorer:
     def _finish(self, status: str, reason: str) -> None:
         """Terminate active work without overwriting completed steps or provider accounting."""
         try:
-            if self.store.get(self.run_id)["status"] in ACTIVE_STATES:
+            run = self.store.get(self.run_id)
+            if (run["status"] in ACTIVE_STATES
+                    and run.get("execution_segment_id") == self.segment_id
+                    and run.get("execution_revision") == self.execution_revision):
                 self.store.finish(self.run_id, status, reason=reason)
         except Exception as exc:
             logger.error("Could not finalize work run (error_type=%s)", type(exc).__name__)
@@ -205,6 +239,8 @@ class ProjectExplorer:
         if not self.store.pause_requested(self.run_id):
             return False
         self._guard()
+        if self.store.current_segment(self.run_id).get("state") == "pending":
+            return self.store.restore_handoff(self.run_id, reason="user_requested")
         saved = self.store.resume_context(self.run_id) or {}
         fingerprint = await run_local(workspace_fingerprint, self.workspace, self.protected)
         self._guard()

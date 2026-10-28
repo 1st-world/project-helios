@@ -21,9 +21,11 @@ from models.reasoning import extract_reasoning_summary
 from services.call_usage_store import CallUsageStore
 from services.context_budget import ContextChangedError
 from services.response_outcome import ResponseOutcome
-from services.work_handoff import WorkHandoffError, build_handoff_material
+from services.work_handoff import (
+    WorkHandoffError, build_handoff_material, build_work_history, render_handoff_history,
+)
 
-WORK_RUN_SCHEMA_VERSION = "0.2"
+WORK_RUN_SCHEMA_VERSION = "0.3"
 ACTIVE_STATES = {"preparing", "model", "tools", "ready"}
 TERMINAL_STATES = {"completed", "failed", "cancelled", "interrupted", "stopped"}
 PAUSE_RETENTION = timedelta(hours=24)
@@ -68,10 +70,13 @@ class WorkRunStore:
                 row = self.connection.execute(
                     "SELECT value FROM work_metadata WHERE key='schema_version'"
                 ).fetchone()
-                if row is None or row[0] not in {"0.1", WORK_RUN_SCHEMA_VERSION}:
+                if row is None or row[0] not in {"0.1", "0.2", WORK_RUN_SCHEMA_VERSION}:
+                    raise ValueError("Unsupported work run schema.")
+                if (row[0] in {"0.2", WORK_RUN_SCHEMA_VERSION}
+                        and "work_execution_segments" not in existing):
                     raise ValueError("Unsupported work run schema.")
                 if (row[0] == WORK_RUN_SCHEMA_VERSION
-                        and "work_execution_segments" not in existing):
+                        and "work_segment_contexts" not in existing):
                     raise ValueError("Unsupported work run schema.")
             self.connection.executescript(
                 "BEGIN IMMEDIATE;"
@@ -87,6 +92,10 @@ class WorkRunStore:
                 "CREATE TABLE IF NOT EXISTS work_resume_contexts ("
                 "run_id TEXT PRIMARY KEY REFERENCES work_runs(id) ON DELETE CASCADE, "
                 "data TEXT NOT NULL);"
+                "CREATE TABLE IF NOT EXISTS work_segment_contexts ("
+                "run_id TEXT NOT NULL, segment_id TEXT NOT NULL, data TEXT NOT NULL, "
+                "PRIMARY KEY(run_id, segment_id), FOREIGN KEY(run_id, segment_id) "
+                "REFERENCES work_execution_segments(run_id, id) ON DELETE CASCADE);"
             )
             with self.connection:
                 self.connection.execute(
@@ -97,7 +106,7 @@ class WorkRunStore:
                 schema_version = self.connection.execute(
                     "SELECT value FROM work_metadata WHERE key='schema_version'",
                 ).fetchone()[0]
-                if schema_version not in {"0.1", WORK_RUN_SCHEMA_VERSION}:
+                if schema_version not in {"0.1", "0.2", WORK_RUN_SCHEMA_VERSION}:
                     raise ValueError("Unsupported work run schema.")
                 if schema_version == "0.1":
                     self._migrate_execution_segments()
@@ -129,6 +138,7 @@ class WorkRunStore:
         snapshot = run.get("snapshot", {})
         segment = {
             "id": segment_id, "position": 0, "kind": "initial", "version": 1,
+            "state": "committed",
             "started_at": run["started_at"],
             **{key: snapshot.get(key, {}) for key in (
                 "profile", "context_policy", "memory_policy",
@@ -199,6 +209,89 @@ class WorkRunStore:
             "SELECT data FROM work_execution_segments WHERE run_id=? ORDER BY position",
             (run_id,),
         )]
+
+    def current_segment(self, run_id: str) -> dict:
+        """Read the claimed model policy without expanding its private prepared input."""
+        run = self.get(run_id)
+        segment_id = self._segment_id(run)
+        raw = self.connection.execute(
+            "SELECT data FROM work_execution_segments WHERE run_id=? AND id=?",
+            (run_id, segment_id),
+        ).fetchone()[0]
+        return json.loads(raw)
+
+    def segment_context(self, run_id: str, segment_id: str | None = None) -> dict | None:
+        """Load a retained segment's private base while preserving original source input."""
+        run = self.get(run_id)
+        identity = self._segment_id(run, segment_id)
+        if not run.get("snapshot", {}).get("has_resume_context"):
+            return None
+        segment = next(item for item in self.execution_segments(run_id)
+                       if item["id"] == identity)
+        if segment["position"] == 0:
+            return self.resume_context(run_id)
+        row = self.connection.execute(
+            "SELECT data FROM work_segment_contexts WHERE run_id=? AND segment_id=?",
+            (run_id, identity),
+        ).fetchone()
+        try:
+            value = json.loads(row[0]) if row else None
+        except (TypeError, ValueError):
+            raise WorkContextUnavailableError("Saved model segment input is damaged.") from None
+        return value if isinstance(value, dict) else None
+
+    def segment_authority(self, run_id: str, segment_id: str) -> dict | None:
+        """Project connection authority without loading prepared messages or attachment data."""
+        run = self.get(run_id)
+        identity = self._segment_id(run, segment_id)
+        if not run.get("snapshot", {}).get("has_resume_context"):
+            return None
+        position = self.connection.execute(
+            "SELECT position FROM work_execution_segments WHERE run_id=? AND id=?",
+            (run_id, identity),
+        ).fetchone()[0]
+        table = "work_resume_contexts" if position == 0 else "work_segment_contexts"
+        owner = "run_id=?" if position == 0 else "run_id=? AND segment_id=?"
+        parameters = (run_id,) if position == 0 else (run_id, identity)
+        try:
+            row = self.connection.execute(
+                "SELECT json_type(data, '$.version'), json_extract(data, '$.version'), "
+                "json_type(data, '$.instructions'), json_type(data, '$.input_messages'), "
+                "json_array_length(data, '$.input_messages'), "
+                "json_type(data, '$.connection_fingerprint_version'), "
+                "json_extract(data, '$.connection_fingerprint_version'), "
+                "json_type(data, '$.connection_fingerprint'), "
+                "json_extract(data, '$.connection_fingerprint') "
+                f"FROM {table} WHERE {owner}", parameters,
+            ).fetchone()
+        except sqlite3.Error:
+            raise WorkContextUnavailableError("Saved model authority is damaged.") from None
+        if row is None:
+            return None
+        if (row[0] != "integer" or row[1] != 1 or row[2] != "text"
+                or row[3] != "array" or not row[4]
+                or row[5] not in {None, "integer"}
+                or row[7] != "text" or not row[8]):
+            raise WorkContextUnavailableError("Saved model authority is incomplete.")
+        return {
+            "version": row[1],
+            "connection_fingerprint_version": row[6] if row[5] is not None else 1,
+            "connection_fingerprint": row[8],
+        }
+
+    def _save_segment(self, run_id: str, segment: dict) -> None:
+        """Update content-free execution ownership inside the caller's transaction."""
+        self.connection.execute(
+            "UPDATE work_execution_segments SET data=? WHERE run_id=? AND id=?",
+            (_json(segment), run_id, segment["id"]),
+        )
+
+    def _save_run(self, run: dict) -> None:
+        """Persist metadata using the same durable status in both representations."""
+        self.connection.execute(
+            "UPDATE work_runs SET status=?, data=? WHERE id=?",
+            (run["status"], _json(run), run["id"]),
+        )
 
     def _segment_id(self, run: dict, segment_id: str | None = None) -> str:
         """Resolve only a segment belonging to the requested run."""
@@ -368,6 +461,7 @@ class WorkRunStore:
     def _clear_checkpoint_metadata(run: dict) -> None:
         """Remove lightweight continuation metadata before encoding a terminal transition."""
         run.pop("checkpoint", None)
+        run.pop("pending_handoff", None)
         if isinstance(run.get("snapshot"), dict):
             run["snapshot"].pop("resume_context", None)
             run["snapshot"].pop("has_resume_context", None)
@@ -378,6 +472,9 @@ class WorkRunStore:
         self._clear_checkpoint_metadata(run)
         self.connection.execute(
             "DELETE FROM work_resume_contexts WHERE run_id=?", (run["id"],),
+        )
+        self.connection.execute(
+            "DELETE FROM work_segment_contexts WHERE run_id=?", (run["id"],),
         )
 
     def _notify_attachments(self, identities: set[str]) -> None:
@@ -597,18 +694,26 @@ class WorkRunStore:
         self._active_segments.pop(run_id, None)
         return True
 
-    def claim_resume(self, run_id: str) -> dict:
+    def claim_resume(self, run_id: str, *, expected_run: dict | None = None) -> dict:
         """Atomically claim one paused boundary before any external work is restarted."""
         with self.connection:
             run = self.get(run_id)
             checkpoint = run.get("checkpoint", {})
             phase = checkpoint.get("phase") if isinstance(checkpoint, dict) else None
+            if expected_run is not None and any(
+                run.get(key) != expected_run.get(key) for key in (
+                    "execution_segment_id", "execution_revision",
+                    "checkpoint_revision", "checkpoint",
+                )
+            ):
+                raise ValueError("The paused checkpoint changed before continuation.")
             if (run["status"] != "paused" or not self._checkpoint_matches(run)
                     or not self._checkpoint_valid(run_id, phase)):
                 raise ValueError("This work run has no resumable checkpoint.")
             resumed = {
                 **run, "status": phase, "pause_requested": False,
                 "resumed_at": _now(), "active_started_at": _now(),
+                "execution_revision": run["execution_revision"] + 1,
             }
             changed = self.connection.execute(
                 "UPDATE work_runs SET status=?, data=? WHERE id=? AND status='paused' "
@@ -626,6 +731,185 @@ class WorkRunStore:
         self._notify_pause_changed()
         return resumed
 
+    def claim_handoff(
+        self, run_id: str, *, material: dict, snapshot: dict, resume_context: dict,
+    ) -> dict:
+        """Claim a target segment while retaining the source boundary until usable output."""
+        original = self.get(run_id)
+        if (original["status"] != "paused" or not self._checkpoint_matches(original)
+                or material != self.handoff_material(run_id, original["conversation_id"])):
+            raise ValueError("The saved handoff boundary changed. Reload before resuming.")
+        if (not isinstance(snapshot, dict) or not isinstance(resume_context, dict)
+                or resume_context.get("version") != 1
+                or not isinstance(resume_context.get("instructions"), str)
+                or not isinstance(resume_context.get("input_messages"), list)
+                or not resume_context["input_messages"]):
+            raise ValueError("A target policy and complete prepared input are required.")
+        source_id = self._segment_id(original)
+        segment_id = str(uuid4())
+        position = self.connection.execute(
+            "SELECT COALESCE(MAX(position), -1)+1 FROM work_execution_segments WHERE run_id=?",
+            (run_id,),
+        ).fetchone()[0]
+        segment = {
+            "id": segment_id, "position": position, "kind": "handoff", "version": 1,
+            "state": "pending", "started_at": _now(), "source_segment_id": source_id,
+            **{key: snapshot.get(key, {}) for key in (
+                "profile", "context_policy", "memory_policy",
+            )},
+        }
+        context = json.loads(_json(resume_context))
+        run = {
+            **original, "status": "preparing", "execution_segment_id": segment_id,
+            "execution_revision": original["execution_revision"] + 1,
+            "active_started_at": _now(), "resumed_at": _now(),
+            "pause_requested": False,
+            "pending_handoff": {
+                "source_segment_id": source_id,
+                "target_segment_id": segment_id,
+                "source_boundary": {key: original.get(key) for key in (
+                    "checkpoint", "paused_at", "pause_expires_at", "pause_reason",
+                )},
+            },
+        }
+        with self.connection:
+            changed = self.connection.execute(
+                "UPDATE work_runs SET status='preparing', data=? WHERE id=? AND status='paused' "
+                "AND json_extract(data, '$.execution_segment_id')=? "
+                "AND json_extract(data, '$.execution_revision')=? "
+                "AND json_extract(data, '$.checkpoint_revision') IS ? "
+                "AND json_extract(data, '$.checkpoint.version')=?",
+                (_json(run), run_id, source_id, original["execution_revision"],
+                 original.get("checkpoint_revision"), original["checkpoint"]["version"]),
+            ).rowcount
+            if not changed:
+                raise ValueError("The saved handoff boundary was already claimed.")
+            self.connection.execute(
+                "INSERT INTO work_execution_segments VALUES (?, ?, ?, ?)",
+                (run_id, segment_id, position, _json(segment)),
+            )
+            self.connection.execute(
+                "INSERT INTO work_segment_contexts VALUES (?, ?, ?)",
+                (run_id, segment_id, _json(context)),
+            )
+        self._active_segments[run_id] = monotonic()
+        self._notify_pause_changed()
+        return run
+
+    def _restore_handoff(self, run: dict, *, reason: str, status: str) -> bool:
+        """Restore an uncommitted source inside the caller's termination transaction."""
+        handoff = run.get("pending_handoff")
+        if not isinstance(handoff, dict):
+            return False
+        target_id = handoff["target_segment_id"]
+        if self._segment_id(run) != target_id:
+            raise WorkContextUnavailableError("The pending handoff ownership is damaged.")
+        segment = self.current_segment(run["id"])
+        if segment.get("state") != "pending":
+            return False
+        source = handoff["source_boundary"]
+        elapsed = self.active_elapsed(run["id"])
+        if reason == "process_exit":
+            elapsed = run.get("active_elapsed_seconds", 0.0)
+            run["active_time_incomplete"] = True
+        revision = run.get("checkpoint_revision", 0) + 1
+        execution_revision = run["execution_revision"] + 1
+        checkpoint = {
+            **source["checkpoint"], "version": 2, "revision": revision,
+            "segment_id": handoff["source_segment_id"],
+            "execution_revision": execution_revision,
+        }
+        run.update(
+            source, status="paused", execution_segment_id=handoff["source_segment_id"],
+            execution_revision=execution_revision, checkpoint_revision=revision,
+            checkpoint=checkpoint, active_started_at=None, active_elapsed_seconds=elapsed,
+            pause_requested=False, finished_at=None, last_handoff_failure=reason,
+        )
+        run.pop("pending_handoff", None)
+        segment.update(state="aborted", finished_at=_now(), reason=reason)
+        changed = self.connection.execute(
+            "UPDATE work_runs SET status='paused', data=? WHERE id=? "
+            "AND status IN ('preparing', 'model', 'tools', 'ready') "
+            "AND json_extract(data, '$.execution_segment_id')=? "
+            "AND json_extract(data, '$.execution_revision')=? "
+            "AND json_extract(data, '$.pending_handoff.target_segment_id')=?",
+            (_json(run), run["id"], target_id, execution_revision - 1, target_id),
+        ).rowcount
+        if not changed:
+            raise ValueError("The handoff changed before its source could be restored.")
+        self._save_segment(run["id"], segment)
+        self.connection.execute(
+            "UPDATE model_steps SET status=? WHERE run_id=? AND segment_id=? AND status='in_progress'",
+            (status, run["id"], target_id),
+        )
+        self.connection.execute(
+            "UPDATE tool_steps SET status=? WHERE run_id=? AND segment_id=? "
+            "AND status IN ('pending', 'in_progress')", (status, run["id"], target_id),
+        )
+        self.connection.execute(
+            "DELETE FROM work_segment_contexts WHERE run_id=? AND segment_id=?",
+            (run["id"], target_id),
+        )
+        return True
+
+    def restore_handoff(self, run_id: str, *, reason: str = "handoff_failed") -> bool:
+        """Retain a failed target attempt without submitting or retrying either model."""
+        with self.connection:
+            run = self.get(run_id)
+            if run["status"] not in ACTIVE_STATES:
+                return False
+            restored = self._restore_handoff(run, reason=reason, status="failed")
+        if restored:
+            self._index_attachments(self.get(run_id))
+            self._notify_pause_changed()
+        return restored
+
+    def _commit_handoff(self, run: dict, outcome: ResponseOutcome) -> bool:
+        """Commit first usable target output before any requested tool can be claimed."""
+        handoff = run.get("pending_handoff")
+        if not isinstance(handoff, dict):
+            return True
+        usable = (
+            outcome.status == "completed" and not outcome.protocol_errors
+            and (outcome.function_calls or outcome.has_text or outcome.refusal.strip())
+            and all(
+                item.get("type") != "reasoning" or (
+                    isinstance(item.get("encrypted_content"), str)
+                    and item["encrypted_content"].strip()
+                ) for item in outcome.output
+            )
+        )
+        definitions = run.get("snapshot", {}).get("tools")
+        if isinstance(definitions, list):
+            allowed = {item.get("name") for item in definitions if isinstance(item, dict)}
+            usable = usable and all(call.name in allowed for call in outcome.function_calls)
+        if not usable:
+            return False
+        try:
+            build_work_history(steps=[{
+                "position": 0, "segment_id": run["execution_segment_id"],
+                "call_id": "handoff-validation", "status": "completed",
+                "outcome": asdict(outcome),
+            }], tools=[{
+                **asdict(call), "segment_id": run["execution_segment_id"],
+                "response_id": outcome.response_id, "position": call.output_index,
+                "status": "pending", "output": None, "references": [],
+            } for call in outcome.function_calls])
+        except WorkHandoffError:
+            return False
+        segment = self.current_segment(run["id"])
+        segment.update(state="committed", committed_at=_now())
+        self._save_segment(run["id"], segment)
+        self.connection.execute(
+            "UPDATE tool_steps SET status='superseded' WHERE run_id=? "
+            "AND segment_id=? AND status='pending'",
+            (run["id"], handoff["source_segment_id"]),
+        )
+        run.pop("pending_handoff", None)
+        run.pop("last_handoff_failure", None)
+        self._save_run(run)
+        return True
+
     def pending_tools(self, run_id: str) -> list[dict]:
         """Return only unclaimed persisted calls in their original response order."""
         segment_id = self._segment_id(self.get(run_id))
@@ -640,12 +924,18 @@ class WorkRunStore:
 
     def begin_call(
         self, run_id: str, call_id: str, conversation_id: str | None,
+        *, expected_segment_id: str | None = None,
+        expected_execution_revision: int | None = None,
     ) -> None:
         """Link one request before submission, refusing open or unfinished prior steps."""
         if conversation_id is None:
             raise ValueError("A work run requires its owning conversation.")
         run = self.get(run_id, conversation_id)
         segment_id = self._segment_id(run)
+        if ((expected_segment_id is not None and expected_segment_id != segment_id)
+                or (expected_execution_revision is not None
+                    and expected_execution_revision != run["execution_revision"])):
+            raise WorkContextUnavailableError("The model execution boundary changed before submission.")
         if run["status"] not in {"preparing", "tools"}:
             raise ValueError("This work run cannot start another model call.")
         if self.connection.execute(
@@ -654,16 +944,24 @@ class WorkRunStore:
             (run_id, segment_id),
         ).fetchone():
             raise ValueError("Tool results are incomplete.")
-        position = self.connection.execute(
-            "SELECT COALESCE(MAX(position), -1) + 1 FROM model_steps WHERE run_id=?",
-            (run_id,),
-        ).fetchone()[0]
         with self.connection:
+            changed = self.connection.execute(
+                "UPDATE work_runs SET status='model', data=json_set(data, '$.status', 'model') "
+                "WHERE id=? AND status=? "
+                "AND json_extract(data, '$.execution_segment_id')=? "
+                "AND json_extract(data, '$.execution_revision')=?",
+                (run_id, run["status"], segment_id, run["execution_revision"]),
+            ).rowcount
+            if not changed:
+                raise WorkContextUnavailableError("The model execution boundary was already claimed.")
+            position = self.connection.execute(
+                "SELECT COALESCE(MAX(position), -1) + 1 FROM model_steps WHERE run_id=?",
+                (run_id,),
+            ).fetchone()[0]
             self.connection.execute(
                 "INSERT INTO model_steps VALUES (?, ?, ?, 'in_progress', NULL, NULL, ?)",
                 (run_id, position, call_id, segment_id),
             )
-            self._state(run_id, "model")
 
     def end_call(self, run_id: str, call_id: str, status: str) -> None:
         """Retain terminal request facts independently of later outcome persistence."""
@@ -681,9 +979,12 @@ class WorkRunStore:
         if changed and status != "completed":
             self._index_attachments(self.get(run_id))
             self._notify_attachments(identities)
+            if self.get(run_id)["status"] == "paused":
+                self._notify_pause_changed()
 
     def record_outcome(
         self, run_id: str, call_id: str, outcome: ResponseOutcome,
+        *, handoff_rejection_reason: str | None = None,
     ) -> None:
         """Save ordered raw output and queue validated calls without executing them."""
         row = self.connection.execute(
@@ -707,7 +1008,15 @@ class WorkRunStore:
             run = self.get(run_id)
             if run["status"] != "model" or run.get("execution_segment_id") != row[2]:
                 return
-            if outcome.status != "completed" or outcome.protocol_errors:
+            if handoff_rejection_reason is not None and run.get("pending_handoff"):
+                self._stop(
+                    run_id,
+                    "stopped" if handoff_rejection_reason == "authority_changed" else "failed",
+                    handoff_rejection_reason,
+                )
+            elif not self._commit_handoff(run, outcome):
+                self._stop(run_id, "failed", "handoff_output_unusable")
+            elif outcome.status != "completed" or outcome.protocol_errors:
                 self._stop(run_id, "failed", "response_protocol_error")
             elif outcome.function_calls:
                 for call in outcome.function_calls:
@@ -722,9 +1031,11 @@ class WorkRunStore:
                 self._state(run_id, "ready")
             else:
                 self._stop(run_id, "failed", "empty_response")
-        if self.get(run_id)["status"] in TERMINAL_STATES:
+        if self.get(run_id)["status"] in TERMINAL_STATES | {"paused"}:
             self._index_attachments(self.get(run_id))
             self._notify_attachments(identities)
+            if self.get(run_id)["status"] == "paused":
+                self._notify_pause_changed()
 
     def begin_tool(self, run_id: str, response_id: str, call_id: str) -> bool:
         """Claim a pending tool exactly once before any external action begins."""
@@ -787,6 +1098,46 @@ class WorkRunStore:
             (run_id, segment_id, segment_id),
         )]
 
+    def _portable_records(self, run_id: str) -> tuple[list[dict], list[dict], list[int]]:
+        """Exclude aborted attempts only after verifying the complete stored call sequence."""
+        segments = {item["id"]: item for item in self.execution_segments(run_id)}
+        all_steps = self.steps(run_id)
+        selected, positions = [], []
+        for position, step in enumerate(all_steps):
+            segment = segments.get(step["segment_id"])
+            if (step["position"] != position or segment is None
+                    or segment.get("state", "committed") not in {"committed", "aborted"}):
+                raise WorkContextUnavailableError("Saved model execution history is incomplete.")
+            if segment.get("state", "committed") == "aborted":
+                continue
+            selected.append({**step, "position": len(selected)})
+            positions.append(position)
+        tools = []
+        for identity, response_id, call_id, position, status, raw in self.connection.execute(
+            "SELECT segment_id, response_id, call_id, position, status, data "
+            "FROM tool_steps WHERE run_id=? ORDER BY rowid", (run_id,),
+        ):
+            segment = segments.get(identity)
+            if segment is None:
+                raise WorkContextUnavailableError("Saved tool execution history is incomplete.")
+            if segment.get("state", "committed") == "aborted":
+                continue
+            tools.append({
+                **json.loads(raw), "segment_id": identity,
+                "response_id": response_id, "call_id": call_id,
+                "position": position, "status": status,
+            })
+        return selected, tools, positions
+
+    def _portable_history(self, run_id: str) -> list[dict]:
+        """Render all committed observations without private reasoning or original prompts."""
+        steps, tools, _ = self._portable_records(run_id)
+        try:
+            history = build_work_history(steps=steps, tools=tools)
+            return render_handoff_history({"version": 1, "history": history["history"]})
+        except WorkHandoffError:
+            raise WorkContextUnavailableError("Saved work history cannot be replayed completely.") from None
+
     def handoff_material(self, run_id: str, conversation_id: str) -> dict:
         """Project a paused boundary without claiming it or changing any saved tool request.
 
@@ -803,15 +1154,7 @@ class WorkRunStore:
                 or not isinstance(saved.get("input_messages"), list)
                 or not saved["input_messages"]):
             raise WorkContextUnavailableError("Saved model handoff input is unavailable.")
-        steps = self.steps(run_id)
-        tools = [{
-            **json.loads(raw), "segment_id": segment_id,
-            "response_id": response_id, "call_id": call_id,
-            "position": position, "status": status,
-        } for segment_id, response_id, call_id, position, status, raw in self.connection.execute(
-            "SELECT segment_id, response_id, call_id, position, status, data "
-            "FROM tool_steps WHERE run_id=? ORDER BY rowid", (run_id,),
-        )]
+        steps, tools, positions = self._portable_records(run_id)
         try:
             material = build_handoff_material(
                 instructions=saved["instructions"], input_messages=saved["input_messages"],
@@ -819,6 +1162,8 @@ class WorkRunStore:
             )
         except WorkHandoffError:
             raise WorkContextUnavailableError("Saved work cannot be transferred without losing or misrepresenting content.") from None
+        for origin in material["provenance"]["history"]:
+            origin["position"] = positions[origin["position"]]
         if self.get(run_id, conversation_id) != run:
             raise WorkContextUnavailableError("The paused boundary changed while preparing model handoff.")
         material["source"] = {
@@ -858,7 +1203,7 @@ class WorkRunStore:
         run = self.get(run["id"])
         snapshot = run.get("snapshot", {})
         root = snapshot.get("workspace", {}).get("root")
-        profile = snapshot.get("profile", {})
+        profile = self.current_segment(run["id"]).get("profile", {})
         workspace_name = (
             root.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
             if root else None
@@ -869,7 +1214,10 @@ class WorkRunStore:
                 "finished_at", "recovered_at", "reason", "user_index",
                 "pause_requested", "paused_at", "pause_expires_at", "pause_reason",
                 "active_time_incomplete",
+                "execution_revision", "execution_segment_id",
+                "last_handoff_failure",
             )},
+            "checkpoint_revision": run.get("checkpoint_revision", 0),
             "active_elapsed_seconds": self.active_elapsed(run["id"]),
             "pause_available": (
                 run["status"] in {"preparing", "model", "tools"}
@@ -884,10 +1232,25 @@ class WorkRunStore:
             "profile": {
                 key: profile.get(key) for key in ("id", "name", "deployment")
             },
+            "execution_segments": self._public_segments(run["id"]),
             "goals": snapshot.get("goals", {}),
             "failure": WorkRunStore.failure_details(run.get("failure")),
             "message_link": WorkRunStore.message_link(run, messages or []),
         }
+
+    def _public_segments(self, run_id: str) -> list[dict]:
+        """Expose model ownership and transition timing without policies or private input."""
+        return [{
+            **{key: segment.get(key) for key in (
+                "id", "position", "kind", "started_at", "committed_at",
+                "finished_at", "reason", "source_segment_id",
+            )},
+            "state": segment.get("state", "committed"),
+            "model_calls": self.model_call_count(run_id, segment_id=segment["id"]),
+            "profile": {key: segment.get("profile", {}).get(key) for key in (
+                "id", "name", "deployment",
+            )},
+        } for segment in self.execution_segments(run_id)]
 
     @staticmethod
     def failure_details(failure: dict | None) -> dict:
@@ -988,7 +1351,7 @@ class WorkRunStore:
                 ).fetchone()
             steps.append({
                 "kind": kind, "call_id": call_id, "status": status,
-                "response_id": response_id,
+                "response_id": response_id, "segment_id": segment_id,
                 "name": name if name in names else None,
                 "result_available": bool(available),
             })
@@ -1043,11 +1406,14 @@ class WorkRunStore:
             raise WorkContextUnavailableError("This saved tool result is unavailable.")
         return {"output": data["output"], "references": data.get("references", [])}
 
-    def model_call_count(self, run_id: str) -> int:
+    def model_call_count(self, run_id: str, *, segment_id: str | None = None) -> int:
         """Count submitted model steps without loading their stored response bodies."""
-        self.get(run_id)
+        run = self.get(run_id)
+        if segment_id is not None:
+            self._segment_id(run, segment_id)
         return self.connection.execute(
-            "SELECT COUNT(*) FROM model_steps WHERE run_id=?", (run_id,),
+            "SELECT COUNT(*) FROM model_steps WHERE run_id=? "
+            "AND (? IS NULL OR segment_id=?)", (run_id, segment_id, segment_id),
         ).fetchone()[0]
 
     def has_tool_activity(self, run_id: str) -> bool:
@@ -1077,7 +1443,7 @@ class WorkRunStore:
         run = self.get(run_id, conversation_id)
         usage = self.usage(run_id, call_store)
         totals = usage["totals"]
-        profile = run.get("snapshot", {}).get("profile", {})
+        profile = self.current_segment(run_id).get("profile", {})
         recorded = totals["calls"]
         metadata = {
             "usage_scope": "work_run", "response_calls": usage["expected_calls"],
@@ -1087,6 +1453,7 @@ class WorkRunStore:
             "cost_status": totals["cost_status"] if recorded else "unavailable",
             "coverage_incomplete": totals["coverage_incomplete"],
             "partial_token_fields": [],
+            "execution_segments": self._public_segments(run_id),
             "estimated_cost": (
                 totals["known_estimated_cost"]
                 if recorded and totals["cost_status"] != "unavailable" else None
@@ -1132,10 +1499,14 @@ class WorkRunStore:
         allowed = {"completed"} if completed else {"tools", "ready", "completed"}
         if run["status"] not in allowed:
             raise WorkContextUnavailableError("Saved work context is incomplete.")
-        if segment_id is None and self.connection.execute(
-            "SELECT COUNT(*) FROM work_execution_segments WHERE run_id=?", (run_id,),
-        ).fetchone()[0] != 1:
-            raise WorkContextUnavailableError("Multi-model work requires an explicit segment for raw replay.")
+        if segment_id is None:
+            committed = [segment for segment in self.execution_segments(run_id)
+                         if segment.get("state", "committed") == "committed"]
+            if len(committed) != 1:
+                if run["status"] in {"ready", "completed"}:
+                    return self._portable_history(run_id)
+                raise WorkContextUnavailableError("Multi-model work requires an explicit segment for raw replay.")
+            segment_id = committed[0]["id"]
         segment_id = self._segment_id(run, segment_id)
         items = []
         for step in self.steps(run_id, segment_id=segment_id):
@@ -1223,11 +1594,24 @@ class WorkRunStore:
             self._stop(run_id, status, reason)
         self._index_attachments(self.get(run_id))
         self._notify_attachments(identities)
-        if run["status"] == "paused":
+        if run["status"] == "paused" or self.get(run_id)["status"] == "paused":
             self._notify_pause_changed()
 
     def _stop(self, run_id: str, status: str, reason: str | None) -> None:
         """Close pending steps in the surrounding run-state transaction."""
+        run = self.get(run_id)
+        if (status != "completed" and run.get("pending_handoff")
+                and reason not in {
+                    "user_stopped", "authority_changed", "resume_context_changed",
+                    "conversation_deleted", "pause_expired",
+                } and self._restore_handoff(
+                    run, reason=reason or "handoff_failed", status=status,
+                )):
+            return
+        if run.get("pending_handoff"):
+            segment = self.current_segment(run_id)
+            segment.update(state="aborted", finished_at=_now(), reason=reason)
+            self._save_segment(run_id, segment)
         self._state(run_id, status, reason=reason)
         self.connection.execute(
             "UPDATE model_steps SET status=? WHERE run_id=? AND status='in_progress'",

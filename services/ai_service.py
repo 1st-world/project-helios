@@ -66,6 +66,8 @@ class AIService:
         self.call_usage_store = call_usage_store or CallUsageStore()
         self.work_run_store = work_run_store or WorkRunStore()
         self._run_id: str | None = None
+        self._run_segment_id: str | None = None
+        self._run_execution_revision: int | None = None
         self._before_run_call: Callable[[], None] | None = None
         self._prepare_run_call: Callable[[], tuple[str, list[dict]]] | None = None
         self.usage_service = usage_service
@@ -144,11 +146,13 @@ class AIService:
         prepare_call: Callable[[], tuple[str, list[dict]]] | None = None,
     ) -> "AIService":
         """Bind run state, an authority guard, and optional last-moment input preparation."""
-        self.work_run_store.get(run_id)
+        run = self.work_run_store.get(run_id)
         if not callable(before_call):
             raise ValueError("Work runs require a per-call permission guard.")
         snapshot = copy(self)
         snapshot._run_id = run_id
+        snapshot._run_segment_id = run["execution_segment_id"]
+        snapshot._run_execution_revision = run["execution_revision"]
         snapshot._before_run_call = before_call
         snapshot._prepare_run_call = prepare_call
         snapshot._prepare_reply = None
@@ -191,6 +195,8 @@ class AIService:
         if self._run_id is not None and kind != "summary":
             self.work_run_store.begin_call(
                 self._run_id, record["id"], conversation_id,
+                expected_segment_id=self._run_segment_id,
+                expected_execution_revision=self._run_execution_revision,
             )
             record["run_id"] = self._run_id
         self._record_call(record)
@@ -228,8 +234,23 @@ class AIService:
     def _record_outcome(self, call: dict, outcome: ResponseOutcome) -> None:
         """Persist protocol content only for an explicitly bound work run."""
         if "run_id" in call:
+            rejection = None
+            run = self.work_run_store.get(call["run_id"])
+            if (run.get("pending_handoff")
+                    and run.get("execution_segment_id") == self._run_segment_id
+                    and run.get("execution_revision") == self._run_execution_revision
+                    and self._before_run_call is not None):
+                try:
+                    self._before_run_call()
+                except Exception as exc:
+                    # Retain paid output while refusing to adopt revoked target work.
+                    reason = getattr(exc, "code", None)
+                    rejection = reason if reason in {
+                        "handoff_target_changed", "work_execution_changed",
+                    } else "authority_changed"
             self.work_run_store.record_outcome(
                 call["run_id"], call["id"], outcome,
+                handoff_rejection_reason=rejection,
             )
 
     def _resolve_profile(

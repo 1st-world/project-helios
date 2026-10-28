@@ -189,7 +189,7 @@ def _tool_entry(item: dict, call: dict, tool: dict, output_index: int) -> dict:
     entry = {"kind": "tool_result", "tool": _identity(item.get("name")),
              "arguments": arguments}
     status = tool.get("status")
-    if status == "pending":
+    if status in {"pending", "superseded"}:
         if (tool.get("started") or tool.get("output") is not None
                 or tool.get("references")):
             raise WorkHandoffError("An unexecuted tool has uncertain recorded effects.")
@@ -301,6 +301,23 @@ def build_handoff_material(
         raise
     except (TypeError, ValueError, OverflowError, KeyError):
         raise WorkHandoffError("Saved handoff data is invalid.") from None
+
+
+def build_work_history(*, steps: list[dict], tools: list[dict]) -> dict:
+    """Project completed work independently of private original prompts or attachments."""
+    if (not isinstance(steps, list) or not isinstance(tools, list)
+            or any(not isinstance(step, dict) for step in steps)):
+        raise WorkHandoffError("Saved work history is unavailable.")
+    provenance = []
+    try:
+        return _copy({
+            "history": _run_history(steps, tools, provenance),
+            "provenance": provenance,
+        })
+    except WorkHandoffError:
+        raise
+    except (TypeError, ValueError, OverflowError, KeyError):
+        raise WorkHandoffError("Saved work history is invalid.") from None
 
 
 def render_handoff_history(material: dict) -> list[dict]:
