@@ -21,8 +21,9 @@ from models.reasoning import extract_reasoning_summary
 from services.call_usage_store import CallUsageStore
 from services.context_budget import ContextChangedError
 from services.response_outcome import ResponseOutcome
+from services.work_handoff import WorkHandoffError, build_handoff_material
 
-WORK_RUN_SCHEMA_VERSION = "0.1"
+WORK_RUN_SCHEMA_VERSION = "0.2"
 ACTIVE_STATES = {"preparing", "model", "tools", "ready"}
 TERMINAL_STATES = {"completed", "failed", "cancelled", "interrupted", "stopped"}
 PAUSE_RETENTION = timedelta(hours=24)
@@ -67,7 +68,10 @@ class WorkRunStore:
                 row = self.connection.execute(
                     "SELECT value FROM work_metadata WHERE key='schema_version'"
                 ).fetchone()
-                if row is None or row[0] != WORK_RUN_SCHEMA_VERSION:
+                if row is None or row[0] not in {"0.1", WORK_RUN_SCHEMA_VERSION}:
+                    raise ValueError("Unsupported work run schema.")
+                if (row[0] == WORK_RUN_SCHEMA_VERSION
+                        and "work_execution_segments" not in existing):
                     raise ValueError("Unsupported work run schema.")
             self.connection.executescript(
                 "BEGIN IMMEDIATE;"
@@ -76,16 +80,10 @@ class WorkRunStore:
                 "CREATE TABLE IF NOT EXISTS work_runs ("
                 "id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, "
                 "status TEXT NOT NULL, data TEXT NOT NULL);"
-                "CREATE TABLE IF NOT EXISTS model_steps ("
+                "CREATE TABLE IF NOT EXISTS work_execution_segments ("
                 "run_id TEXT NOT NULL REFERENCES work_runs(id) ON DELETE CASCADE, "
-                "position INTEGER NOT NULL, call_id TEXT NOT NULL UNIQUE, "
-                "status TEXT NOT NULL, response_id TEXT, outcome TEXT, "
-                "PRIMARY KEY(run_id, position), UNIQUE(run_id, response_id));"
-                "CREATE TABLE IF NOT EXISTS tool_steps ("
-                "run_id TEXT NOT NULL REFERENCES work_runs(id) ON DELETE CASCADE, "
-                "response_id TEXT NOT NULL, call_id TEXT NOT NULL, "
-                "position INTEGER NOT NULL, status TEXT NOT NULL, data TEXT NOT NULL, "
-                "PRIMARY KEY(run_id, response_id, call_id));"
+                "id TEXT NOT NULL, position INTEGER NOT NULL, data TEXT NOT NULL, "
+                "PRIMARY KEY(run_id, id), UNIQUE(run_id, position));"
                 "CREATE TABLE IF NOT EXISTS work_resume_contexts ("
                 "run_id TEXT PRIMARY KEY REFERENCES work_runs(id) ON DELETE CASCADE, "
                 "data TEXT NOT NULL);"
@@ -96,6 +94,19 @@ class WorkRunStore:
                     ("schema_version", WORK_RUN_SCHEMA_VERSION),
                 )
                 self._migrate_resume_contexts()
+                schema_version = self.connection.execute(
+                    "SELECT value FROM work_metadata WHERE key='schema_version'",
+                ).fetchone()[0]
+                if schema_version not in {"0.1", WORK_RUN_SCHEMA_VERSION}:
+                    raise ValueError("Unsupported work run schema.")
+                if schema_version == "0.1":
+                    self._migrate_execution_segments()
+                else:
+                    self._create_step_tables()
+                self.connection.execute(
+                    "UPDATE work_metadata SET value=? WHERE key='schema_version'",
+                    (WORK_RUN_SCHEMA_VERSION,),
+                )
                 for (run_id,) in self.connection.execute(
                     "SELECT id FROM work_runs WHERE status IN "
                     "('preparing', 'model', 'tools', 'ready')"
@@ -104,12 +115,102 @@ class WorkRunStore:
             for (run_id,) in self.connection.execute("SELECT id FROM work_runs").fetchall():
                 self._index_attachments(self.get(run_id))
         except Exception:
+            self.connection.rollback()
             self.connection.close()
             raise
 
     def close(self) -> None:
         """Release the database without changing durable run states."""
         self.connection.close()
+
+    def _insert_initial_segment(self, run: dict) -> str:
+        """Bind the original policy snapshot without copying any private prepared input."""
+        segment_id = str(uuid4())
+        snapshot = run.get("snapshot", {})
+        segment = {
+            "id": segment_id, "position": 0, "kind": "initial", "version": 1,
+            "started_at": run["started_at"],
+            **{key: snapshot.get(key, {}) for key in (
+                "profile", "context_policy", "memory_policy",
+            )},
+        }
+        self.connection.execute(
+            "INSERT INTO work_execution_segments VALUES (?, ?, 0, ?)",
+            (run["id"], segment_id, _json(segment)),
+        )
+        run.update(execution_segment_id=segment_id, execution_revision=0)
+        return segment_id
+
+    def _create_step_tables(self, *, migration: bool = False) -> None:
+        """Use the same identifier and ownership constraints for fresh and migrated data."""
+        model_table = "model_steps_segmented" if migration else "model_steps"
+        tool_table = "tool_steps_segmented" if migration else "tool_steps"
+        self.connection.execute(
+            f"CREATE TABLE IF NOT EXISTS {model_table} ("
+            "run_id TEXT NOT NULL REFERENCES work_runs(id) ON DELETE CASCADE, "
+            "position INTEGER NOT NULL, call_id TEXT NOT NULL UNIQUE, "
+            "status TEXT NOT NULL, response_id TEXT, outcome TEXT, "
+            "segment_id TEXT NOT NULL, PRIMARY KEY(run_id, position), "
+            "UNIQUE(run_id, segment_id, response_id), "
+            "FOREIGN KEY(run_id, segment_id) "
+            "REFERENCES work_execution_segments(run_id, id) ON DELETE CASCADE)",
+        )
+        self.connection.execute(
+            f"CREATE TABLE IF NOT EXISTS {tool_table} ("
+            "run_id TEXT NOT NULL REFERENCES work_runs(id) ON DELETE CASCADE, "
+            "response_id TEXT NOT NULL, call_id TEXT NOT NULL, "
+            "position INTEGER NOT NULL, status TEXT NOT NULL, data TEXT NOT NULL, "
+            "segment_id TEXT NOT NULL, "
+            "PRIMARY KEY(run_id, segment_id, response_id, call_id), "
+            "FOREIGN KEY(run_id, segment_id) "
+            "REFERENCES work_execution_segments(run_id, id) ON DELETE CASCADE)",
+        )
+
+    def _migrate_execution_segments(self) -> None:
+        """Scope earlier provider identifiers to their original segment in one transaction."""
+        self._create_step_tables(migration=True)
+        for run_id, raw in self.connection.execute(
+            "SELECT id, data FROM work_runs",
+        ).fetchall():
+            run = json.loads(raw)
+            segment_id = self._insert_initial_segment(run)
+            self.connection.execute(
+                "INSERT INTO model_steps_segmented "
+                "SELECT run_id, position, call_id, status, response_id, outcome, ? "
+                "FROM model_steps WHERE run_id=?", (segment_id, run_id),
+            )
+            self.connection.execute(
+                "INSERT INTO tool_steps_segmented "
+                "SELECT run_id, response_id, call_id, position, status, data, ? "
+                "FROM tool_steps WHERE run_id=?", (segment_id, run_id),
+            )
+            self.connection.execute(
+                "UPDATE work_runs SET data=? WHERE id=?", (_json(run), run_id),
+            )
+        self.connection.execute("DROP TABLE tool_steps")
+        self.connection.execute("DROP TABLE model_steps")
+        self.connection.execute("ALTER TABLE model_steps_segmented RENAME TO model_steps")
+        self.connection.execute("ALTER TABLE tool_steps_segmented RENAME TO tool_steps")
+
+    def execution_segments(self, run_id: str) -> list[dict]:
+        """Read ordered policy ownership without loading private resume or provider payloads."""
+        self.get(run_id)
+        return [json.loads(raw) for (raw,) in self.connection.execute(
+            "SELECT data FROM work_execution_segments WHERE run_id=? ORDER BY position",
+            (run_id,),
+        )]
+
+    def _segment_id(self, run: dict, segment_id: str | None = None) -> str:
+        """Resolve only a segment belonging to the requested run."""
+        identity = (
+            segment_id if segment_id is not None else run.get("execution_segment_id")
+        )
+        if not isinstance(identity, str) or self.connection.execute(
+            "SELECT 1 FROM work_execution_segments WHERE run_id=? AND id=?",
+            (run["id"], identity),
+        ).fetchone() is None:
+            raise WorkContextUnavailableError("The saved model execution segment is unavailable.")
+        return identity
 
     def _migrate_resume_contexts(self) -> None:
         """Move earlier inline checkpoints without loading normal run metadata repeatedly."""
@@ -170,6 +271,10 @@ class WorkRunStore:
             self.connection.execute(
                 "INSERT INTO work_runs VALUES (?, ?, ?, ?)",
                 (run_id, conversation_id, "preparing", _json(data)),
+            )
+            self._insert_initial_segment(data)
+            self.connection.execute(
+                "UPDATE work_runs SET data=? WHERE id=?", (_json(data), run_id),
             )
             if isinstance(context, dict):
                 self.connection.execute(
@@ -405,9 +510,10 @@ class WorkRunStore:
 
     def _checkpoint_valid(self, run_id: str, phase: str) -> bool:
         """Require complete model output and no claimed tool with an uncertain result."""
-        if phase not in {"preparing", "tools"}:
+        if not isinstance(phase, str) or phase not in {"preparing", "tools"}:
             return False
-        steps = self.steps(run_id)
+        segment_id = self._segment_id(self.get(run_id))
+        steps = self.steps(run_id, segment_id=segment_id)
         if not steps:
             return phase == "preparing"
         if phase != "tools":
@@ -422,8 +528,8 @@ class WorkRunStore:
             for call in outcome.get("function_calls", []):
                 expected.add((outcome["response_id"], call["call_id"]))
         rows = self.connection.execute(
-            "SELECT response_id, call_id, status, data FROM tool_steps WHERE run_id=?",
-            (run_id,),
+            "SELECT response_id, call_id, status, data FROM tool_steps "
+            "WHERE run_id=? AND segment_id=?", (run_id, segment_id),
         ).fetchall()
         if expected != {(response_id, call_id) for response_id, call_id, _, _ in rows}:
             return False
@@ -438,6 +544,33 @@ class WorkRunStore:
                 return False
         return True
 
+    @staticmethod
+    def _checkpoint_matches(run: dict) -> bool:
+        """Accept original checkpoints or a versioned boundary bound to its model segment."""
+        checkpoint = run.get("checkpoint", {})
+        if not isinstance(checkpoint, dict):
+            return False
+        phase = checkpoint.get("phase")
+        if (not isinstance(phase, str) or phase not in {"preparing", "tools"}
+                or type(run.get("execution_revision")) is not int
+                or run["execution_revision"] < 0):
+            return False
+        version = checkpoint.get("version")
+        if type(version) is not int:
+            return False
+        if version == 1:
+            return run.get("execution_revision", 0) == 0
+        return (
+            version == 2
+            and checkpoint.get("segment_id") == run.get("execution_segment_id")
+            and type(checkpoint.get("revision")) is int
+            and checkpoint["revision"] > 0
+            and type(run.get("checkpoint_revision")) is int
+            and checkpoint["revision"] == run.get("checkpoint_revision")
+            and type(checkpoint.get("execution_revision")) is int
+            and checkpoint.get("execution_revision") == run.get("execution_revision")
+        )
+
     def pause(
         self, run_id: str, *, checkpoint: dict | None = None,
         reason: str = "user_requested",
@@ -449,10 +582,15 @@ class WorkRunStore:
                 return True
             if not self._checkpoint_valid(run_id, run["status"]):
                 return False
+            revision = run.get("checkpoint_revision", 0) + 1
             self._state(
                 run_id, "paused", paused_at=_now(), pause_reason=reason,
                 pause_expires_at=(datetime.now(timezone.utc) + PAUSE_RETENTION).isoformat(),
-                checkpoint={"version": 1, "phase": run["status"],
+                checkpoint_revision=revision,
+                checkpoint={"version": 2, "phase": run["status"],
+                            "revision": revision,
+                            "segment_id": self._segment_id(run),
+                            "execution_revision": run["execution_revision"],
                             "data": json.loads(_json(checkpoint or {}))},
             )
         self._notify_pause_changed()
@@ -464,8 +602,8 @@ class WorkRunStore:
         with self.connection:
             run = self.get(run_id)
             checkpoint = run.get("checkpoint", {})
-            phase = checkpoint.get("phase")
-            if (run["status"] != "paused" or checkpoint.get("version") != 1
+            phase = checkpoint.get("phase") if isinstance(checkpoint, dict) else None
+            if (run["status"] != "paused" or not self._checkpoint_matches(run)
                     or not self._checkpoint_valid(run_id, phase)):
                 raise ValueError("This work run has no resumable checkpoint.")
             resumed = {
@@ -473,8 +611,14 @@ class WorkRunStore:
                 "resumed_at": _now(), "active_started_at": _now(),
             }
             changed = self.connection.execute(
-                "UPDATE work_runs SET status=?, data=? WHERE id=? AND status='paused'",
-                (phase, _json(resumed), run_id),
+                "UPDATE work_runs SET status=?, data=? WHERE id=? AND status='paused' "
+                "AND json_extract(data, '$.execution_segment_id')=? "
+                "AND json_extract(data, '$.execution_revision')=? "
+                "AND json_extract(data, '$.checkpoint_revision') IS ? "
+                "AND json_extract(data, '$.checkpoint.version')=?",
+                (phase, _json(resumed), run_id, run["execution_segment_id"],
+                 run["execution_revision"], run.get("checkpoint_revision"),
+                 checkpoint["version"]),
             ).rowcount
             if not changed:
                 raise ValueError("This work run was already resumed.")
@@ -484,13 +628,14 @@ class WorkRunStore:
 
     def pending_tools(self, run_id: str) -> list[dict]:
         """Return only unclaimed persisted calls in their original response order."""
-        self.get(run_id)
+        segment_id = self._segment_id(self.get(run_id))
         return [{"response_id": response_id, **json.loads(raw)}
                 for response_id, raw in self.connection.execute(
                     "SELECT t.response_id, t.data FROM tool_steps t "
-                    "JOIN model_steps m ON m.run_id=t.run_id AND m.response_id=t.response_id "
-                    "WHERE t.run_id=? AND t.status='pending' ORDER BY m.position, t.position",
-                    (run_id,),
+                    "JOIN model_steps m ON m.run_id=t.run_id AND m.segment_id=t.segment_id "
+                    "AND m.response_id=t.response_id WHERE t.run_id=? "
+                    "AND t.segment_id=? AND t.status='pending' ORDER BY m.position, t.position",
+                    (run_id, segment_id),
                 )]
 
     def begin_call(
@@ -500,12 +645,13 @@ class WorkRunStore:
         if conversation_id is None:
             raise ValueError("A work run requires its owning conversation.")
         run = self.get(run_id, conversation_id)
+        segment_id = self._segment_id(run)
         if run["status"] not in {"preparing", "tools"}:
             raise ValueError("This work run cannot start another model call.")
         if self.connection.execute(
             "SELECT 1 FROM tool_steps WHERE run_id=? "
-            "AND status NOT IN ('completed', 'failed')",
-            (run_id,),
+            "AND segment_id=? AND status NOT IN ('completed', 'failed')",
+            (run_id, segment_id),
         ).fetchone():
             raise ValueError("Tool results are incomplete.")
         position = self.connection.execute(
@@ -514,8 +660,8 @@ class WorkRunStore:
         ).fetchone()[0]
         with self.connection:
             self.connection.execute(
-                "INSERT INTO model_steps VALUES (?, ?, ?, 'in_progress', NULL, NULL)",
-                (run_id, position, call_id),
+                "INSERT INTO model_steps VALUES (?, ?, ?, 'in_progress', NULL, NULL, ?)",
+                (run_id, position, call_id, segment_id),
             )
             self._state(run_id, "model")
 
@@ -541,7 +687,7 @@ class WorkRunStore:
     ) -> None:
         """Save ordered raw output and queue validated calls without executing them."""
         row = self.connection.execute(
-            "SELECT status, outcome FROM model_steps WHERE run_id=? AND call_id=?",
+            "SELECT status, outcome, segment_id FROM model_steps WHERE run_id=? AND call_id=?",
             (run_id, call_id),
         ).fetchone()
         encoded = _json(asdict(outcome))
@@ -558,7 +704,8 @@ class WorkRunStore:
                 "WHERE run_id=? AND call_id=?",
                 (outcome.response_id, encoded, run_id, call_id),
             )
-            if self.get(run_id)["status"] != "model":
+            run = self.get(run_id)
+            if run["status"] != "model" or run.get("execution_segment_id") != row[2]:
                 return
             if outcome.status != "completed" or outcome.protocol_errors:
                 self._stop(run_id, "failed", "response_protocol_error")
@@ -566,9 +713,9 @@ class WorkRunStore:
                 for call in outcome.function_calls:
                     data = {**asdict(call), "output": None, "references": []}
                     self.connection.execute(
-                        "INSERT INTO tool_steps VALUES (?, ?, ?, ?, 'pending', ?)",
+                        "INSERT INTO tool_steps VALUES (?, ?, ?, ?, 'pending', ?, ?)",
                         (run_id, outcome.response_id, call.call_id,
-                         call.output_index, _json(data)),
+                         call.output_index, _json(data), row[2]),
                     )
                 self._state(run_id, "tools")
             elif outcome.has_text or outcome.refusal.strip():
@@ -581,14 +728,16 @@ class WorkRunStore:
 
     def begin_tool(self, run_id: str, response_id: str, call_id: str) -> bool:
         """Claim a pending tool exactly once before any external action begins."""
-        if self.get(run_id)["status"] != "tools":
+        run = self.get(run_id)
+        if run["status"] != "tools":
             return False
+        segment_id = self._segment_id(run)
         with self.connection:
             return bool(self.connection.execute(
                 "UPDATE tool_steps SET status='in_progress', "
                 "data=json_set(data, '$.started', json('true')) WHERE run_id=? "
-                "AND response_id=? AND call_id=? AND status='pending'",
-                (run_id, response_id, call_id),
+                "AND segment_id=? AND response_id=? AND call_id=? AND status='pending'",
+                (run_id, segment_id, response_id, call_id),
             ).rowcount)
 
     def tool_result(
@@ -598,10 +747,11 @@ class WorkRunStore:
         """Record the original tool result once, rejecting conflicting retransmissions."""
         if not isinstance(output, str):
             raise ValueError("Tool output must be a string.")
+        segment_id = self._segment_id(self.get(run_id))
         row = self.connection.execute(
             "SELECT status, data FROM tool_steps "
-            "WHERE run_id=? AND response_id=? AND call_id=?",
-            (run_id, response_id, call_id),
+            "WHERE run_id=? AND segment_id=? AND response_id=? AND call_id=?",
+            (run_id, segment_id, response_id, call_id),
         ).fetchone()
         if row is None:
             raise ValueError("Unknown tool request.")
@@ -618,20 +768,69 @@ class WorkRunStore:
         with self.connection:
             self.connection.execute(
                 "UPDATE tool_steps SET status=?, data=? "
-                "WHERE run_id=? AND response_id=? AND call_id=?",
-                (status, _json(result), run_id, response_id, call_id),
+                "WHERE run_id=? AND segment_id=? AND response_id=? AND call_id=?",
+                (status, _json(result), run_id, segment_id, response_id, call_id),
             )
 
-    def steps(self, run_id: str) -> list[dict]:
+    def steps(self, run_id: str, *, segment_id: str | None = None) -> list[dict]:
         """Return complete model steps in request order, without a page truncation."""
-        self.get(run_id)
+        run = self.get(run_id)
+        if segment_id is not None:
+            self._segment_id(run, segment_id)
         return [{
-            "call_id": call_id, "status": status,
+            "call_id": call_id, "status": status, "position": position,
+            "segment_id": identity,
             "outcome": json.loads(raw) if raw else None,
-        } for call_id, status, raw in self.connection.execute(
-            "SELECT call_id, status, outcome FROM model_steps "
-            "WHERE run_id=? ORDER BY position", (run_id,),
+        } for call_id, status, raw, position, identity in self.connection.execute(
+            "SELECT call_id, status, outcome, position, segment_id FROM model_steps "
+            "WHERE run_id=? AND (? IS NULL OR segment_id=?) ORDER BY position",
+            (run_id, segment_id, segment_id),
         )]
+
+    def handoff_material(self, run_id: str, conversation_id: str) -> dict:
+        """Project a paused boundary without claiming it or changing any saved tool request.
+
+        The caller must separately revalidate branch, connection, and input permissions before
+        using this private projection for a target-model request.
+        """
+        run = self.get(run_id, conversation_id)
+        if (run["status"] != "paused" or not self._checkpoint_matches(run)
+                or not self._checkpoint_valid(run_id, run["checkpoint"]["phase"])):
+            raise WorkContextUnavailableError("A complete paused boundary is required for model handoff.")
+        saved = self.resume_context(run_id)
+        if (not saved or saved.get("version") != 1
+                or not isinstance(saved.get("instructions"), str)
+                or not isinstance(saved.get("input_messages"), list)
+                or not saved["input_messages"]):
+            raise WorkContextUnavailableError("Saved model handoff input is unavailable.")
+        steps = self.steps(run_id)
+        tools = [{
+            **json.loads(raw), "segment_id": segment_id,
+            "response_id": response_id, "call_id": call_id,
+            "position": position, "status": status,
+        } for segment_id, response_id, call_id, position, status, raw in self.connection.execute(
+            "SELECT segment_id, response_id, call_id, position, status, data "
+            "FROM tool_steps WHERE run_id=? ORDER BY rowid", (run_id,),
+        )]
+        try:
+            material = build_handoff_material(
+                instructions=saved["instructions"], input_messages=saved["input_messages"],
+                steps=steps, tools=tools,
+            )
+        except WorkHandoffError:
+            raise WorkContextUnavailableError("Saved work cannot be transferred without losing or misrepresenting content.") from None
+        if self.get(run_id, conversation_id) != run:
+            raise WorkContextUnavailableError("The paused boundary changed while preparing model handoff.")
+        material["source"] = {
+            "run_id": run_id, "conversation_id": conversation_id,
+            "base_version": run["base_version"],
+            "segment_id": self._segment_id(run),
+            "execution_revision": run["execution_revision"],
+            "checkpoint_version": run["checkpoint"]["version"],
+            "checkpoint_revision": run.get("checkpoint_revision", 0),
+            "checkpoint_sha256": sha256(_json(run["checkpoint"]).encode("utf-8")).hexdigest(),
+        }
+        return material
 
     def history(self, conversation_id: str, *, before: int | None = None,
                 limit: int = 20, messages: list[Message] | None = None) -> dict:
@@ -678,8 +877,7 @@ class WorkRunStore:
             ),
             "resume_available": (
                 run["status"] == "paused" and snapshot.get("has_resume_context") is True
-                and run.get("checkpoint", {}).get("version") == 1
-                and run.get("checkpoint", {}).get("phase") in {"preparing", "tools"}
+                and self._checkpoint_matches(run)
             ),
             "workspace_name": workspace_name,
             "has_tool_activity": self.has_tool_activity(run["id"]),
@@ -763,14 +961,14 @@ class WorkRunStore:
         if not 1 <= limit <= 50 or not 0 <= offset < 2 ** 63:
             raise ValueError("Invalid work activity page.")
         rows = self.connection.execute(
-            "SELECT kind, call_id, status, response_id FROM ("
-            "SELECT 'model' AS kind, call_id, status, response_id, "
+            "SELECT kind, call_id, status, response_id, segment_id FROM ("
+            "SELECT 'model' AS kind, call_id, status, response_id, segment_id, "
             "position AS model_position, -1 AS tool_position "
             "FROM model_steps WHERE run_id=? UNION ALL "
-            "SELECT 'tool', t.call_id, t.status, t.response_id, "
+            "SELECT 'tool', t.call_id, t.status, t.response_id, t.segment_id, "
             "m.position, t.position "
             "FROM tool_steps t JOIN model_steps m ON m.run_id=t.run_id "
-            "AND m.response_id=t.response_id WHERE t.run_id=?"
+            "AND m.segment_id=t.segment_id AND m.response_id=t.response_id WHERE t.run_id=?"
             ") ORDER BY model_position, tool_position LIMIT ? OFFSET ?",
             (run_id, run_id, limit + 1, offset),
         ).fetchall()
@@ -779,14 +977,14 @@ class WorkRunStore:
             "helios_project_read_file",
         }
         steps = []
-        for kind, call_id, status, response_id in rows[:limit]:
+        for kind, call_id, status, response_id, segment_id in rows[:limit]:
             name, available = None, False
             if kind == "tool":
                 name, available = self.connection.execute(
                     "SELECT json_extract(data, '$.name'), "
                     "json_type(data, '$.output')='text' FROM tool_steps "
-                    "WHERE run_id=? AND response_id=? AND call_id=?",
-                    (run_id, response_id, call_id),
+                    "WHERE run_id=? AND segment_id=? AND response_id=? AND call_id=?",
+                    (run_id, segment_id, response_id, call_id),
                 ).fetchone()
             steps.append({
                 "kind": kind, "call_id": call_id, "status": status,
@@ -826,13 +1024,20 @@ class WorkRunStore:
         ).fetchall()
         return "\n".join(text for (text,) in rows if isinstance(text, str) and text.strip())
 
-    def evidence(self, run_id: str, response_id: str, call_id: str) -> dict:
+    def evidence(self, run_id: str, response_id: str, call_id: str, *,
+                 segment_id: str | None = None) -> dict:
         """Return one saved tool result, never resolve a model-supplied filesystem path."""
-        self.get(run_id)
-        row = self.connection.execute(
-            "SELECT data FROM tool_steps WHERE run_id=? AND response_id=? AND call_id=?",
-            (run_id, response_id, call_id),
-        ).fetchone()
+        run = self.get(run_id)
+        if segment_id is not None:
+            self._segment_id(run, segment_id)
+        rows = self.connection.execute(
+            "SELECT data FROM tool_steps WHERE run_id=? AND response_id=? AND call_id=? "
+            "AND (? IS NULL OR segment_id=?)",
+            (run_id, response_id, call_id, segment_id, segment_id),
+        ).fetchall()
+        if len(rows) > 1:
+            raise WorkContextUnavailableError("Select the model execution segment for this saved result.")
+        row = rows[0] if rows else None
         data = json.loads(row[0]) if row else {}
         if data.get("output") is None:
             raise WorkContextUnavailableError("This saved tool result is unavailable.")
@@ -921,14 +1126,19 @@ class WorkRunStore:
         return metadata
 
     def context(self, run_id: str, conversation_id: str, *,
-                completed: bool = True) -> list[dict]:
+                completed: bool = True, segment_id: str | None = None) -> list[dict]:
         """Replay stored outputs and results without reading the current project files."""
         run = self.get(run_id, conversation_id)
         allowed = {"completed"} if completed else {"tools", "ready", "completed"}
         if run["status"] not in allowed:
             raise WorkContextUnavailableError("Saved work context is incomplete.")
+        if segment_id is None and self.connection.execute(
+            "SELECT COUNT(*) FROM work_execution_segments WHERE run_id=?", (run_id,),
+        ).fetchone()[0] != 1:
+            raise WorkContextUnavailableError("Multi-model work requires an explicit segment for raw replay.")
+        segment_id = self._segment_id(run, segment_id)
         items = []
-        for step in self.steps(run_id):
+        for step in self.steps(run_id, segment_id=segment_id):
             outcome = step["outcome"]
             if step["status"] != "completed" or not outcome:
                 raise WorkContextUnavailableError("A saved model response is missing.")
@@ -939,9 +1149,9 @@ class WorkRunStore:
             for call in outcome["function_calls"]:
                 row = self.connection.execute(
                     "SELECT data FROM tool_steps WHERE run_id=? "
-                    "AND response_id=? AND call_id=? "
+                    "AND segment_id=? AND response_id=? AND call_id=? "
                     "AND status IN ('completed', 'failed')",
-                    (run_id, outcome["response_id"], call["call_id"]),
+                    (run_id, segment_id, outcome["response_id"], call["call_id"]),
                 ).fetchone()
                 if row is None or json.loads(row[0])["output"] is None:
                     raise WorkContextUnavailableError("A saved tool result is missing.")
