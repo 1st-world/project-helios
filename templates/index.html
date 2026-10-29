@@ -164,7 +164,7 @@
           </div>
         </section>
       </div>
-      <div class="work-tools-settings-footer"><div class="dialog-actions"><button class="quiet" type="button" data-close-dialog="work-tools-settings-dialog"><i data-lucide="x" aria-hidden="true"></i><span>Cancel</span></button><button id="apply-work-tools-settings" class="primary-btn" type="submit"><i data-lucide="check" aria-hidden="true"></i><span>Apply</span></button></div></div>
+      <div class="work-tools-settings-footer"><p id="work-tools-settings-status" class="field-hint" role="status"></p><div class="dialog-actions"><button class="quiet" type="button" data-close-dialog="work-tools-settings-dialog"><i data-lucide="x" aria-hidden="true"></i><span>Cancel</span></button><button id="apply-work-tools-settings" class="primary-btn" type="submit"><i data-lucide="check" aria-hidden="true"></i><span>Apply</span></button></div></div>
     </form>
   </dialog>
 
@@ -179,7 +179,7 @@
       <div><i data-lucide="folder"></i><h2 id="workspace-title">Workspace</h2></div>
       <button class="dialog-close" type="button" data-close-dialog="workspace-dialog" aria-label="Close"><i data-lucide="x"></i></button>
     </div>
-    <form id="workspace-form" class="workspace-form">
+    <form id="workspace-form" class="workspace-form" novalidate>
       <div class="workspace-body">
         <div class="info-callout">
           <i data-lucide="info" aria-hidden="true"></i>
@@ -215,7 +215,7 @@
           <button id="disconnect-workspace" class="danger-btn workspace-leading-action" type="button" title="Disconnect this conversation's workspace" aria-label="Disconnect workspace" disabled><i data-lucide="unplug" aria-hidden="true"></i><span class="workspace-action-label">Disconnect</span></button>
           <div class="dialog-actions-right">
             <button class="quiet" type="button" data-close-dialog="workspace-dialog"><i data-lucide="x" aria-hidden="true"></i><span>Cancel</span></button>
-            <button id="apply-workspace" class="primary-btn" type="submit"><i data-lucide="check" aria-hidden="true"></i><span>Apply</span></button>
+            <button id="apply-workspace" class="primary-btn" type="submit" disabled><i data-lucide="check" aria-hidden="true"></i><span>Apply</span></button>
           </div>
         </div>
       </div>

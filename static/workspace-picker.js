@@ -169,7 +169,10 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
     workspaceReady.then(() => {
       input.removeEventListener('input', markEdited);
       // Fill only missing initial data, never a selected path or a user's draft.
-      if (savedPath === null && !edited && input.value === initialPath && !initialPath) input.value = getWorkspaceRoot() || '';
+      if (savedPath === null && !edited && input.value === initialPath && !initialPath) {
+        input.value = getWorkspaceRoot() || '';
+        onStateChange();
+      }
     });
   }
 

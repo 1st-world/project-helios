@@ -27,10 +27,12 @@ export function createWorkToolSettings({ getWorkspace, isGenerating }) {
   }
 
   function restoreDraft() {
+    $('#work-tools-settings-status').textContent = '';
     baseline = fields.map(([id, key]) => {
       const input = $(`#${id}`);
       input.value = applied[key] == null ? '' : String(applied[key]);
       input.setCustomValidity('');
+      input.removeAttribute('aria-invalid');
       return input.value;
     });
   }
@@ -44,7 +46,12 @@ export function createWorkToolSettings({ getWorkspace, isGenerating }) {
           || (key === 'max_model_calls' && !Number.isSafeInteger(input.valueAsNumber))))) {
         input.setCustomValidity(key === 'max_model_calls' ? 'Enter a positive whole number.' : 'Enter a number greater than zero.');
       }
-      if (!input.reportValidity()) return null;
+      if (input.validity.customError) {
+        input.setAttribute('aria-invalid', 'true');
+        $('#work-tools-settings-status').textContent = 'Review the highlighted settings before applying.';
+        input.focus();
+        return null;
+      }
       if (input.value !== '') limits[key] = input.valueAsNumber;
     }
     return limits;
@@ -79,7 +86,11 @@ export function createWorkToolSettings({ getWorkspace, isGenerating }) {
     dialog.close();
     toast('Work tools settings applied.', 'success');
   };
-  fields.forEach(([id]) => $(`#${id}`).addEventListener('input', event => event.target.setCustomValidity('')));
+  fields.forEach(([id]) => $(`#${id}`).addEventListener('input', event => {
+    event.target.setCustomValidity('');
+    event.target.removeAttribute('aria-invalid');
+    $('#work-tools-settings-status').textContent = '';
+  }));
   document.addEventListener('workspace-change', updateState);
   dialog.addEventListener('close', () => {
     if (dialog.open) return;

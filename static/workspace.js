@@ -444,7 +444,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     });
     $('#workspace-path-input').disabled = busy;
     picker.update();
-    $('#apply-workspace').disabled = busy;
+    $('#apply-workspace').disabled = busy || !$('#workspace-path-input').value.trim();
     $('#disconnect-workspace').disabled = busy || !connected;
     $('#preview-workspace-context').setAttribute('aria-disabled', String(busy || !connected));
     $('#preview-workspace-context').title = connected ? 'Preview the connected workspace context' : 'Connect a workspace to preview its context';
@@ -718,9 +718,11 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
       updateSelection();
     });
 
+    $('#workspace-path-input').addEventListener('input', updateWorkspaceControls);
     $('#workspace-form').onsubmit = async event => {
       event.preventDefault();
-      await changeWorkspace($('#workspace-path-input').value.trim());
+      const path = $('#workspace-path-input').value.trim();
+      if (path) await changeWorkspace(path);
     };
     $('#load-file').onclick = openFileDialog;
     picker.init();

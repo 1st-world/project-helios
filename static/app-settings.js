@@ -225,7 +225,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     if (invalid) {
       const disclosure = invalid.closest('details');
       if (disclosure) disclosure.open = true;
-      invalid.reportValidity();
+      invalid.focus();
       setStatus('Review the highlighted settings before saving.', 'error');
       return false;
     }

@@ -2546,6 +2546,13 @@ textarea::placeholder {
   padding-top: 12px;
   border-top: 1px solid var(--border);
 }
+.work-tools-settings #work-tools-settings-status {
+  color: var(--danger);
+}
+.work-tools-settings [aria-invalid="true"] {
+  border-color: var(--danger);
+  animation: settings-invalid-emphasis 0.5s ease-out;
+}
 .work-tools-settings .dialog-actions {
   margin-top: 0;
 }
@@ -3195,8 +3202,14 @@ textarea::placeholder {
 .preferences-dialog .profile-context-settings button[hidden] {
   display: none;
 }
-.preferences-dialog .profile-context-settings [aria-invalid="true"] {
+.preferences-dialog .settings-editor-form [aria-invalid="true"] {
   border-color: var(--danger);
+  animation: settings-invalid-emphasis 0.5s ease-out;
+}
+@keyframes settings-invalid-emphasis {
+  40% {
+    box-shadow: 0 0 0 5px var(--danger-border);
+  }
 }
 
 .preferences-dialog .app-settings-form .settings-preference-control {
@@ -4223,6 +4236,9 @@ textarea::placeholder {
   overflow-wrap: anywhere;
 }
 
+.workspace-manager #workspace-path-input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
 .workspace-manager .workspace-project-context p {
   margin: 0;
 }
@@ -4859,6 +4875,8 @@ button svg,
 
 @media (prefers-reduced-motion: reduce) {
   .response-progress .response-progress-indicator,
+  .preferences-dialog .settings-editor-form [aria-invalid="true"],
+  .work-tools-settings [aria-invalid="true"],
   .action-dialog,
   .action-dialog::backdrop,
   .work-tools-settings,

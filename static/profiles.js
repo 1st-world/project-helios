@@ -154,6 +154,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
   function resetProfileForm() {
     if (state.saving) return;
     state.editingProfileId = null;
+    $('#azure-settings-form').querySelectorAll('[aria-invalid]').forEach(input => input.removeAttribute('aria-invalid'));
     $('#editing-profile-id').value = '';
     $('#profile-form-title').textContent = 'Add new profile';
     $('#profile-name').value = '';
@@ -186,6 +187,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
 
   function selectProfileForEditing(profile) {
     if (state.saving) return;
+    $('#azure-settings-form').querySelectorAll('[aria-invalid]').forEach(input => input.removeAttribute('aria-invalid'));
     state.editingProfileId = profile.id;
     $('#editing-profile-id').value = profile.id;
     $('#profile-form-title').textContent = `Edit profile: ${profile.name}`;
@@ -553,7 +555,10 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
       else resetProfileForm();
       $('#settings-connections-tab').focus({ preventScroll: true });
     };
-    $('#azure-settings-form').addEventListener('input', () => setStatus(''));
+    $('#azure-settings-form').addEventListener('input', event => {
+      event.target.removeAttribute('aria-invalid');
+      setStatus('');
+    });
 
     const toggleKeyBtn = $('#toggle-api-key-btn');
     if (toggleKeyBtn) {
@@ -576,8 +581,9 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
       if (invalid) {
         const disclosure = invalid.closest('details');
         if (disclosure) disclosure.open = true;
-        invalid.reportValidity();
-        setStatus(invalid.validationMessage || 'Review the highlighted fields before saving.', 'error');
+        invalid.setAttribute('aria-invalid', 'true');
+        invalid.focus();
+        setStatus('Review the highlighted settings before saving.', 'error');
         return;
       }
       const editingId = $('#editing-profile-id').value;
@@ -585,13 +591,17 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
       const endpoint = $('#azure-endpoint').value.trim();
       const api_key = $('#azure-api-key').value.trim();
       const deployment = $('#azure-deployment').value.trim();
-      if (!name) return setStatus('Profile name is required.', 'error');
-      if (!endpoint) return setStatus('Azure endpoint is required.', 'error');
-      if (!editingId && !api_key) {
-        $('#azure-api-key').focus();
-        return setStatus('API key is required when creating a new profile.', 'error');
+      if (!name || !endpoint || !deployment) {
+        const input = !name ? $('#profile-name') : !deployment ? $('#azure-deployment') : $('#azure-endpoint');
+        input.setAttribute('aria-invalid', 'true');
+        input.focus();
+        return setStatus('Review the highlighted settings before saving.', 'error');
       }
-      if (!deployment) return setStatus('Deployment name is required.', 'error');
+      if (!editingId && !api_key) {
+        $('#azure-api-key').setAttribute('aria-invalid', 'true');
+        $('#azure-api-key').focus();
+        return setStatus('Review the highlighted settings before saving.', 'error');
+      }
       const payload = { name, endpoint, deployment, ...profileContext.changes(Boolean(editingId)), ...cachePriceChanges(Boolean(editingId)) };
       payload.reasoning_summary = $('#profile-reasoning-summary').value;
       if (api_key) payload.api_key = api_key;
