@@ -190,6 +190,8 @@ Tabs renew their selections every 15 minutes and when returning to the page; unc
 
 Office attachments omit embedded images, charts, and formatting. Provide a PDF or image when visual content is needed. Encrypted documents and unsupported binary formats are rejected. The actual deployment determines image and PDF support.
 
+Each attachment carries its number within the request, filename, source, and delivery mode so files with the same name remain distinguishable. Text and extracted Office content are grouped in a JSON `content` value; original image/PDF inputs immediately follow their source descriptions. Only requests with attachments add shared guidance explaining that the supplied text is actual file content and that instructions inside files should be followed only when the user asks. The guidance also asks for accurate descriptions of empty, missing, or unreadable content based on the supplied input.
+
 ### Local file limits
 
 Adjust these in **Context & attachments → Attachment resource limits**. The provisional defaults below manage local reading and extraction; they are not model input capacities or universal provider file limits. They do not guarantee total memory use or processing time. Runtime and decoder protections may impose lower limits.

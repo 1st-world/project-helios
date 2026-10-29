@@ -1,10 +1,11 @@
 """Resolve workspace and uploaded sources into bounded text or native visual inputs.
 
-Keep binary payloads out of stored transcripts and expose metadata for future clients.
+Label supplied content for model input while keeping binary payloads out of stored transcripts.
 """
 
 import base64
 import hashlib
+import json
 import warnings
 from collections.abc import Generator
 from contextlib import closing
@@ -194,11 +195,10 @@ class AttachmentService:
                 total += len(data)
                 parts, metadata, estimate = self._prepare_file(name, data)
                 metadata.update(source=source.source, reference=reference)
-                if source.source == "upload":
-                    parts.insert(0, {
-                        "type": "input_text",
-                        "text": f"Uploaded attachment {source.attachment_id}: {name}",
-                    })
+                parts = self._file_content(
+                    len(result.metadata) + 1, name, source.source,
+                    metadata["delivery"], parts,
+                )
                 check_local_cancelled()
             except AttachmentError:
                 raise
@@ -259,7 +259,7 @@ class AttachmentService:
                 part, dimensions = self._image(path, data)
                 metadata.update(kind="image", delivery="native", **dimensions)
                 return (
-                    self._label(path, part),
+                    [part],
                     metadata,
                     self._visual_estimate(
                         dimensions["width"], dimensions["height"]
@@ -272,7 +272,7 @@ class AttachmentService:
                     "The local PDF estimate covers page visuals only; provider-extracted text and rendering can change token usage."
                 ]
                 return (
-                    self._label(path, part),
+                    [part],
                     metadata,
                     estimate,
                 )
@@ -323,7 +323,7 @@ class AttachmentService:
                 [
                     {
                         "type": "input_text",
-                        "text": f"Attached file: {path}\n{text}",
+                        "text": text,
                     }
                 ],
                 metadata,
@@ -355,9 +355,25 @@ class AttachmentService:
             ) from exc
 
     @staticmethod
-    def _label(path: str, part: dict) -> list[dict]:
-        """Keep a filename label adjacent to its native visual content."""
-        return [{"type": "input_text", "text": f"Attached file: {path}"}, part]
+    def _file_content(
+        number: int, filename: str, source: str, delivery: str, parts: list[dict],
+    ) -> list[dict]:
+        """Bind file identity to escaped text or its following native content part."""
+        description = {
+            "attachment": number, "filename": filename,
+            "source": source, "delivery": delivery,
+        }
+        if delivery in {"text", "extracted_text"}:
+            description["content"] = parts[0]["text"]
+            heading = "\n\nAttached file content (JSON):\n"
+            content = []
+        else:
+            heading = "\n\nAttached file (next content part):\n"
+            content = parts
+        return [{
+            "type": "input_text",
+            "text": heading + json.dumps(description, ensure_ascii=False),
+        }, *content]
 
     def _check_text(self, path: str, text: str) -> None:
         """Reject oversized extracted content without silently truncating documents."""
