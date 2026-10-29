@@ -1,6 +1,6 @@
 /* Own connection profiles, model selection, and credential, context, and pricing editing. */
 
-import { $, closeMobileSidebar, escapeHtml, refreshIcons, toast } from './ui.js';
+import { $, closeMobileSidebar, escapeHtml, nameInText, refreshIcons, toast } from './ui.js';
 import { selectSettingsPanel } from './settings.js';
 import { createProfileContext } from './profile-context.js';
 import { describeRequestError } from './chat-feedback.js';
@@ -27,13 +27,14 @@ function readPrice(id) {
   return { value: input.value === '' || invalid ? null : input.valueAsNumber, invalid };
 }
 
-export function createProfiles({ isGenerating, onModelContextChange = () => {} }) {
+export function createProfiles({ isGenerating, onModelContextChange = () => {}, onSelectionChange = () => {} }) {
   const state = { defaultProfileId: null, editingProfileId: null, profiles: [], formBaseline: null, saving: false, defaultSaving: false, feedback: null, catalogLoaded: false, catalogError: '', online: true };
   const profileContext = createProfileContext({ isSaving: () => state.saving });
   const modelSelection = createModelSelection({ onChange: renderModelSelection });
   let catalogPromise = null;
   let modelContextSignature = '';
   let cachePriceBaseline = {};
+  let pausedRun = null;
 
   function selectCachePrices(profile) {
     cachePriceBaseline = {};
@@ -253,7 +254,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {} }
       }
       $('#model-trigger').setAttribute('aria-busy', String(model.saving));
       $('#model-trigger').title = model.saving ? 'Saving the model selection for this conversation.' : activeProfile
-        ? `Next response model: ${activeProfile.name} (${activeProfile.deployment || 'No deployment'})`
+        ? `${pausedRun ? `Continue paused work with ${nameInText(activeProfile.name)}` : `Next response model: ${activeProfile.name}`} (${activeProfile.deployment || 'No deployment'})`
         : model.profileId ? 'The saved model profile is unavailable. Choose another model for this conversation.' : 'Select a model for this conversation';
       if (select) select.title = $('#model-trigger').title;
     }
@@ -261,7 +262,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {} }
     $('#model-selection-status').textContent = model.error || state.catalogError || (model.saving ? 'Saving model selection...'
       : !model.ready ? 'Loading saved model selection...'
       : !activeProfile ? model.profileId ? 'The saved model is unavailable. Choose another model.' : 'Choose a model for this conversation.'
-      : 'Choose a model for the next response.');
+      : pausedRun ? 'Choose a model to continue this run.' : 'Choose a model for the next response.');
     $('#reload-model-selection').hidden = model.ready && !model.error && !state.catalogError;
     $('#reload-model-selection').disabled = model.saving;
 
@@ -281,7 +282,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {} }
           item.disabled = model.saving || !model.ready;
           item.setAttribute('role', 'option');
           item.setAttribute('aria-selected', String(p.id === activeProfile?.id));
-          item.title = `Use ${p.name} (${p.deployment || 'No deployment'}) for this conversation`;
+          item.title = `Use ${nameInText(p.name)} (${p.deployment || 'No deployment'}) for this conversation`;
           item.innerHTML = `
             <span class="model-item-check"><i data-lucide="check"></i></span>
             <span class="model-item-info">
@@ -316,6 +317,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {} }
       onModelContextChange();
     }
     refreshIcons();
+    onSelectionChange();
   }
 
   function renderProfiles(data) {
@@ -499,6 +501,17 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {} }
     }
   }
 
+  function setPausedRun(run) {
+    pausedRun = run;
+    renderModelSelection();
+  }
+
+  function getModelSelection() {
+    const selected = modelSelection.snapshot();
+    return { ...selected, profile: state.profiles.find(profile => profile.id === selected.profileId),
+      signature: modelContextSignature, ready: selected.ready && state.catalogLoaded && !state.catalogError };
+  }
+
   function init() {
     profileContext.init();
     for (const [id] of CACHE_PRICE_FIELDS) {
@@ -644,9 +657,9 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {} }
     $('#delete-profile-btn').onclick = async () => {
       const editingId = $('#editing-profile-id').value;
       if (!editingId || state.saving || state.defaultSaving) return;
-      const name = state.profiles.find(profile => profile.id === editingId)?.name || 'this profile';
+      const name = state.profiles.find(profile => profile.id === editingId)?.name;
       const deleted = await showActionDialog({ title: 'Delete profile?',
-        description: `Delete “${name}”? Conversations using this profile will need another model selection. Paused runs using this connection cannot resume. This cannot be undone. Unsaved edits to this profile will also be lost.`,
+        description: `Delete ${nameInText(name, 'this profile')}? Conversations using this profile will need another model selection. Paused runs using this connection cannot resume. This cannot be undone. Unsaved edits to this profile will also be lost.`,
         confirmLabel: 'Delete profile', danger: true,
         async onConfirm() {
           const response = await fetch(`/api/profiles/${editingId}`, { method: 'DELETE' });
@@ -675,7 +688,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {} }
 
   return { init, load: loadProfiles, checkHealth: health, setGenerating, hasUnsavedChanges, isSaving: () => state.saving || state.defaultSaving,
     getSelectedProfileId: () => modelSelection.snapshot().profileId, getModelContextSignature: () => modelContextSignature,
-    prepareRequestProfile, refreshModelSelection, startDraft: modelSelection.startDraft,
+    prepareRequestProfile, refreshModelSelection, getModelSelection, setPausedRun, startDraft: modelSelection.startDraft,
     selectConversation, adoptConversation: modelSelection.adoptConversation,
     openSettings: openSettingsDialog };
 }

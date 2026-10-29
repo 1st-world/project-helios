@@ -46,6 +46,7 @@ const PROVIDER_TITLES = {
 };
 
 function recoveryActions(code) {
+  if (code.startsWith('handoff_')) return ['model', 'connections', 'usage'];
   if (code.startsWith('conversation_profile_')) return ['model', 'connections'];
   if (['connection_not_configured', 'provider_authentication_failed', 'provider_permission_denied', 'provider_resource_not_found', 'provider_deployment_not_found'].includes(code)) return ['connections'];
   if (['provider_throttled', 'provider_quota_exceeded', 'provider_timeout', 'provider_connection_failed', 'provider_unavailable', 'provider_stream_interrupted', 'provider_error', 'request_failed'].includes(code)) return ['usage', 'connections'];
@@ -75,7 +76,7 @@ export function describeRequestError(payload, fallback = 'Request failed.', stat
   }
 
   const code = cleanText(detail?.code);
-  const blocked = code === 'context_preflight_blocked';
+  const blocked = ['context_preflight_blocked', 'handoff_input_blocked'].includes(code);
   let title = (Object.hasOwn(PROVIDER_TITLES, code) ? PROVIDER_TITLES[code] : '') || (blocked ? 'Input check blocked'
     : code === 'provider_context_length_exceeded' ? 'Provider context limit exceeded'
     : code === 'context_recovery_unavailable' ? 'One-time recovery unavailable'
@@ -84,6 +85,11 @@ export function describeRequestError(payload, fallback = 'Request failed.', stat
     : code === 'conversation_profile_changed' ? 'Model selection changed'
     : code === 'conversation_profile_unavailable' ? 'Model profile unavailable'
     : code === 'conversation_profile_save_failed' ? 'Model selection not saved'
+    : code === 'handoff_conflict' ? 'Saved continuation changed'
+    : code === 'handoff_target_unavailable' ? 'Selected model unavailable'
+    : code === 'handoff_memory_policy' ? 'Selected model memory permission'
+    : code === 'handoff_target_changed' ? 'Selected model settings changed'
+    : code === 'handoff_output_unusable' ? 'Model response incompatible'
     : code === 'attachment_model_unsupported' ? 'Attachment unsupported by model'
     : code.startsWith('attachment_') ? 'Attachment request failed' : 'Request failed');
   if (detail?.phase === 'summary') title = `Memory summary: ${title}`;
@@ -117,7 +123,7 @@ export function describeRequestError(payload, fallback = 'Request failed.', stat
   const statusAlreadyShown = status === `HTTP ${detail?.http_status}` && details.includes(`Provider HTTP status: ${detail?.http_status}`);
   if (status && !statusAlreadyShown) details.push(status);
   return { title, message: message || fallback, details: details.filter(Boolean),
-    ...(blocked || code === 'work_run_paused' ? { tone: 'warning' } : {}),
+    ...(blocked || code === 'work_run_paused' || code.startsWith('handoff_') ? { tone: 'warning' } : {}),
     actions: recoveryActions(code),
     ...(code === 'provider_context_length_exceeded' && detail.recovery?.available === true ? { recovery: detail.recovery } : {}) };
 }

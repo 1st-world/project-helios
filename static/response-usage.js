@@ -1,5 +1,18 @@
 /* Describe response and model-call usage with explicit aggregate scope and incomplete-record qualifiers. */
 
+export function modelCallMetadata(step = {}, run = {}) {
+  const record = step.record || {};
+  const segments = run.execution_segments || [];
+  const segment = segments.find(item => item.id === step.segment_id) || (!step.segment_id ? segments[0] : null);
+  const profile = segment?.profile || (segments.length < 2 ? run.profile : null) || {};
+  return {
+    ...(record.usage || (step.status === 'in_progress' ? {} : { usage_status: 'unavailable', cost_status: 'unavailable' })),
+    profile_name: record.profile_name || record.profile?.name || profile.name,
+    deployment: record.deployment || record.profile?.deployment || profile.deployment,
+    created_at: record.started_at
+  };
+}
+
 export function workRunMetadata(run = {}) {
   const usage = run.usage;
   const totals = usage?.totals;

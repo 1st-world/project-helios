@@ -298,7 +298,7 @@ class WorkspaceService:
                     raise WorkspaceAccessError("Workspace text exceeds the local combined read limit.")
             except (OSError, WorkspaceAccessError) as exc:
                 raise WorkspaceAccessError(
-                    f"Cannot load workspace file {relative_path!r}: {exc}"
+                    f"Cannot load workspace file “{relative_path}”: {exc}"
                 ) from exc
             seen.add(resolved)
             path = resolved.relative_to(self.root).as_posix()

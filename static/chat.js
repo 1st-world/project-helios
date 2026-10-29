@@ -1,6 +1,6 @@
 /* Own conversation state, render messages and request feedback, and coordinate reply streaming and regeneration. */
 
-import { $, closeMobileSidebar, escapeHtml, refreshIcons, toast } from './ui.js';
+import { $, closeMobileSidebar, escapeHtml, nameInText, refreshIcons, toast } from './ui.js';
 import { describeContextWarning, describeRequestError } from './chat-feedback.js';
 import { describeWorkRun } from './work-run-status.js';
 import { describeAttachmentNotes } from './attachments.js';
@@ -10,8 +10,9 @@ import { showActionDialog } from './dialogs.js';
 import { createResponseFooter } from './response-footer.js';
 import { createResponseProgress } from './response-progress.js';
 import { createReasoningSummary } from './reasoning-summary.js';
+import { describeResume, resumeBoundary, resumeSelection } from './work-resume.js';
 
-export function createChat({ getActiveProfileId, prepareRequestProfile = async () => ({ profile_id: getActiveProfileId() }), selectModel, startModelDraft, adoptModel, refreshModelSelection, getAttachmentSelection, restoreAttachments, onAttachmentsSaved, getWorkspaceContext = () => ({}), selectWorkspace, startWorkspaceDraft, adoptWorkspace, onAttachmentMetadata, clearFocusFiles, onGeneratingChange, onConversationChange, openSettings, exploration }) {
+export function createChat({ getActiveProfileId, getModelSelection = () => ({}), onPausedModelChange = () => {}, prepareRequestProfile = async () => ({ profile_id: getActiveProfileId() }), selectModel, startModelDraft, adoptModel, refreshModelSelection, getAttachmentSelection, restoreAttachments, onAttachmentsSaved, getWorkspaceContext = () => ({}), selectWorkspace, startWorkspaceDraft, adoptWorkspace, onAttachmentMetadata, clearFocusFiles, onGeneratingChange, onConversationChange, openSettings, exploration }) {
   const state = {
     conversationId: null,
     conversationVersion: null,
@@ -21,6 +22,7 @@ export function createChat({ getActiveProfileId, prepareRequestProfile = async (
     generating: false,
     stopping: false,
     pausedRun: null,
+    resumePreparing: false,
     showConversationUsage: true,
     showResponseUsage: true,
     // Keep the latest request's feedback per conversation without storing estimates as transcript usage.
@@ -131,20 +133,24 @@ export function createChat({ getActiveProfileId, prepareRequestProfile = async (
 
   function updateComposerState() {
     const locked = Boolean(state.pausedRun) && !state.generating;
-    const optionsLocked = locked || state.generating || state.conversationLoading;
+    const modelLocked = state.generating || state.conversationLoading || state.resumePreparing;
+    const optionsLocked = locked || modelLocked;
+    const selection = getModelSelection();
     $('#composer-inputs').dataset.locked = String(locked);
     $('#composer-context-inputs').disabled = locked || state.conversationLoading;
     $('#composer-option-inputs').disabled = optionsLocked;
     prompt.disabled = locked || state.conversationLoading;
     $('#composer-pause-notice').hidden = !locked;
-    $('#composer-option-inputs').querySelectorAll('details').forEach(details => {
+    if (locked) $('#composer-pause-notice').textContent = `Paused on ${nameInText(state.pausedRun.profile?.name || state.pausedRun.profile?.deployment, 'the saved model')}. Choose a model to resume, or discard this run before sending another message.`;
+    document.querySelectorAll('.composer-options details').forEach(details => {
+      const disabled = details.id === 'model-picker' ? modelLocked : optionsLocked;
       const summary = details.querySelector('summary');
-      summary.setAttribute('aria-disabled', String(optionsLocked));
-      summary.tabIndex = optionsLocked ? -1 : 0;
-      if (optionsLocked) details.open = false;
+      summary.setAttribute('aria-disabled', String(disabled));
+      summary.tabIndex = disabled ? -1 : 0;
+      if (disabled) details.open = false;
     });
     const action = state.generating ? 'stop' : locked ? 'resume' : 'send';
-    const labels = { send: 'Send message', stop: 'Stop response', resume: 'Resume run' };
+    const labels = { send: 'Send message', stop: 'Stop response', resume: describeResume(state.pausedRun || {}, selection).label };
     const icons = { send: 'arrow-up', stop: 'square', resume: 'play' };
     if (send.dataset.action !== action) {
       send.dataset.action = action;
@@ -153,8 +159,11 @@ export function createChat({ getActiveProfileId, prepareRequestProfile = async (
     }
     send.setAttribute('aria-label', labels[action]);
     send.title = labels[action];
-    send.disabled = state.stopping || (!state.generating && state.conversationLoading) || action === 'resume' && (!pausedSource() || state.pausedRun.resume_available === false);
-    if (action === 'resume' && send.disabled) send.title = 'Resume unavailable. Review or discard the saved run.';
+    send.disabled = state.stopping || state.resumePreparing || (!state.generating && state.conversationLoading)
+      || action === 'resume' && (!pausedSource() || state.pausedRun.resume_available === false || !selection.ready || selection.saving || selection.available === false || !selection.profile?.is_configured);
+    if (action === 'resume' && send.disabled) send.title = state.resumePreparing || selection.saving ? 'Verifying the model selection...'
+      : !selection.ready || selection.available === false || !selection.profile?.is_configured ? 'Choose an available, configured model before resuming.'
+      : 'Resume unavailable. Review or discard the saved run.';
     chat.querySelectorAll('[data-requires-resolved-work]').forEach(button => {
       button.disabled = state.generating || Boolean(state.pausedRun);
     });
@@ -171,6 +180,7 @@ export function createChat({ getActiveProfileId, prepareRequestProfile = async (
   function setPausedRun(id, run) {
     if (id !== state.conversationId) return;
     state.pausedRun = run?.status === 'paused' ? run : null;
+    onPausedModelChange(state.pausedRun);
     updateComposerState();
   }
 
@@ -607,7 +617,7 @@ export function createChat({ getActiveProfileId, prepareRequestProfile = async (
 
   async function deleteConversation(item) {
     if (messageEditor?.saving) return;
-    const deleted = await showActionDialog({ title: 'Delete conversation?', description: `Delete “${item.title}”? This cannot be undone.`,
+    const deleted = await showActionDialog({ title: 'Delete conversation?', description: `Delete ${nameInText(item.title, 'this conversation')}? This cannot be undone.`,
       confirmLabel: 'Delete conversation', danger: true,
       async onConfirm() {
         const response = await fetch(`/api/conversations/${item.id}`, { method: 'DELETE' });
@@ -847,7 +857,8 @@ export function createChat({ getActiveProfileId, prepareRequestProfile = async (
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(options.resumeRun ? {
           conversation_id: requestConversationId,
-          expected_conversation_version: options.expectedConversationVersion
+          expected_conversation_version: options.expectedConversationVersion,
+          ...options.resumeTarget
         } : {
           prompt: text,
           conversation_id: requestConversationId,
@@ -865,7 +876,7 @@ export function createChat({ getActiveProfileId, prepareRequestProfile = async (
       });
       if (!response.ok) {
         const feedback = await readResponseError(response);
-        if (feedback.code?.startsWith('conversation_profile_')) await refreshModelSelection?.(requestConversationId);
+        if (feedback.code?.startsWith('conversation_profile_') || feedback.code?.startsWith('handoff_')) await refreshModelSelection?.(requestConversationId);
         throw Object.assign(new Error(feedback.message), { feedback });
       }
       reader = response.body.getReader();
@@ -1110,19 +1121,41 @@ export function createChat({ getActiveProfileId, prepareRequestProfile = async (
   }
 
   async function resumeWorkRun({ conversationId, run, source }) {
-    if (state.generating || messageEditor || run.status !== 'paused' || !source) return;
+    if (state.generating || state.resumePreparing || messageEditor || run.status !== 'paused' || !source) return;
     const version = state.conversationVersion;
     const viewVersion = state.conversationLoadVersion;
+    const boundary = resumeBoundary(run);
     const isCurrent = () => !state.generating && !messageEditor && state.conversationId === conversationId
-      && state.conversationVersion === version && state.conversationLoadVersion === viewVersion;
+      && state.conversationVersion === version && state.conversationLoadVersion === viewVersion
+      && resumeBoundary(state.pausedRun || {}) === boundary;
     if (!isCurrent()) return;
     const regenerating = run.kind === 'regeneration';
-    const model = run.profile?.name || 'the original model profile';
-    const deployment = run.profile?.deployment ? ` (${run.profile.deployment})` : '';
-    if (!await showActionDialog({ title: 'Resume this run?',
-      description: `Continue with ${model}${deployment} using this run’s original connection, tools, attachments and limits. The selected model for the next response does not change this run. The app checks the question, Workspace and saved file results before continuing. Further model calls may incur costs. Previous calls, cost and active time remain cumulative; time spent paused is excluded. Your message draft stays unchanged.`
-        + (regenerating ? ' Once completed, the regenerated answer replaces the previous answer and all following messages in this branch.' : ''),
-      confirmLabel: 'Resume' }) || !isCurrent()) return;
+    let resumeTarget;
+    state.resumePreparing = true;
+    updateComposerState();
+    try {
+      await refreshModelSelection(conversationId);
+      const prepared = await prepareRequestProfile();
+      if (!isCurrent()) return;
+      const selected = getModelSelection();
+      const approvedSelection = resumeSelection(selected);
+      const description = describeResume(run, selected);
+      if (!await showActionDialog(description) || !isCurrent()) return;
+      await refreshModelSelection(conversationId);
+      await prepareRequestProfile();
+      if (!isCurrent()) return;
+      if (resumeSelection(getModelSelection()) !== approvedSelection) throw new Error('The selected model or its settings changed. Review them and resume again.');
+      if (![run.execution_revision, run.checkpoint_revision].every(value => Number.isSafeInteger(value) && value >= 0)) throw new Error('Reload this conversation to verify its paused checkpoint before resuming.');
+      resumeTarget = { target_profile_id: prepared.profile_id, expected_profile_revision: prepared.expected_profile_revision,
+        expected_checkpoint_revision: run.checkpoint_revision, expected_execution_revision: run.execution_revision };
+    } catch (error) {
+      if (isCurrent()) toast(error.message || 'Could not verify the selected model. Reload its selection before resuming.', 'warning');
+      return;
+    } finally {
+      state.resumePreparing = false;
+      updateComposerState();
+    }
+    if (!resumeTarget || !isCurrent()) return;
     const previousReplyCreatedAt = regenerating
       ? messageMetadata.get([...chat.querySelectorAll('.message.user, .message.assistant')][source.index + 1])?.created_at : undefined;
     if (regenerating) {
@@ -1132,7 +1165,7 @@ export function createChat({ getActiveProfileId, prepareRequestProfile = async (
       });
     }
     return sendMessage({ prompt: source.content, appendUser: false, preserveDraft: true,
-      resumeRun: run, resumeUserIndex: source.index, sourceCreatedAt: source.created_at, expectedConversationVersion: version,
+      resumeRun: run, resumeTarget, resumeUserIndex: source.index, sourceCreatedAt: source.created_at, expectedConversationVersion: version,
       regenerateMessageIndex: regenerating ? source.index : undefined, previousReplyCreatedAt });
   }
 
@@ -1205,7 +1238,7 @@ export function createChat({ getActiveProfileId, prepareRequestProfile = async (
     const version = state.conversationVersion;
     const calls = Number.isSafeInteger(recovery.summary_call_limit) ? recovery.summary_call_limit : 'the configured number of';
     if (!await showActionDialog({ title: 'Summarize once and retry?',
-      description: `Use ${recovery.profile_name || 'the failed connection'} to summarize older complete turns. This can make up to ${calls} paid summary calls and one paid reply request. Reuse the failed request's question, workspace, and attachments, and preserve its latest complete turn. The summary is used only for this attempt. Automatic memory and saved memory stay unchanged.${recovery.replaces_following ? ' If successful, the new response replaces the selected response and removes all following messages.' : ''}`,
+      description: `Use ${nameInText(recovery.profile_name, 'the failed connection')} to summarize older complete turns. This can make up to ${calls} paid summary calls and one paid reply request. Reuse the failed request's question, workspace, and attachments, and preserve its latest complete turn. The summary is used only for this attempt. Automatic memory and saved memory stay unchanged.${recovery.replaces_following ? ' If successful, the new response replaces the selected response and removes all following messages.' : ''}`,
       confirmLabel: 'Allow summary & retry', danger: recovery.replaces_following === true })) return;
     if (state.generating || state.conversationId !== conversationId || state.conversationVersion !== version || recovery.used) return;
     recovery.used = true;
@@ -1249,7 +1282,7 @@ export function createChat({ getActiveProfileId, prepareRequestProfile = async (
     };
   }
 
-  return { init, newChat, prepareExploration, resumeWorkRun, stopWorkRun, setPausedRun, setUsageVisibility, setResponseUsageVisibility, renderUsageContent, usageFooter, isGenerating: () => state.generating,
+  return { init, newChat, prepareExploration, resumeWorkRun, stopWorkRun, setPausedRun, updateComposerState, setUsageVisibility, setResponseUsageVisibility, renderUsageContent, usageFooter, isGenerating: () => state.generating,
     setWorkspaceVersion(id, version) { if (id === state.conversationId && Number.isSafeInteger(version)) state.conversationVersion = version; }
   };
 }

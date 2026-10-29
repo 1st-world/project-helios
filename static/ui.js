@@ -1,4 +1,4 @@
-/* Provide shared DOM helpers, notifications, sidebar behavior, dialog interactions, and composer popover placement. */
+/* Provide shared display and DOM helpers, notifications, sidebar behavior, dialog interactions, and composer popover placement. */
 
 import { bindDialogBackdrop } from './dialogs.js';
 
@@ -8,6 +8,10 @@ export function escapeHtml(value) {
   const div = document.createElement('div');
   div.textContent = value;
   return div.innerHTML;
+}
+
+export function nameInText(value, fallback = '') {
+  return value ? `“${value}”` : fallback;
 }
 
 export function refreshIcons(root = document) {

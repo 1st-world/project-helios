@@ -2,6 +2,7 @@
 
 import { describeRequestError } from './chat-feedback.js';
 import { formatTimestamp } from './timezone.js';
+import { nameInText } from './ui.js';
 
 const activeStates = new Set(['preparing', 'model', 'tools', 'ready']);
 const goalOutcomes = {
@@ -30,8 +31,12 @@ export function describeWorkRun(run = {}) {
     : state('In progress', 'neutral');
   if (run.status === 'paused') {
     const details = ['Resume starts the next step and may make further paid model calls. Recorded calls, cost and active time remain cumulative; paused time is excluded.'];
+    if (run.last_handoff_failure) {
+      const failure = describeRequestError({ ...run.failure, code: run.last_handoff_failure });
+      details.unshift(`The model change was not completed${failure.title === 'Request failed' ? '' : ` (${failure.title})`}. The previous checkpoint is preserved. Review usage before retrying or choosing another model.`);
+    }
     if (Number.isFinite(Date.parse(run.pause_expires_at))) details.push(`Resume is available until ${formatTimestamp(run.pause_expires_at)}. Work never resumes automatically.`);
-    return state('Paused', 'neutral', 'Work paused between complete steps. No model call or tool is running. Resume checks the saved question, connection, Workspace and files before continuing. Resume or discard this run before sending another message.',
+    return state('Paused', 'neutral', `Work paused between complete steps${run.profile?.name ? ` on ${nameInText(run.profile.name)}` : ''}. No model call or tool is running. Choose a model in the composer to continue, or discard this run before sending another message. Resume checks the saved question, connection, Workspace and files.`,
       run.resume_available === false ? ['stop-run'] : ['resume-run', 'stop-run'], details);
   }
   if (run.status === 'completed') return run.adopted
@@ -79,6 +84,6 @@ export function describeWorkRun(run = {}) {
 
 export function workStepStatus(status) {
   const labels = { completed: 'Completed', failed: 'Failed', stopped: 'Stopped', cancelled: 'Cancelled', interrupted: 'Interrupted',
-    in_progress: 'In progress', pending: 'Pending' };
+    in_progress: 'In progress', pending: 'Pending', superseded: 'Not executed' };
   return Object.hasOwn(labels, status) ? labels[status] : 'Status unavailable';
 }

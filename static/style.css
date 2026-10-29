@@ -933,9 +933,6 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:not(:disabled):hover 
   color: var(--danger-text);
 }
 
-.exploration-records .exploration-call-usage[hidden] {
-  display: none;
-}
 .exploration-records .exploration-activity-empty {
   margin: 0;
   color: var(--text-muted);
@@ -1054,96 +1051,12 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:not(:disabled):hover 
 .exploration-records .exploration-step .quiet-btn {
   justify-self: start;
 }
-.exploration-records .exploration-call-usage {
+.exploration-records .exploration-call-footer {
   min-width: 0;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: var(--font-size-meta);
-  line-height: var(--line-height-description);
+  margin-top: 0;
 }
-.exploration-records .exploration-call-usage > summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  list-style: none;
-  cursor: pointer;
-}
-.exploration-records .exploration-call-usage > summary::-webkit-details-marker {
+.exploration-records .exploration-call-footer[hidden] {
   display: none;
-}
-.exploration-records .exploration-call-usage > summary:hover {
-  color: var(--text-sub);
-}
-.exploration-records .exploration-call-usage > summary:focus-visible {
-  outline: 2px solid var(--border-focus);
-  outline-offset: -2px;
-}
-.exploration-records .exploration-call-metrics {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-}
-.exploration-records .exploration-call-metric {
-  font-variant-numeric: tabular-nums;
-}
-.exploration-records .exploration-call-metric:not(:last-child)::after {
-  margin: 0 5px;
-  content: "\00b7";
-  color: var(--text-tertiary);
-}
-.exploration-records .exploration-call-cost {
-  color: var(--accent);
-  font-weight: var(--font-weight-emphasis);
-}
-.exploration-records .exploration-call-toggle {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 4px;
-  color: var(--text-sub);
-  line-height: var(--line-height-control);
-}
-.exploration-records .exploration-call-toggle svg {
-  flex: none;
-  width: 12px;
-  height: 12px;
-  transition: transform var(--motion-duration) var(--motion-easing);
-}
-.exploration-records .exploration-call-usage[open]:not([data-expanded="false"]) .exploration-call-toggle svg {
-  transform: rotate(180deg);
-}
-.exploration-records .exploration-call-body {
-  display: flow-root;
-}
-.exploration-records .exploration-call-usage:not([open]) > .exploration-call-body {
-  display: none;
-}
-.exploration-records .exploration-call-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  max-width: 32em;
-  margin: 6px 0 0;
-  gap: 6px 24px;
-}
-.exploration-records .exploration-call-fields > div {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-}
-.exploration-records .exploration-call-fields dt {
-  color: var(--text-muted);
-}
-.exploration-records .exploration-call-fields dd {
-  margin: 0;
-  color: var(--text-sub);
-  font-variant-numeric: tabular-nums;
-}
-.exploration-records .exploration-call-hint {
-  margin: 6px 0 0;
-  color: var(--text-muted);
 }
 
 .reasoning-summary {
@@ -1573,7 +1486,8 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:not(:disabled):hover 
    ======================================== */
 .composer-inputs,
 .context-bar,
-.composer-options {
+.composer-options,
+.composer-tool-inputs {
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -1644,6 +1558,12 @@ textarea::placeholder {
   flex: 1;
   align-items: center;
   gap: 9px;
+}
+
+.composer-tool-inputs {
+  display: flex;
+  align-items: center;
+  gap: inherit;
 }
 
 .quiet {
@@ -4765,8 +4685,7 @@ button svg,
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .message-footer .message-usage-fields,
-  .exploration-records .exploration-call-fields {
+  .message-footer .message-usage-fields {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -4966,8 +4885,7 @@ button svg,
   .exploration-evidence .evidence-details > summary svg,
   .exploration-evidence .evidence-details > summary,
   .exploration-records .exploration-run > summary,
-  .exploration-records .exploration-run > summary svg,
-  .exploration-records .exploration-call-toggle svg {
+  .exploration-records .exploration-run > summary svg {
     transition: none;
   }
   .sidebar,

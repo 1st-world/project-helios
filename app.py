@@ -1269,7 +1269,7 @@ async def resume_work_run(run_id: str, payload: WorkRunResumeRequest, request: R
                         "handoff_conflict", "The paused boundary changed before it could be claimed. Reload before resuming.",
                     ) from None
                 claimed = True
-                yield f"data: {json.dumps({'type': 'start', 'conversation_id': conversation.id, 'run_id': run_id, 'user_index': run['snapshot']['source_message']['user_index'], 'pause_available': True, 'active_elapsed_seconds': work_run_store.active_elapsed(run_id)})}\n\n"
+                yield f"data: {json.dumps({'type': 'start', 'conversation_id': conversation.id, 'run_id': run_id, 'user_index': run['snapshot']['source_message']['user_index'], 'pause_available': True, 'active_elapsed_seconds': work_run_store.active_elapsed(run_id), 'run': work_run_store.public_metadata(work_run_store.get(run_id), messages=conversation.messages)})}\n\n"
                 explorer = ProjectExplorer(
                     request_ai, work_run_store, run_id, workspace,
                     prepare_input=inputs, check_authority=authority, policy=policy,
@@ -1292,6 +1292,7 @@ async def resume_work_run(run_id: str, payload: WorkRunResumeRequest, request: R
                             event["run"] = work_run_store.public_metadata(
                                 work_run_store.get(run_id), messages=conversation.messages,
                             )
+                        event["segment_id"] = explorer.segment_id
                         yield f"data: {json.dumps(event)}\n\n"
                         if event["type"] == "paused":
                             return
@@ -1322,7 +1323,7 @@ async def resume_work_run(run_id: str, payload: WorkRunResumeRequest, request: R
                             and isinstance(exc, ContextChangedError) and current["status"] == "paused")):
                     work_run_store.finish(run_id, "stopped" if isinstance(exc, (ContextChangedError, ContextBudgetExceeded)) else "failed", reason=code)
                 work_run_store.record_failure(run_id, error)
-                yield f"data: {json.dumps({'type': 'error', **error, 'run_id': run_id, 'run_status': work_run_store.get(run_id)['status'], 'run_usage': work_run_store.usage(run_id, call_usage_store)})}\n\n"
+                yield f"data: {json.dumps({'type': 'error', **error, 'run_id': run_id, 'run_status': work_run_store.get(run_id)['status'], 'run_usage': work_run_store.usage(run_id, call_usage_store), 'run': work_run_store.public_metadata(work_run_store.get(run_id), messages=conversation.messages)})}\n\n"
             except HTTPException as exc:
                 detail = exc.detail if isinstance(exc.detail, dict) else {
                     "code": "handoff_conflict", "message": str(exc.detail),
@@ -2823,6 +2824,9 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                 start_event["user_index"] = source_user_index
                 start_event["pause_available"] = bool(resume_workspace_fingerprint)
                 start_event["active_elapsed_seconds"] = work_run_store.active_elapsed(run_id)
+                start_event["run"] = work_run_store.public_metadata(
+                    work_run_store.get(run_id), messages=conversation.messages,
+                )
             yield f"data: {json.dumps(start_event)}\n\n"
             if attachments.metadata:
                 metadata_event = {
@@ -2869,6 +2873,8 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                         event["run"] = work_run_store.public_metadata(
                             work_run_store.get(run_id), messages=conversation.messages,
                         )
+                    if run_id is not None:
+                        event["segment_id"] = explorer.segment_id
                     yield f"data: {json.dumps(event)}\n\n"
                     if event["type"] == "paused":
                         return

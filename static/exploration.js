@@ -4,7 +4,7 @@ import { $, refreshIcons, toast } from './ui.js';
 import { showActionDialog } from './dialogs.js';
 import { renderExplorationEvidence } from './exploration-evidence.js';
 import { createDisclosure } from './disclosure.js';
-import { usageView, workRunMetadata } from './response-usage.js';
+import { modelCallMetadata, workRunMetadata } from './response-usage.js';
 import { createResponseFooter } from './response-footer.js';
 import { createResponseProgress, workProgressLabel } from './response-progress.js';
 import { createReasoningSummary, renderReasoningText } from './reasoning-summary.js';
@@ -136,7 +136,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       const message = linkedMessage(card);
       let destination;
       const answering = card.showingAnswer && card.targets?.assistant?.isConnected;
-      const ordinary = !card.hasTools && activeStates.has(card.run.status) && card.targets?.assistant?.isConnected;
+      const ordinary = !card.presentingWork && activeStates.has(card.run.status) && card.targets?.assistant?.isConnected;
       if (card.hasAnswer && message || answering || ordinary) {
         destination = (answering || ordinary ? card.targets.assistant : message).querySelector('.message-body');
         if (ordinary) card.targets.assistant.hidden = false;
@@ -160,9 +160,10 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
         destination.insertBefore(card.details, destination.firstChild);
         if (hadFocus) focused.focus({ preventScroll: true });
       }
-      if (card.progressView && !card.hasTools && card.details.hidden) {
+      if (card.progressView && !card.presentingWork && card.details.hidden) {
         card.summaryView.setProgress(null);
-        destination.insertBefore(card.progressView.el, destination.querySelector('.message-footer'));
+        const footer = [...destination.children].find(element => element.classList.contains('message-footer')) || null;
+        destination.insertBefore(card.progressView.el, footer);
       }
       if (card.hasAnswer && card.result) {
         card.resultMetadata.destroy();
@@ -285,37 +286,42 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
   function updateCard(card) {
     const hadTools = card.presentingWork;
     card.hasTools ||= card.run.has_tool_activity === true || (card.run.has_tool_activity == null && !card.live);
-    card.summaryView.setWork(card.hasTools);
-    card.steps.hidden = !card.hasTools;
-    if (!card.hasTools) {
+    const process = card.hasTools || card.run.execution_segments?.length > 1;
+    card.summaryView.setWork(process);
+    card.steps.hidden = !process;
+    orderSteps(card);
+    if (!process) {
       const saved = messageTargets.find(message => message.role === 'assistant' && message.run_id === card.run.id);
       const parts = !card.live && saved ? saved.reasoning_summary || []
         : card.stepData.size ? [...card.stepData.values()].flatMap(step => step.reasoning_summary || []) : [];
       card.summaryView.update(parts);
     } else if (!hadTools) card.summaryView.update([]);
-    card.presentingWork = card.hasTools;
+    card.presentingWork = process;
     renderOutcome(card);
   }
 
   function loadVisibleActivity(card) {
-    const needsSummary = !card.hasTools && !card.live && !card.hasAnswer;
-    if (!card.loading && !card.loaded && (card.hasTools && card.details.open || needsSummary)) loadActivity(card);
+    const needsSummary = !card.presentingWork && !card.live && !card.hasAnswer;
+    if (!card.loading && !card.loaded && (card.presentingWork && card.details.open || needsSummary)) loadActivity(card);
   }
 
-  function addFact(list, label, value) {
-    const row = node('div');
-    row.append(node('dt', label), node('dd', value));
-    list.append(row);
+  function orderSteps(card) {
+    const rows = [...card.stepViews.values()].sort((left, right) =>
+      (left.position ?? Infinity) - (right.position ?? Infinity)).map(view => view.row);
+    rows.forEach((row, index) => {
+      if (card.steps.children[index] !== row) card.steps.insertBefore(row, card.steps.children[index] || null);
+    });
   }
 
   function appendStep(card, step, position) {
     card.empty?.remove();
     card.empty = null;
     const key = stepKey(step, position);
-    const signature = JSON.stringify([step.name, step.status, step.record?.usage, step.result_available, step.reasoning_summary, step.intermediate_text]);
+    const signature = JSON.stringify([step.name, step.status, step.record, step.result_available, step.reasoning_summary, step.intermediate_text]);
     card.stepData.set(key, step);
     let view = card.stepViews.get(key);
-    if (view?.signature === signature) return;
+    if (view && position != null) view.position = position;
+    if (view?.signature === signature) { orderSteps(card); return; }
     const followBottom = card.live && card.details.open && card.body.scrollHeight - card.body.scrollTop - card.body.clientHeight <= 32;
     if (!view) {
       const row = node('div', null, 'exploration-step');
@@ -336,7 +342,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       stepDetails.append(heading, body);
       row.append(stepDetails);
       card.steps.append(row);
-      view = { row, stepDetails, body, status };
+      view = { row, stepDetails, body, status, position };
       view.stepController = createDisclosure(stepDetails, body);
       if (step.kind === 'model') {
         view.content = node('div', null, 'exploration-model-content');
@@ -348,9 +354,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     view.status.textContent = workStepStatus(step.status);
     if (step.kind === 'model') {
       renderModelContent(view, step);
-      renderCallUsage(view, step);
-      view.pendingUsage = step.status === 'in_progress' && !step.record?.usage;
-      view.details.hidden = !historyVisibility || view.pendingUsage;
+      renderCallFooter(view, step, card.run);
     } else if (step.result_available && !view.resultButton) {
       const open = button('Open saved result', () => openEvidence(card.run.id, card.stepData.get(key), open));
       view.resultButton = open;
@@ -361,44 +365,29 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     }
     updateStepBody(view);
     view.signature = signature;
+    orderSteps(card);
     if (followBottom) card.body.scrollTop = card.body.scrollHeight;
     refreshIcons(view.row);
   }
 
-  function renderCallUsage(view, step) {
-    const signature = JSON.stringify(step.record?.usage);
-    if (view.details && view.usageSignature === signature) return;
-    view.controller?.finish();
-    const expanded = view.details?.open === true;
-    view.controller?.destroy();
-    view.details?.remove();
-    const usage = usageView(step.record?.usage || { usage_status: 'unavailable', cost_status: 'unavailable' });
-    const details = node('details', null, 'exploration-call-usage');
-    details.open = expanded;
-    const summary = node('summary');
-    const metrics = node('span', null, 'exploration-call-metrics');
-    for (const item of usage.summary) metrics.append(node('span', item.text, `exploration-call-metric${item.cost ? ' exploration-call-cost' : ''}`));
-    const toggle = node('span', 'Details', 'exploration-call-toggle');
-    const chevron = node('i');
-    chevron.setAttribute('data-lucide', 'chevron-down');
-    chevron.setAttribute('aria-hidden', 'true');
-    toggle.append(chevron);
-    summary.append(metrics, toggle);
-    const body = node('div', null, 'exploration-call-body');
-    const fields = node('dl', null, 'exploration-call-fields');
-    for (const field of usage.rows) addFact(fields, field.label, field.value);
-    if (usage.longTier) addFact(fields, 'Pricing tier', 'Long tier');
-    body.append(fields);
-    for (const hint of usage.hints) body.append(node('p', hint, 'exploration-call-hint'));
-    details.append(summary, body);
-    view.body.append(details);
-    view.details = details;
-    view.usageSignature = signature;
-    view.controller = createDisclosure(details, body);
+  function renderCallFooter(view, step, run) {
+    if (!view.metadata) {
+      view.footer = node('div', null, 'message-footer exploration-call-footer');
+      view.body.append(view.footer);
+      view.metadata = createResponseFooter(view.footer, {
+        timeLabel: 'Model call started', onResize() { renderContent(() => {}); }
+      });
+    }
+    const meta = modelCallMetadata(step, run);
+    view.pendingUsage = step.status === 'in_progress' && !step.record?.usage;
+    view.metadata.update(meta);
+    view.metadata.setUsageVisibility(historyVisibility && !view.pendingUsage);
+    view.hasMetadata = Boolean(meta.profile_name || meta.deployment || meta.created_at);
+    view.footer.hidden = !view.hasMetadata && (!historyVisibility || view.pendingUsage);
   }
 
   function updateStepBody(view) {
-    view.body.hidden = !view.summary && !view.output && !view.resultButton && (!view.details || view.details.hidden);
+    view.body.hidden = !view.summary && !view.output && !view.resultButton && (!view.footer || view.footer.hidden);
   }
 
   function beginAnswer(card) {
@@ -407,7 +396,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     if (card.details.contains(document.activeElement)) card.details.querySelector('summary').focus({ preventScroll: true });
     card.summaryView.answerStarted();
     card.stepViews.forEach(view => {
-      view.controller?.finish();
+      view.metadata?.finish();
       view.stepController.finish(false);
     });
   }
@@ -465,11 +454,12 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
 
   function updateStep(card, step) {
     const key = stepKey(step);
-    appendStep(card, { ...card.stepData.get(key), ...step }, card.stepData.size);
+    // Activity pages assign durable order when earlier steps arrive after live updates.
+    appendStep(card, { ...card.stepData.get(key), ...step });
   }
 
   function stepKey(step, position = '') {
-    return `${step.kind}:${step.kind === 'tool' ? `${step.response_id}:` : ''}${step.call_id ?? position}`;
+    return JSON.stringify([step.segment_id || '', step.kind, step.kind === 'tool' ? step.response_id : '', step.call_id ?? position]);
   }
 
   function clearEvidence() {
@@ -490,6 +480,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     const id = conversationId;
     try {
       const query = new URLSearchParams({ response_id: step.response_id, call_id: step.call_id });
+      if (step.segment_id) query.set('segment_id', step.segment_id);
       const result = await json(`${base(id)}/${encodeURIComponent(runId)}/evidence?${query}`, controller.signal, 'Saved result');
       if (controller !== evidenceController || !evidence.open || id !== conversationId) return;
       renderExplorationEvidence(target, result, step.name);
@@ -659,7 +650,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     renderAnchor = visible ? { card: visible, top: (visible.result || visible.details).getBoundingClientRect().top } : null;
     cards.forEach(card => {
       card.resultMetadata?.finish();
-      card.stepViews.forEach(view => { view.controller?.finish(); view.stepController.finish(); });
+      card.stepViews.forEach(view => { view.metadata?.finish(); view.stepController.finish(); });
       card.disclosure.finish();
     });
   }
@@ -686,7 +677,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       if (evidence.open) evidence.close();
       cards.forEach(card => {
         card.progressView?.destroy();
-        card.stepViews.forEach(view => { view.controller?.destroy(); view.stepController.destroy(); });
+        card.stepViews.forEach(view => { view.metadata?.destroy(); view.stepController.destroy(); });
         card.resultMetadata?.destroy();
         card.disclosure.destroy();
         card.result?.remove();
@@ -700,7 +691,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     } else {
       cards.forEach(card => {
         card.resultMetadata?.finish();
-        card.stepViews.forEach(view => { view.controller?.finish(); view.stepController.finish(); });
+        card.stepViews.forEach(view => { view.metadata?.finish(); view.stepController.finish(); });
         card.disclosure.finish();
         card.activityToken = null;
         card.loadingNode?.remove();
@@ -739,12 +730,13 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
         previous.progressView = null;
         previous.summaryView.finish(true);
       }
-      addCard({ ...(previous ? {} : { has_tool_activity: false, goals: {}, profile: {} }), id: event.run_id,
+      addCard({ ...(previous ? {} : { has_tool_activity: false, goals: {}, profile: {} }), ...event.run, id: event.run_id,
         status: 'preparing', pause_requested: false }, true, targets);
       attach();
     }
     const card = cards.get(event.run_id);
     if (!card) return;
+    const segmentId = event.segment_id || card.run.execution_segment_id;
     if (targets) card.targets = targets;
     if (['work_progress', 'work_usage', 'error', 'done', 'paused'].includes(event.type)) {
       card.activityRevision = (card.activityRevision || 0) + 1;
@@ -755,30 +747,30 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       card.loaded = false;
       if (event.phase === 'model' && event.call_id) {
         card.currentCallId = event.call_id;
-        updateStep(card, { kind: 'model', call_id: event.call_id, status: 'in_progress' });
+        updateStep(card, { kind: 'model', segment_id: segmentId, call_id: event.call_id, status: 'in_progress' });
       } else if (event.call_id && ['tool', 'tool_completed'].includes(event.phase)) {
         card.hasTools = true;
-        updateStep(card, { kind: 'tool', call_id: event.call_id, response_id: event.response_id,
+        updateStep(card, { kind: 'tool', segment_id: segmentId, call_id: event.call_id, response_id: event.response_id,
           name: event.name, status: event.phase === 'tool' ? 'in_progress' : event.failed ? 'failed' : 'completed',
           result_available: event.phase === 'tool_completed' });
       }
     }
     if (event.type === 'work_output') {
-      if (event.delta || event.text) card.phase = card.hasTools ? workProgressLabel(event) : 'Receiving response';
-      const previous = card.stepData.get(`model:${event.call_id}`);
-      updateStep(card, { kind: 'model', call_id: event.call_id, response_id: event.response_id || previous?.response_id,
+      if (event.delta || event.text) card.phase = card.presentingWork ? workProgressLabel(event) : 'Receiving response';
+      const previous = card.stepData.get(stepKey({ kind: 'model', segment_id: segmentId, call_id: event.call_id }));
+      updateStep(card, { kind: 'model', segment_id: segmentId, call_id: event.call_id, response_id: event.response_id || previous?.response_id,
         status: previous?.status || 'in_progress',
         intermediate_text: event.text ?? `${previous?.intermediate_text || ''}${event.delta || ''}` });
     }
     if (event.type === 'work_usage') {
       card.phase = workProgressLabel(event);
       card.loaded = false;
-      if (event.call_id) updateStep(card, { kind: 'model', call_id: event.call_id, status: 'completed', record: { usage: event.usage } });
+      if (event.call_id) updateStep(card, { kind: 'model', segment_id: segmentId, call_id: event.call_id, status: 'completed', record: { usage: event.usage, profile: event.profile } });
       loadPage();
     }
     if (event.type === 'run_usage') card.run.usage = event.usage;
     if (event.type === 'reasoning_summary') {
-      updateStep(card, { kind: 'model', call_id: event.call_id,
+      updateStep(card, { kind: 'model', segment_id: segmentId, call_id: event.call_id,
         reasoning_summary: event.parts || [] });
       card.phase = event.parts?.some(part => part.status === 'in_progress') ? workProgressLabel(event) : 'Waiting for model';
     }
@@ -813,6 +805,8 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     }
     if (event.type === 'error' || event.type === 'done') {
       if (event.type === 'done') beginAnswer(card);
+      Object.assign(card.run, event.run || {});
+      if (event.response_metadata?.execution_segments) card.run.execution_segments = event.response_metadata.execution_segments;
       card.run.status = event.run_status || (event.type === 'done' ? 'completed' : 'failed');
       card.run.adopted = event.type === 'done';
       if (event.response_metadata?.has_tool_activity === true) card.hasTools = true;
@@ -827,6 +821,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       }
       card.phase = null;
       card.live = false;
+      if (card.run.status === 'paused') onPausedChange(conversationId, card.run);
       if (event.type === 'error') {
         for (const step of card.stepData.values()) {
           if (step.kind !== 'model') continue;
@@ -879,7 +874,12 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
 
   return {
     selection, resetChoice, show, prepareRender, restorePosition, selectForNextResponse,
-    refreshTimestamps() { cards.forEach(card => card.resultMetadata?.refreshTimestamp()); },
+    refreshTimestamps() {
+      cards.forEach(card => {
+        card.resultMetadata?.refreshTimestamp();
+        card.stepViews.forEach(view => view.metadata?.refreshTimestamp());
+      });
+    },
     progress(event, targets) { renderContent(() => updateProgress(event, targets)); },
     describeSelection: () => choice.checked ? 'Explore project is selected for this response.' : 'Work tools are off for this response.',
     setGenerating(value) { busy = value; updateChoice(); },
@@ -888,8 +888,9 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       cards.forEach(card => {
         updateCard(card);
         card.stepViews.forEach(view => {
-          view.controller?.finish();
-          if (view.details) view.details.hidden = !value || view.pendingUsage;
+          view.metadata?.finish();
+          view.metadata?.setUsageVisibility(value && !view.pendingUsage);
+          if (view.footer) view.footer.hidden = !view.hasMetadata && (!value || view.pendingUsage);
           updateStepBody(view);
         });
       });

@@ -1,4 +1,4 @@
-/* Render shared response metadata and usage disclosures for model answers and app work results. */
+/* Render shared response metadata and usage disclosures for model answers, model calls, and app work results. */
 
 import { refreshIcons } from './ui.js';
 import { formatMessageTimestamp } from './timezone.js';

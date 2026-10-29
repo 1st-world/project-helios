@@ -14,7 +14,8 @@ const workspace = createWorkspace({
   getModelContextSignature: () => profiles.getModelContextSignature(),
   onWorkspaceSaved: (id, version) => chat.setWorkspaceVersion(id, version)
 });
-const profiles = createProfiles({ isGenerating: () => chat.isGenerating(), onModelContextChange: () => workspace.modelContextChanged() });
+const profiles = createProfiles({ isGenerating: () => chat.isGenerating(), onModelContextChange: () => workspace.modelContextChanged(),
+  onSelectionChange: () => chat.updateComposerState() });
 const exploration = createExploration({
   getWorkspace: workspace.getWorkspaceInfo,
   chooseWorkspace: workspace.chooseWorkspace,
@@ -34,6 +35,8 @@ const exploration = createExploration({
 const chat = createChat({
   exploration,
   getActiveProfileId: profiles.getSelectedProfileId,
+  getModelSelection: profiles.getModelSelection,
+  onPausedModelChange: profiles.setPausedRun,
   prepareRequestProfile: profiles.prepareRequestProfile,
   selectModel: profiles.selectConversation,
   startModelDraft: profiles.startDraft,
