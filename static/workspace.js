@@ -19,6 +19,8 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     workspaceSessionId: null,
     conversationId: null,
     workspaceAvailable: false,
+    workspaceReadOptions: { ignore_hidden: false, use_gitignore: false },
+    workspacePolicyStatus: null,
     workspaceReady: null,
     workspaceController: null,
     changingWorkspace: false,
@@ -75,7 +77,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     state.workspaceController?.abort();
     state.workspaceController = null;
     if (!preserveSelection) clearFocusFiles();
-    applyWorkspace({ root: binding.root, revision: binding.revision, session_id: binding.session_id, available: binding.available, entries_loaded: false });
+    applyWorkspace({ root: binding.root, revision: binding.revision, session_id: binding.session_id, available: binding.available, read_options: binding.read_options, entries_loaded: false });
     state.workspaceReady = Promise.resolve();
   }
 
@@ -114,6 +116,8 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     state.workspaceRevision = revision;
     state.workspaceSessionId = sessionId;
     state.workspaceAvailable = Boolean(data.root) && data.available !== false;
+    state.workspaceReadOptions = { ignore_hidden: Boolean(data.read_options?.ignore_hidden), use_gitignore: Boolean(data.read_options?.use_gitignore) };
+    state.workspacePolicyStatus = data.read_policy_status || null;
     for (const file of [...state.attachments, ...state.pendingFiles]) {
       if (file.reference.source === 'workspace') file.available = state.workspaceAvailable
         && file.reference.workspace_revision === revision && file.reference.workspace_session_id === sessionId;
@@ -355,9 +359,12 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     catch { toast('Could not load workspace. Open a new chat to try again.', 'error'); return false; }
     closeMobileSidebar();
     $('#workspace-path-input').value = state.workspaceRoot || '';
+    $('#workspace-ignore-hidden').checked = state.workspaceReadOptions.ignore_hidden;
+    $('#workspace-use-gitignore').checked = state.workspaceReadOptions.use_gitignore;
     if (!picker.isPicking()) $('#workspace-path-help').textContent = 'Enter a folder path or use Browse to select one on the computer running Helios, then apply.';
     updateWorkspaceControls();
     $('#workspace-dialog').showModal();
+    if (!picker.isPicking()) void loadWorkspace();
     return true;
   }
 
@@ -425,6 +432,55 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     };
   }
 
+  function workspaceReadOptions() {
+    return { ignore_hidden: $('#workspace-ignore-hidden').checked, use_gitignore: $('#workspace-use-gitignore').checked };
+  }
+
+  function workspaceFormChanged() {
+    const options = workspaceReadOptions();
+    return $('#workspace-path-input').value.trim() !== (state.workspaceRoot || '')
+      || options.ignore_hidden !== state.workspaceReadOptions.ignore_hidden || options.use_gitignore !== state.workspaceReadOptions.use_gitignore;
+  }
+
+  function setWorkspacePolicyStatus(message) {
+    const status = $('#workspace-ignore-status');
+    if (status.textContent === message) return;
+    const parts = message.split(/(\.heliosignore|\.gitignore)/g).map(part => {
+      if (part !== '.heliosignore' && part !== '.gitignore') return part;
+      const code = document.createElement('code');
+      code.textContent = part;
+      return code;
+    });
+    status.replaceChildren(...parts);
+  }
+
+  function renderWorkspacePolicy() {
+    const status = $('#workspace-ignore-status');
+    status.dataset.state = 'idle';
+    if (workspaceFormChanged()) {
+      setWorkspacePolicyStatus('Apply changes to check .heliosignore and use the selected exclusions.');
+      return;
+    }
+    if (!state.workspaceRoot) {
+      setWorkspacePolicyStatus('Connect a folder to check for .heliosignore.');
+      return;
+    }
+    const custom = state.workspacePolicyStatus?.custom;
+    const git = state.workspacePolicyStatus?.gitignore;
+    const invalid = custom?.status === 'error' ? ['.heliosignore', custom] : git?.status === 'error' ? ['.gitignore', git] : null;
+    if (invalid) {
+      const reasons = { invalid_encoding: 'Use UTF-8 text.', invalid_control: 'Remove unsupported control characters.', invalid_pattern: 'Correct the invalid ignore pattern.', too_large: 'Keep the file within 64 KiB.', unsafe_file: 'Use a regular file without links.', changed: 'The file changed while being read. Try again.', unreadable: 'Check file access and try again.' };
+      status.dataset.state = 'error';
+      setWorkspacePolicyStatus(`Cannot use ${invalid[0]}. ${reasons[invalid[1].reason] || reasons.unreadable} Automatic reading is unavailable until the active policy is valid.`);
+    } else if (custom?.status === 'ready') {
+      setWorkspacePolicyStatus('Custom rules loaded from .heliosignore.');
+    } else if (custom?.status === 'missing') {
+      setWorkspacePolicyStatus('No .heliosignore found. No custom exclusions are applied.');
+    } else {
+      setWorkspacePolicyStatus(custom?.status === 'unavailable' ? 'The connected folder is unavailable. Custom exclusions could not be checked.' : 'Checking .heliosignore…');
+    }
+  }
+
   function updateWorkspaceControls() {
     const busy = state.generating || state.changingWorkspace || picker.isPicking() || !state.workspaceSessionId;
     const connected = Boolean(state.workspaceRoot);
@@ -443,10 +499,13 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
       }
     });
     $('#workspace-path-input').disabled = busy;
+    const exclusionOptionsDisabled = busy || !$('#workspace-path-input').value.trim();
+    $('#workspace-ignore-hidden').disabled = exclusionOptionsDisabled;
+    $('#workspace-use-gitignore').disabled = exclusionOptionsDisabled;
     picker.update();
     $('#apply-workspace').disabled = busy || !$('#workspace-path-input').value.trim();
     $('#disconnect-workspace').disabled = busy || !connected;
-    $('#preview-workspace-context').setAttribute('aria-disabled', String(busy || !connected));
+    $('#preview-workspace-context').setAttribute('aria-disabled', String(busy || !connected || workspaceFormChanged()));
     $('#preview-workspace-context').title = connected ? 'Preview the connected workspace context' : 'Connect a workspace to preview its context';
     $('.workspace-context-preview-body').setAttribute('aria-busy', String(Boolean(state.contextController)));
     $('#composer-workspace-sub').hidden = !connected;
@@ -456,6 +515,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     $('#workspace-file-count').textContent = connected
       ? state.workspaceAvailable ? 'Chat with a connected folder' : 'Folder unavailable · Choose another folder'
       : 'Chat without a folder · Optional';
+    renderWorkspacePolicy();
   }
 
   async function previewProjectContext() {
@@ -504,7 +564,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     try {
       const response = await fetch('/api/workspace/root', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path, ...workspaceScope(), workspace_revision: state.workspaceRevision ?? undefined, include_entries: false })
+        body: JSON.stringify({ path, read_options: path === null ? state.workspaceReadOptions : workspaceReadOptions(), ...workspaceScope(), workspace_revision: state.workspaceRevision ?? undefined, include_entries: false })
       });
       const data = await response.json();
       if (request !== state.workspaceRequest) return;
@@ -515,7 +575,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
       applyWorkspace(data);
       onWorkspaceSaved?.(state.conversationId, data.conversation_version);
       $('#workspace-dialog').close();
-      toast(path === null ? 'Workspace disconnected.' : 'Workspace folder updated.', 'success');
+      toast(path === null ? 'Workspace disconnected.' : 'Workspace updated.', 'success');
     } catch (error) {
       toast(error.message || 'Could not change the workspace.', 'error');
     } finally {
@@ -548,8 +608,8 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
       picker.cancel({ close: true });
       return false;
     }
-    if ($('#workspace-path-input').value.trim() === (state.workspaceRoot || '')) return true;
-    return showActionDialog({ title: 'Discard Workspace changes?', description: 'Your unapplied folder path will be lost. The workspace selection for this conversation will stay unchanged.',
+    if (!workspaceFormChanged()) return true;
+    return showActionDialog({ title: 'Discard Workspace changes?', description: 'Your unapplied folder path and exclusion choices will be lost. The saved workspace for this conversation will stay unchanged.',
       confirmLabel: 'Discard changes', cancelLabel: 'Keep editing', danger: true });
   }
 
@@ -719,6 +779,10 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     });
 
     $('#workspace-path-input').addEventListener('input', updateWorkspaceControls);
+    ['#workspace-ignore-hidden', '#workspace-use-gitignore'].forEach(selector => $(selector).addEventListener('change', () => {
+      resetContextPreview();
+      updateWorkspaceControls();
+    }));
     $('#workspace-form').onsubmit = async event => {
       event.preventDefault();
       const path = $('#workspace-path-input').value.trim();

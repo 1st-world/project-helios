@@ -99,9 +99,9 @@ def workspace_fingerprint(
         if workspace.root is None:
             raise ProjectReadError("workspace_required")
         binding = (
-            str(workspace.root), workspace.revision, workspace.session_id,
+            str(workspace.root), workspace.revision, workspace.session_id, workspace.read_options,
         )
-        access = ProjectAccess(Path(workspace.root), protected)
+        access = ProjectAccess(Path(workspace.root), protected, options=workspace.read_options)
         records = {}
         checked = []
         pending = [access.root]
@@ -116,13 +116,13 @@ def workspace_fingerprint(
             policy_before = access.policy_stamp(folder)
             records[("directory", relative_folder)] = _directory_identity(folder_info)
             checked.append((folder, directory_before, False))
-            policy_path = folder / ".gitignore"
-            try:
-                policy_info = _entry_signature(policy_path.lstat())
-            except FileNotFoundError:
-                policy_info = None
-            records[("policy", relative_folder)] = policy_info
-            checked.append((policy_path, policy_info, True))
+            for policy_path in access.policy_files(folder):
+                try:
+                    policy_info = _entry_signature(policy_path.lstat())
+                except FileNotFoundError:
+                    policy_info = None
+                records[("policy", policy_path.relative_to(access.root).as_posix())] = policy_info
+                checked.append((policy_path, policy_info, True))
             children = []
             with os.scandir(folder) as entries:
                 for entry in entries:
@@ -183,10 +183,11 @@ def workspace_fingerprint(
             if current != previous:
                 raise ProjectReadError("workspace_changed")
         access.check_root()
-        if binding != (str(workspace.root), workspace.revision, workspace.session_id):
+        if binding != (str(workspace.root), workspace.revision, workspace.session_id, workspace.read_options):
             raise ProjectReadError("workspace_changed")
         return _digest({
-            "version": 1, "workspace": binding,
+            "version": 2, "workspace": binding[:3],
+            "read_options": workspace.read_options.model_dump(),
             "entries": [[*key, value] for key, value in sorted(records.items())],
         })
     except (OSError, ProjectReadError, TypeError, ValueError):

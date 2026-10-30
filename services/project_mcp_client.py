@@ -43,8 +43,9 @@ class ProjectMCPClient:
         self.root = workspace.root
         self.revision = workspace.revision
         self.session_id = workspace.session_id
+        self.read_options = workspace.read_options
         self.protected = protected_project_paths() + (protected or [])
-        self._access = ProjectAccess(self.root, self.protected)
+        self._access = ProjectAccess(self.root, self.protected, options=self.read_options)
         self.limits = ProjectReadLimits()
         self.timeout = timeout
         self._owner = None
@@ -65,14 +66,18 @@ class ProjectMCPClient:
     def _check_workspace(self) -> None:
         """Reject a changed workspace snapshot before any new local request."""
         if (self.workspace.root != self.root or self.workspace.revision != self.revision
-                or self.workspace.session_id != self.session_id):
+                or self.workspace.session_id != self.session_id
+                or self.workspace.read_options != self.read_options):
             raise ProjectReadError("workspace_changed")
         self._access.check_root()
 
     def _make_transport(self) -> ProjectStdio:
         """Launch only the bundled server with isolated Python and a fixed application cwd."""
         script = Path(__file__).with_name("project_mcp_server.py").resolve()
-        config = {"root": str(self.root), "protected": [str(path) for path in self.protected]}
+        config = {
+            "root": str(self.root), "protected": [str(path) for path in self.protected],
+            "read_options": self.read_options.model_dump(),
+        }
         env = {key: os.environ[key] for key in (
             "SystemRoot", "WINDIR", "TEMP", "TMP", "COMSPEC",
         ) if key in os.environ}

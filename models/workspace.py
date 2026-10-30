@@ -1,9 +1,18 @@
-"""Persist the explicit folder selection and identity owned by one conversation."""
+"""Persist a conversation's folder identity and optional automatic-read exclusions."""
 
 from pathlib import Path
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class WorkspaceReadOptions(BaseModel):
+    """Select optional automatic exclusions independently from custom ignore rules."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    ignore_hidden: bool = Field(default=False, strict=True)
+    use_gitignore: bool = Field(default=False, strict=True)
 
 
 class WorkspaceBinding(BaseModel):
@@ -15,6 +24,7 @@ class WorkspaceBinding(BaseModel):
     root: str | None = Field(default=None, min_length=1, max_length=4096)
     revision: int = Field(default=0, ge=0, strict=True)
     session_id: str = Field(default_factory=lambda: str(uuid4()))
+    read_options: WorkspaceReadOptions = Field(default_factory=WorkspaceReadOptions)
 
     @field_validator("schema_version")
     @classmethod

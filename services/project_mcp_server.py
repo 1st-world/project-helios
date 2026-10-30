@@ -14,6 +14,7 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 
+from models.workspace import WorkspaceReadOptions
 from services.local_work import run_local
 from services.project_access import ProjectReadError
 from services.project_reader import ProjectReader
@@ -26,7 +27,10 @@ async def serve() -> None:
     if len(raw.encode("utf-8")) > 16384:
         raise RuntimeError("Invalid project server bootstrap.")
     config = json.loads(raw)
-    reader = ProjectReader(Path(config["root"]), [Path(item) for item in config["protected"]])
+    reader = ProjectReader(
+        Path(config["root"]), [Path(item) for item in config["protected"]],
+        options=WorkspaceReadOptions.model_validate(config.get("read_options", {})),
+    )
     tools = tool_definitions()
     lock = anyio.Lock()
 

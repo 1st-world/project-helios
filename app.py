@@ -42,6 +42,7 @@ from models.profile import (
     PROFILE_POLICY_FIELDS, DEFAULT_LONG_CONTEXT_THRESHOLD, ConnectionProfile,
     normalize_output_limit_settings,
 )
+from models.workspace import WorkspaceReadOptions
 from services.ai_service import AIService
 from services.attachment_errors import ProviderAttachmentError
 from services.attachment_service import (
@@ -84,7 +85,10 @@ from services.memory_service import (
 )
 from services.local_work import check_local_cancelled, run_local
 from services.prompt_builder import PromptBuilder
-from services.project_context import build_project_overview
+from services.project_access import ProjectReadError
+from services.project_context import (
+    build_project_overview, describe_project_policy, validate_project_policy,
+)
 from services.project_exploration import (
     EXPLORATION_INSTRUCTIONS, RESUMED_INSTRUCTIONS, ExplorationError,
     ExplorationLimits, ProjectExplorer, check_exploration_limits,
@@ -595,6 +599,7 @@ class WorkspaceRootRequest(BaseModel):
     workspace_revision: int | None = Field(default=None, ge=0, strict=True)
     workspace_session_id: str | None = Field(default=None, min_length=1, max_length=64)
     include_entries: bool = Field(default=True, strict=True)
+    read_options: WorkspaceReadOptions | None = None
 
 
 class ProfileContextSettings(ContextRequestOptions):
@@ -1601,6 +1606,7 @@ def workspace_payload(workspace: WorkspaceService, entries: list[dict] | None) -
         "session_id": workspace.session_id,
         "entries": entries if entries is not None else [],
         "available": workspace.is_available(),
+        "read_options": workspace.read_options.model_dump(),
     }
     if entries is None:
         payload["entries_loaded"] = False
@@ -1636,6 +1642,7 @@ def build_workspace_structure(
         relative_path=options.path, max_depth=options.max_depth,
         max_entries=options.max_entries,
         include_absolute_path=options.include_absolute_path,
+        protected=project_protected_paths(),
     )
 
 
@@ -1672,12 +1679,19 @@ async def workspace_tree(
     """Return folder metadata and list files only when the caller requests them."""
     live_workspace = resolve_workspace(conversation_id, workspace_session_id)
     workspace = copy(live_workspace)
-    entries = (
-        await until_disconnect(request, run_local, workspace.tree)
-        if include_entries and workspace.is_available() else None
+    try:
+        entries = (
+            await until_disconnect(request, run_local, workspace.tree, project_protected_paths())
+            if include_entries and workspace.is_available() else None
+        )
+    except WorkspaceAccessError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    require_workspace_root(workspace.root, workspace.revision, live_workspace)
+    policy_status = await until_disconnect(
+        request, run_local, describe_project_policy, workspace, project_protected_paths(),
     )
     require_workspace_root(workspace.root, workspace.revision, live_workspace)
-    return workspace_payload(live_workspace, entries)
+    return {**workspace_payload(live_workspace, entries), "read_policy_status": policy_status}
 
 
 @app.post("/api/workspace")
@@ -1706,10 +1720,14 @@ async def update_workspace_root(
     def select_workspace():
         """Validate a candidate and optionally list it before publishing its root."""
         workspace.set_root(payload.path)
-        return workspace.tree() if payload.include_entries else None
+        if payload.read_options is not None:
+            workspace.set_read_options(payload.read_options)
+        entries = workspace.tree(project_protected_paths()) if payload.include_entries else None
+        status = describe_project_policy(workspace, project_protected_paths())
+        return entries, status
 
     try:
-        entries = await until_disconnect(request, run_local, select_workspace)
+        entries, policy_status = await until_disconnect(request, run_local, select_workspace)
     except WorkspaceAccessError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     current_workspace = resolve_workspace(
@@ -1731,8 +1749,9 @@ async def update_workspace_root(
         )
     live_workspace.root = workspace.root
     live_workspace.revision = workspace.revision
+    live_workspace.read_options = workspace.read_options
     logger.info("Workspace root changed to %s", live_workspace.root)
-    return workspace_payload(live_workspace, entries)
+    return {**workspace_payload(live_workspace, entries), "read_policy_status": policy_status}
 
 
 @app.post("/api/workspace/structure")
@@ -2415,6 +2434,13 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
         + [source.path for source in payload.attachment_sources or [] if source.source == "workspace"]
     )
     if payload.explore_project:
+        try:
+            await run_local(validate_project_policy, request_workspace, project_protected_paths())
+        except ProjectReadError as exc:
+            raise HTTPException(status_code=400, detail={
+                "code": exc.code,
+                "message": "Workspace exclusion rules could not be verified. Open Workspace to review the custom rules and selected exclusions before using Work tools.",
+            }) from None
         try:
             resume_workspace_fingerprint = await run_local(
                 workspace_fingerprint, request_workspace, project_protected_paths(),

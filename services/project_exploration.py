@@ -148,7 +148,7 @@ class ProjectExplorer:
         self.protected = protected or []
         if self.root is None:
             raise ProjectReadError("workspace_required")
-        self.access = ProjectAccess(self.root, self.protected)
+        self.access = ProjectAccess(self.root, self.protected, options=workspace.read_options)
         self.prepare_input, self.check_authority = prepare_input, check_authority
         self.policy, self.visual_tokens = policy, visual_tokens
         self.limits = limits or ExplorationLimits()

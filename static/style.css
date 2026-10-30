@@ -3708,7 +3708,9 @@ textarea::placeholder {
   font-size: var(--font-size-body-compact);
   line-height: var(--line-height-body-compact);
 }
-.info-callout code {
+.info-callout code,
+.settings-dialog .field-hint code,
+.workspace-manager .workspace-exclusion-copy code {
   padding: 2px 5px;
   border-radius: 4px;
   background: var(--bg-element);
@@ -4191,6 +4193,17 @@ textarea::placeholder {
 .workspace-manager .workspace-group-body > label:first-child {
   margin-top: 0;
 }
+.workspace-manager .workspace-group-guidance {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+}
+.workspace-manager .workspace-group-guidance p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 .workspace-manager .workspace-footer {
   container-name: workspace-actions;
   container-type: inline-size;
@@ -4238,6 +4251,87 @@ textarea::placeholder {
 
 .workspace-manager #workspace-path-input[aria-invalid="true"] {
   border-color: var(--danger);
+}
+.workspace-manager .workspace-exclusion-options {
+  padding: 0 16px;
+}
+.workspace-manager .workspace-exclusion-row {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 16px 0;
+  gap: 16px;
+  cursor: pointer;
+}
+.workspace-manager .workspace-exclusion-row + .workspace-exclusion-row {
+  border-top: 1px solid var(--border);
+}
+.workspace-manager .workspace-exclusion-copy {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.workspace-manager .workspace-exclusion-row:has(input:disabled) {
+  cursor: default;
+}
+.workspace-manager .workspace-exclusion-copy strong {
+  display: block;
+  color: var(--text-sub);
+  font-weight: var(--font-weight-label);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-compact);
+}
+.workspace-manager .workspace-exclusion-copy small {
+  display: block;
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+}
+.workspace-manager .workspace-exclusion-switch {
+  display: grid;
+  appearance: none;
+  flex: none;
+  align-items: center;
+  width: 40px;
+  height: 24px;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--bg-element);
+  color: var(--text-sub);
+  cursor: pointer;
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-easing-default),
+    border-color var(--motion-duration-fast) var(--motion-easing-default);
+}
+.workspace-manager .workspace-exclusion-switch::before {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+  transition: transform var(--motion-duration) var(--motion-easing);
+}
+.workspace-manager .workspace-exclusion-switch:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+.workspace-manager .workspace-exclusion-switch:checked::before {
+  transform: translateX(16px);
+}
+.workspace-manager .workspace-exclusion-switch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.workspace-manager .workspace-exclusion-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.workspace-manager .workspace-policy-status[data-state="error"] {
+  color: var(--danger);
 }
 .workspace-manager .workspace-project-context p {
   margin: 0;
@@ -4894,6 +4988,8 @@ button svg,
   .preferences-dialog .settings-preference-row .settings-switch::before,
   .tools-popover .work-tool-switch,
   .tools-popover .work-tool-switch::before,
+  .workspace-manager .workspace-exclusion-switch,
+  .workspace-manager .workspace-exclusion-switch::before,
   .preferences-dialog .settings-disclosure-header,
   .preferences-dialog .settings-disclosure-chevron,
   .workspace-manager .workspace-disclosure-header,
@@ -4925,23 +5021,27 @@ button svg,
 @media (forced-colors: active) {
   /* Use platform colors because high-contrast mode replaces the normal design palette. */
   .preferences-dialog .settings-preference-row .settings-switch,
+  .workspace-manager .workspace-exclusion-switch,
   .tools-popover .work-tool-switch {
     border-color: ButtonText;
     background: Canvas;
     color: ButtonText;
   }
   .preferences-dialog .settings-preference-row .settings-switch:checked,
+  .workspace-manager .workspace-exclusion-switch:checked,
   .tools-popover .work-tool-switch:checked {
     border-color: Highlight;
     background: Highlight;
     color: HighlightText;
   }
   .preferences-dialog .settings-preference-row .settings-switch::before,
+  .workspace-manager .workspace-exclusion-switch::before,
   .tools-popover .work-tool-switch::before {
     /* Keep the thumb visible using inherited system colors in high-contrast mode. */
     forced-color-adjust: none;
   }
   .preferences-dialog .settings-preference-row .settings-switch:focus-visible,
+  .workspace-manager .workspace-exclusion-switch:focus-visible,
   .tools-popover .work-tool-switch:focus-visible {
     outline-color: Highlight;
   }

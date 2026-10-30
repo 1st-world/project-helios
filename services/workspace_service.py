@@ -4,8 +4,10 @@ import os
 from pathlib import Path
 from uuid import uuid4
 
+from models.workspace import WorkspaceReadOptions
 from services.bounded_io import read_bounded
 from services.local_work import check_local_cancelled
+from services.project_access import ProjectAccess, ProjectReadError
 
 
 class WorkspaceAccessError(Exception):
@@ -20,6 +22,7 @@ class WorkspaceService:
         self.root = root.resolve() if root is not None else None
         self.revision = 0
         self.session_id = str(uuid4())
+        self.read_options = WorkspaceReadOptions()
         if self.root is not None:
             self.root.mkdir(parents=True, exist_ok=True)
 
@@ -58,6 +61,12 @@ class WorkspaceService:
         except (OSError, RuntimeError, ValueError):
             return False
 
+    def set_read_options(self, options: WorkspaceReadOptions) -> None:
+        """Revoke existing automatic-read authority when exclusion choices change."""
+        if options != self.read_options:
+            self.read_options = options
+            self.revision += 1
+
     def _resolve(self, relative_path: str, *, root: Path | None = None) -> Path:
         """Resolve a relative path within the current or snapshotted workspace boundary."""
         check_local_cancelled()
@@ -81,11 +90,18 @@ class WorkspaceService:
             ) from exc
         return resolved
 
-    def tree(self) -> list[dict]:
-        """Return a directory-first file tree, skipping inaccessible folders and escaping links."""
+    def tree(self, protected: list[Path] | None = None) -> list[dict]:
+        """Return a directory-first tree using the same automatic project-read policy."""
         root = self.root
         if root is None:
             return []
+        try:
+            access = ProjectAccess(root, protected or [], options=self.read_options)
+            access.resolve(".")
+        except ProjectReadError as exc:
+            raise WorkspaceAccessError(f"Workspace reading is unavailable ({exc.code}).") from None
+        except (OSError, RuntimeError, ValueError):
+            raise WorkspaceAccessError("Workspace reading could not be resolved.") from None
 
         def sort_key(path: Path) -> tuple[bool, str]:
             """Check cancellation while collecting filesystem sort keys."""
@@ -105,15 +121,16 @@ class WorkspaceService:
                 return entries
             for child in children:
                 check_local_cancelled()
-                # Skip symlinks that resolve outside the workspace.
                 try:
-                    resolved = child.resolve()
-                    resolved.relative_to(root)
+                    resolved = access.resolve(child.relative_to(root).as_posix())
+                except ProjectReadError as exc:
+                    if exc.code == "ignore_policy_unavailable":
+                        raise WorkspaceAccessError("Workspace exclusion rules could not be read.") from None
+                    continue
                 except (ValueError, OSError):
                     continue
                 relative = child.relative_to(root).as_posix()
                 if child.is_dir():
-                    # Show ancestor links without recursing back into them.
                     descendants = (
                         [] if resolved in ancestors
                         else walk(child, ancestors | {resolved})
@@ -174,6 +191,7 @@ class WorkspaceService:
         max_depth: int | None = None,
         max_entries: int | None = None,
         include_absolute_path: bool = False,
+        protected: list[Path] | None = None,
     ) -> str:
         """Describe an explicitly requested structure without reading file contents.
 
@@ -182,6 +200,7 @@ class WorkspaceService:
             max_depth: Traversal depth, with direct children at one, or all depths.
             max_entries: Requested maximum included entries, or no entry limit.
             include_absolute_path: Include the host root only when explicitly chosen.
+            protected: Host runtime locations excluded from automatic enumeration.
 
         Returns:
             Structure, selected scope, actual entry count, and omission details.
@@ -195,7 +214,13 @@ class WorkspaceService:
         for name, value in (("depth", max_depth), ("entry limit", max_entries)):
             if value is not None and (type(value) is not int or value < 1):
                 raise WorkspaceAccessError(f"Structure {name} must be a positive integer or null.")
-        scope = self._resolve(relative_path)
+        try:
+            access = ProjectAccess(root, protected or [], options=self.read_options)
+            scope = access.resolve(relative_path or ".")
+        except ProjectReadError as exc:
+            raise WorkspaceAccessError(f"Structure scope could not be resolved ({exc.code}).") from None
+        except (OSError, RuntimeError, ValueError):
+            raise WorkspaceAccessError("Structure scope could not be resolved.") from None
         if not scope.exists():
             raise WorkspaceAccessError("The selected structure scope does not exist.")
         scope_name = scope.relative_to(root).as_posix()
@@ -216,9 +241,13 @@ class WorkspaceService:
                         path = folder / entry.name
                         name = path.relative_to(root).as_posix()
                         try:
-                            resolved = path.resolve(strict=True)
-                            resolved.relative_to(root)
+                            resolved = access.resolve(name)
                             is_directory = entry.is_dir()
+                        except ProjectReadError as exc:
+                            if exc.code == "ignore_policy_unavailable":
+                                raise WorkspaceAccessError("Workspace exclusion rules could not be read.") from None
+                            omissions.append(f"Entry excluded by Workspace read policy ({exc.code}).")
+                            continue
                         except ValueError:
                             omissions.append(f"{name}: excluded because its target is outside the workspace.")
                             continue

@@ -34,6 +34,7 @@ class ConversationWorkspaces:
         return WorkspaceBinding(
             root=str(workspace.root) if workspace.root is not None else None,
             revision=workspace.revision, session_id=workspace.session_id,
+            read_options=workspace.read_options,
         )
 
     def create_draft(self) -> WorkspaceService:
@@ -55,6 +56,7 @@ class ConversationWorkspaces:
             )
             workspace.revision = binding.revision
             workspace.session_id = binding.session_id
+            workspace.read_options = binding.read_options
             self.saved[conversation.id] = workspace
             self.owners[id(workspace)] = conversation.id
         return workspace

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable, Iterator
 from uuid import uuid4
 
+from models.workspace import WorkspaceReadOptions
 from services.local_work import check_local_cancelled
 from services.project_access import ProjectAccess, ProjectReadError, ProjectText, signature
 
@@ -54,9 +55,10 @@ class ProjectReader:
     def __init__(
         self, root: Path, protected: list[Path], *,
         limits: ProjectReadLimits | None = None,
+        options: WorkspaceReadOptions | None = None,
     ) -> None:
         """Pin access policy and initialize an empty cursor registry."""
-        self.access = ProjectAccess(root, protected)
+        self.access = ProjectAccess(root, protected, options=options)
         self.limits = limits or ProjectReadLimits()
         self._cursors: dict[str, _Cursor] = {}
 
@@ -333,7 +335,7 @@ class ProjectReader:
                 state, self.limits.max_fragments if name == "read_file" else maximum,
             )
             result["order"] = "filesystem" if name == "list_files" else "traversal"
-            result["policy"] = "Project .gitignore rules apply; hidden, linked, and host runtime paths are excluded."
+            result["policy"] = self.access.describe_policy()
             if len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > self.limits.result_bytes:
                 raise ProjectReadError("result_limit")
             return result

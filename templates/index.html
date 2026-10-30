@@ -159,7 +159,7 @@
             <p class="field-hint">Read-only access within the connected Workspace. The model may list, search and read allowed UTF-8 file ranges beyond the basic project overview. Selected content is sent to your model provider. Files stay unchanged and commands are unavailable.</p>
             <details id="work-tools-scope-details" class="work-tools-scope-details">
               <summary><h4>Read scope &amp; exclusions</h4><i data-lucide="chevron-down" aria-hidden="true"></i></summary>
-              <div class="work-tools-scope-body"><p class="field-hint">The connected Workspace is the read boundary. Automatic exploration excludes hidden/system paths, case-sensitive .gitignore matches, links and Helios runtime data. Explicit attachments use their own selection and processing rules.</p><p class="field-hint">Stop ends further work. Calls already made can still incur cost, and saved activity and usage records are retained.</p></div>
+              <div class="work-tools-scope-body"><p class="field-hint">The connected Workspace is the read boundary. Automatic reading follows <code>.heliosignore</code> and the exclusions selected in Workspace. Git metadata, links and Helios runtime data stay protected. Explicit attachments use their own selection and processing rules.</p><p class="field-hint">Stop ends further work. Calls already made can still incur cost, and saved activity and usage records are retained.</p></div>
             </details>
           </div>
         </section>
@@ -196,10 +196,22 @@
             <span id="workspace-path-help" class="field-hint" role="status">Enter a folder path or use Browse to select one on the computer running Helios, then apply.</span>
           </div>
         </section>
+        <section class="workspace-group workspace-exclusions" aria-labelledby="workspace-exclusions-title" aria-describedby="workspace-exclusions-help">
+          <div class="workspace-group-heading"><h3 id="workspace-exclusions-title">Automatic reading</h3></div>
+          <div class="workspace-group-body workspace-exclusion-options">
+            <label class="workspace-exclusion-row" for="workspace-ignore-hidden"><span class="workspace-exclusion-copy"><strong id="workspace-ignore-hidden-label">Exclude hidden paths</strong><small id="workspace-ignore-hidden-help">Dot files and folders, and Windows hidden or system paths.</small></span><input id="workspace-ignore-hidden" class="workspace-exclusion-switch" type="checkbox" role="switch" aria-labelledby="workspace-ignore-hidden-label" aria-describedby="workspace-ignore-hidden-help"></label>
+            <label class="workspace-exclusion-row" for="workspace-use-gitignore"><span class="workspace-exclusion-copy"><strong id="workspace-use-gitignore-label">Use <code>.gitignore</code></strong><small id="workspace-use-gitignore-help">Apply case-sensitive rules from the Workspace root and its subfolders.</small></span><input id="workspace-use-gitignore" class="workspace-exclusion-switch" type="checkbox" role="switch" aria-labelledby="workspace-use-gitignore-label" aria-describedby="workspace-use-gitignore-help"></label>
+          </div>
+          <div class="workspace-group-guidance">
+            <p id="workspace-ignore-status" class="field-hint workspace-policy-status" role="status">Connect a folder to check for <code>.heliosignore</code>.</p>
+            <p id="workspace-exclusions-help" class="field-hint">Applies to project context and enabled Work tools. Place custom rules at the Workspace root using UTF-8 and <code>.gitignore</code> syntax; <code>!</code> overrides selected defaults. Helios does not create this file.</p>
+            <p class="field-hint">Git metadata, links and Helios runtime data stay protected.</p>
+          </div>
+        </section>
         <section class="workspace-group workspace-project-context" aria-labelledby="workspace-project-context-title">
           <div class="workspace-group-heading"><h3 id="workspace-project-context-title">Project context</h3></div>
           <div class="workspace-group-body">
-            <p class="field-hint">Connected messages include the project name and a small top-level file and folder overview. Subfolders, file contents, and absolute paths are excluded. Use Explore project or attach files for more detail. Apply folder changes before previewing them.</p>
+            <p class="field-hint">Connected messages include the project name and a small top-level file and folder overview. Subfolders, file contents, and absolute paths are excluded. Use enabled Work tools or attach files for more detail. Apply folder changes before previewing them.</p>
             <details id="workspace-context-disclosure" class="workspace-context-disclosure">
               <summary id="preview-workspace-context" class="workspace-disclosure-header" aria-disabled="true"><h4 class="workspace-disclosure-title"><i data-lucide="file-text" aria-hidden="true"></i>Preview context</h4><i data-lucide="chevron-down" class="workspace-disclosure-chevron" aria-hidden="true"></i></summary>
               <div class="workspace-context-preview-body">
