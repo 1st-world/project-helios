@@ -1,0 +1,166 @@
+{
+  "schema_version": "1.0",
+  "kind": "live_provider_evidence_catalog",
+  "state": "live_execution_complete_with_limits",
+  "new_live_runs": [
+    {
+      "id": "N01",
+      "path": "runs/2026-10-31/N01-01.json",
+      "evidence_kind": "live_wire_capture",
+      "calls": 6,
+      "outcome": "pass"
+    },
+    {
+      "id": "N02",
+      "path": "runs/2026-10-31/N02-01.json",
+      "evidence_kind": "live_wire_capture",
+      "calls": 4,
+      "outcome": "partial"
+    },
+    {
+      "id": "N03",
+      "path": "runs/2026-10-31/N03-01.json",
+      "evidence_kind": "live_wire_capture",
+      "calls": 8,
+      "outcome": "pass"
+    },
+    {
+      "id": "N04",
+      "path": "runs/2026-10-31/N04-01.json",
+      "evidence_kind": "live_wire_capture",
+      "calls": 4,
+      "outcome": "pass"
+    },
+    {
+      "id": "N05",
+      "path": "runs/2026-10-31/N05-01.json",
+      "evidence_kind": "live_wire_capture",
+      "calls": 1,
+      "outcome": "unobserved"
+    },
+    {
+      "id": "P02",
+      "path": "runs/2026-10-31/P02-01.json",
+      "evidence_kind": "live_wire_capture",
+      "calls": 3,
+      "outcome": "pass"
+    },
+    {
+      "id": "P03",
+      "path": "runs/2026-10-31/P03-01.json",
+      "evidence_kind": "live_wire_capture",
+      "calls": 1,
+      "outcome": "unobserved"
+    },
+    {
+      "id": "P04",
+      "path": "runs/2026-10-31/P04-01.json",
+      "evidence_kind": "live_wire_capture",
+      "calls": 1,
+      "outcome": "pass"
+    },
+    {
+      "id": "P05",
+      "path": "runs/2026-10-31/P05-01.json",
+      "evidence_kind": "live_wire_capture",
+      "calls": 2,
+      "outcome": "pass"
+    },
+    {
+      "id": "P06",
+      "path": "runs/2026-10-31/P06-01.json",
+      "evidence_kind": "live_wire_capture",
+      "calls": 5,
+      "outcome": "blocked"
+    },
+    {
+      "id": "P07",
+      "path": "runs/2026-10-31/P07-01.json",
+      "evidence_kind": "live_wire_capture",
+      "calls": 1,
+      "outcome": "pass"
+    },
+    {
+      "id": "P08",
+      "path": "runs/2026-10-31/P08-01.json",
+      "evidence_kind": "live_wire_capture",
+      "calls": 1,
+      "outcome": "pass"
+    },
+    {
+      "id": "P09",
+      "path": "runs/2026-10-31/P09-01.json",
+      "evidence_kind": "live_wire_capture",
+      "calls": 3,
+      "outcome": "pass"
+    },
+    {
+      "id": "P09-T1",
+      "path": "runs/2026-10-31/P09-T1-01.json",
+      "evidence_kind": "live_wire_capture",
+      "calls": 1,
+      "outcome": "pass"
+    },
+    {
+      "id": "P09-X1",
+      "path": "runs/2026-10-31/P09-X1-01.json",
+      "evidence_kind": "live_wire_capture",
+      "calls": 1,
+      "outcome": "pass"
+    }
+  ],
+  "new_live_provider_calls": 42,
+  "reuse_evidence": [
+    {
+      "id": "legacy-2026-09-30-to-10-01",
+      "path": "history/api-validation-results.json",
+      "evidence_kind": "live_provider_capture_with_synthetic_inputs",
+      "calls": 15,
+      "known_usage_calls": 13,
+      "unknown_usage_calls": 2,
+      "known_total_tokens": 10558,
+      "scope": "Historical responses, usage, cancellation and image/PDF/text request options. Kept under their original dates; not re-counted as new calls."
+    },
+    {
+      "id": "attachment-source-2026-10-29",
+      "path": "history/attachment-source-2026-10-29.json",
+      "evidence_kind": "saved_app_observation_of_user_run_live_calls",
+      "scope": "P01 basic Luna response and P09-T0 successful filename/body association. Original HTTP body was not captured; offline reconstructions are not wire evidence."
+    },
+    {
+      "id": "public-summary-2026-10-29",
+      "path": "history/public-summary-2026-10-29.json",
+      "evidence_kind": "saved_app_observation",
+      "existing_observed_calls": 1,
+      "new_provider_calls": 0,
+      "counts_in_new_validation_call_total": false,
+      "scope": "The same gpt-6-luna deployment returned a completed nonempty public reasoning summary in an existing user conversation. Saved summary and ledger match; original request option, SSE delta timing and final-answer streaming order were not retained. This call overlaps the before-attachment observation in attachment-source-2026-10-29.json and must not be counted again."
+    }
+  ],
+  "deduplication": "A call has one primary stage and one call/attempt identity. P11 and reuse references do not create extra calls or costs. This catalog is not an invoice aggregate.",
+  "future_run_records": "runs/<date>/<case>-<attempt>.json",
+  "executed_on": "2026-10-31",
+  "display_timezone": "Asia/Seoul",
+  "execution_summary": "runs/2026-10-31/summary.json",
+  "historical_retention": "The current unit supersedes current-plan source association/handoff observations only. Historical option/usage/cancellation captures remain dated separately because their wire options and unknown usage cannot be replaced by new calls.",
+  "readme": "README.md",
+  "scope": "Reusable sanitized actual Provider communications and saved observations only; local plans, UI checks and offline tests are not part of this shared collection.",
+  "execution_batches": [
+    {
+      "id": "current-app",
+      "calls": 18,
+      "models": {
+        "luna": 12,
+        "flash": 6
+      }
+    },
+    {
+      "id": "xlsx-and-prepared-prompt-variants",
+      "calls": 24,
+      "models": {
+        "luna": 24,
+        "flash": 0
+      }
+    }
+  ]
+}

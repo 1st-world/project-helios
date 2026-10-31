@@ -1,0 +1,97 @@
+{
+  "schema_version": "1.0",
+  "id": "public-summary-2026-10-29",
+  "evidence_kind": "saved_app_observation",
+  "transport": "live_provider",
+  "original_run_date": "2026-10-29",
+  "exported_at_utc": "2026-10-31T03:07:12.539638+00:00",
+  "display_timezone": "Asia/Seoul",
+  "new_provider_calls": 0,
+  "existing_observed_calls": 1,
+  "counts_in_new_validation_call_total": false,
+  "source_file_sha256": "a27eb493db02b4d55af6cbece88d6b58b22a8ede971173a81fde070255536509",
+  "source_ledger_row_sha256": "49cfbb7b5d25c418cc7c4c924fa32b4782628d1123401775cc94e6a881a44bc7",
+  "source_commit": null,
+  "source_commit_note": "The call did not record a commit SHA. The existing investigation reviewed fbe2598 before the attachment-provenance improvement.",
+  "conversation_ref": "evidence_id_2057f3a13b79033c",
+  "profile_ref": "evidence_id_89fe8b5f2bd78377",
+  "profile_alias": "luna",
+  "deployment": "gpt-6-luna",
+  "profile_name": "Korea GPT-6 Luna",
+  "call_ref": "evidence_id_108d765991bb6b56",
+  "question": "첨부한 파일 내용이 보이나요?",
+  "answer": "No",
+  "assistant_saved_at_utc": "2026-10-29T09:33:27.311012+00:00",
+  "call_started_at_utc": "2026-10-29T09:33:25.722360+00:00",
+  "call_finished_at_utc": "2026-10-29T09:33:27.301013+00:00",
+  "status": "completed",
+  "http_status": 200,
+  "public_summary_schema_version": "0.1",
+  "public_summary_parts": [
+    {
+      "call_id": "evidence_id_108d765991bb6b56",
+      "item_id": "evidence_id_788315c1545c8b60",
+      "output_index": 0,
+      "summary_index": 0,
+      "text": "**Responding to user request**\n\nI need to provide a clear yes or no answer in response to the user’s query in Korean. However, the context mentions an attachment's filename, but I can't see its contents, just the metadata. Since the content isn’t visible to me, I’ll have to answer with a straightforward “No.” It’s important to keep my response concise and clear for the user.",
+      "status": "completed"
+    }
+  ],
+  "summary_part_count": 1,
+  "public_summary_present": true,
+  "saved_message_ledger_link_matches": true,
+  "usage": {
+    "input_tokens": 128,
+    "output_tokens": 47,
+    "total_tokens": 175,
+    "response_time_ms": 1569,
+    "estimated_cost": 3.63e-05,
+    "is_long_context": false,
+    "uncached_input_tokens": 128,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0,
+    "reasoning_tokens": 40,
+    "usage_status": "available",
+    "cost_status": "complete",
+    "provider_usage": {
+      "input_tokens": 128,
+      "input_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0
+      },
+      "output_tokens": 47,
+      "output_tokens_details": {
+        "reasoning_tokens": 40
+      },
+      "total_tokens": 175
+    }
+  },
+  "price_snapshot": {
+    "currency": "USD",
+    "input_price_per_million": 0.1,
+    "output_price_per_million": 0.5,
+    "long_context_threshold": 272000,
+    "long_input_price_per_million": 0.2,
+    "long_output_price_per_million": 0.75,
+    "cache_read_price_per_million": 0.01,
+    "cache_write_price_per_million": 0.125,
+    "long_cache_read_price_per_million": 0.02,
+    "long_cache_write_price_per_million": 0.25
+  },
+  "original_request_reasoning_summary_option": null,
+  "attachment_context": {
+    "filename": "test1.txt",
+    "body": "이 내용이 보이면 Yes, 아니면 No",
+    "phase": "before_attachment_provenance_improvement",
+    "reused_attachment_comparison": "attachment-source-2026-10-29.json"
+  },
+  "observed_scope": "The same gpt-6-luna deployment returned a nonempty completed public reasoning summary and the app stored it on the assistant message. This is existing live-call evidence, not a new request.",
+  "capture_limits": [
+    "Original HTTP request/response bodies and SSE frames were not retained. Stored public summary and ledger are the available evidence.",
+    "The summary text and its output/summary positions are preserved, but delta timing and ordering relative to final-answer streaming cannot be reconstructed.",
+    "The original summary request option was not stored; current profile settings are not proof of the historical request option.",
+    "The summary is a public model explanation, not a wire-level account of the attachment content received or complete internal reasoning.",
+    "The later short P03 request returning no public summary does not negate this earlier observed summary return."
+  ],
+  "sanitization": "Only validated public summary fields, synthetic attachment context and saved call facts are exported. Original identifiers are consistently pseudonymized. No endpoint, key, raw/private reasoning or opaque provider state is included."
+}

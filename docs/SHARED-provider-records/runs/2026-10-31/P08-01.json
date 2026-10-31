@@ -1,0 +1,698 @@
+{
+  "schema_version": "1.0",
+  "plan_id": "provider-validation-2026-10-30",
+  "stage": "P08",
+  "evidence_kind": "live_wire_capture",
+  "transport": "live_provider",
+  "input_kind": "synthetic",
+  "basis_commit": "231e0c18e14ac3e5c11c52657bb98acaa396aa56",
+  "started_at": "2026-10-30T20:35:53.120876+00:00",
+  "finished_at": "2026-10-30T20:35:56.047284+00:00",
+  "instrumentation_source_sha256": "e2746725710d785c34a7954fe83dbc764d364bd8330c141fb05e0a8a021d8bf2",
+  "display_timezone": "Asia/Seoul",
+  "result": {
+    "outcome": "pass",
+    "answer": "Ara",
+    "conversation_id": "evidence_id_a0a8c6eedc4f1588",
+    "completed_reply": true,
+    "public_summary_present": false,
+    "human_ui_observed": false,
+    "review_note": "Plain-response regeneration replaced the prior answer with a new usage_call_id and ledger kind regeneration. It did not duplicate messages. Summary regeneration was outside this request."
+  },
+  "exchanges": [
+    {
+      "alias": "luna",
+      "at": "2026-10-30T20:35:55.045291+00:00",
+      "api": "responses",
+      "request_body_sha256": "577086cf7d80af5cb1213fa8ba5e19689a05b3cb10f9ced6798e7148818b30b9",
+      "request_body": {
+        "input": [
+          {
+            "role": "user",
+            "content": "Mina is older than Joon. Joon is older than Ara. Who is the youngest? Reply with only the name."
+          }
+        ],
+        "instructions": "You are Helios, a precise and helpful local AI assistant. Use workspace context when supplied, clearly distinguish it from instructions, and format answers in Markdown.",
+        "max_output_tokens": 2048,
+        "model": "gpt-6-luna",
+        "stream": true
+      },
+      "request_body_fidelity": "sanitized_wire_capture",
+      "events": [
+        {
+          "at": "2026-10-30T20:35:55.801265+00:00",
+          "data": {
+            "type": "response.created",
+            "response": {
+              "id": "evidence_id_f9978f93cab7cfe6",
+              "object": "response",
+              "created_at": 1793392555,
+              "status": "in_progress",
+              "access_programs": null,
+              "background": false,
+              "completed_at": null,
+              "content_filters": null,
+              "error": null,
+              "frequency_penalty": 0.0,
+              "incomplete_details": null,
+              "instructions": "You are Helios, a precise and helpful local AI assistant. Use workspace context when supplied, clearly distinguish it from instructions, and format answers in Markdown.",
+              "max_output_tokens": 2048,
+              "max_tool_calls": null,
+              "model": "gpt-6-luna",
+              "moderation": null,
+              "output": [],
+              "parallel_tool_calls": true,
+              "presence_penalty": 0.0,
+              "previous_response_id": null,
+              "prompt_cache_key": null,
+              "prompt_cache_retention": "24h",
+              "reasoning": {
+                "context": "all_turns",
+                "effort": "medium",
+                "mode": "standard",
+                "summary": null
+              },
+              "safety_identifier": null,
+              "service_tier": "auto",
+              "store": true,
+              "temperature": 1.0,
+              "text": {
+                "format": {
+                  "type": "text"
+                },
+                "verbosity": "medium"
+              },
+              "tool_choice": "auto",
+              "tool_usage": {
+                "image_gen": {
+                  "input_tokens": 0,
+                  "input_tokens_details": {
+                    "image_tokens": 0,
+                    "text_tokens": 0
+                  },
+                  "output_tokens": 0,
+                  "output_tokens_details": {
+                    "image_tokens": 0,
+                    "text_tokens": 0
+                  },
+                  "total_tokens": 0
+                },
+                "web_search": {
+                  "num_requests": 0
+                }
+              },
+              "tools": [],
+              "top_logprobs": 0,
+              "top_p": 0.98,
+              "truncation": "disabled",
+              "usage": null,
+              "user": null,
+              "metadata": {}
+            },
+            "sequence_number": 0
+          }
+        },
+        {
+          "at": "2026-10-30T20:35:55.834808+00:00",
+          "data": {
+            "type": "response.in_progress",
+            "response": {
+              "id": "evidence_id_f9978f93cab7cfe6",
+              "object": "response",
+              "created_at": 1793392555,
+              "status": "in_progress",
+              "access_programs": null,
+              "background": false,
+              "completed_at": null,
+              "content_filters": null,
+              "error": null,
+              "frequency_penalty": 0.0,
+              "incomplete_details": null,
+              "instructions": "You are Helios, a precise and helpful local AI assistant. Use workspace context when supplied, clearly distinguish it from instructions, and format answers in Markdown.",
+              "max_output_tokens": 2048,
+              "max_tool_calls": null,
+              "model": "gpt-6-luna",
+              "moderation": null,
+              "output": [],
+              "parallel_tool_calls": true,
+              "presence_penalty": 0.0,
+              "previous_response_id": null,
+              "prompt_cache_key": null,
+              "prompt_cache_retention": "24h",
+              "reasoning": {
+                "context": "all_turns",
+                "effort": "medium",
+                "mode": "standard",
+                "summary": null
+              },
+              "safety_identifier": null,
+              "service_tier": "auto",
+              "store": true,
+              "temperature": 1.0,
+              "text": {
+                "format": {
+                  "type": "text"
+                },
+                "verbosity": "medium"
+              },
+              "tool_choice": "auto",
+              "tool_usage": {
+                "image_gen": {
+                  "input_tokens": 0,
+                  "input_tokens_details": {
+                    "image_tokens": 0,
+                    "text_tokens": 0
+                  },
+                  "output_tokens": 0,
+                  "output_tokens_details": {
+                    "image_tokens": 0,
+                    "text_tokens": 0
+                  },
+                  "total_tokens": 0
+                },
+                "web_search": {
+                  "num_requests": 0
+                }
+              },
+              "tools": [],
+              "top_logprobs": 0,
+              "top_p": 0.98,
+              "truncation": "disabled",
+              "usage": null,
+              "user": null,
+              "metadata": {}
+            },
+            "sequence_number": 1
+          }
+        },
+        {
+          "at": "2026-10-30T20:35:55.842451+00:00",
+          "data": {
+            "type": "response.output_item.added",
+            "item": {
+              "id": "evidence_id_30fa6ff5c91496bd",
+              "type": "reasoning",
+              "summary": []
+            },
+            "output_index": 0,
+            "sequence_number": 2
+          }
+        },
+        {
+          "at": "2026-10-30T20:35:55.874476+00:00",
+          "data": {
+            "type": "response.output_item.done",
+            "item": {
+              "id": "evidence_id_30fa6ff5c91496bd",
+              "type": "reasoning",
+              "summary": []
+            },
+            "output_index": 0,
+            "sequence_number": 3
+          }
+        },
+        {
+          "at": "2026-10-30T20:35:55.883742+00:00",
+          "data": {
+            "type": "response.output_item.added",
+            "item": {
+              "id": "evidence_id_bb050b98b769d104",
+              "type": "message",
+              "status": "in_progress",
+              "content": [],
+              "phase": "final_answer",
+              "role": "assistant"
+            },
+            "output_index": 1,
+            "sequence_number": 4
+          }
+        },
+        {
+          "at": "2026-10-30T20:35:55.896084+00:00",
+          "data": {
+            "type": "response.content_part.added",
+            "content_index": 0,
+            "item_id": "evidence_id_bb050b98b769d104",
+            "output_index": 1,
+            "part": {
+              "type": "output_text",
+              "annotations": [],
+              "logprobs": [],
+              "text": ""
+            },
+            "sequence_number": 5
+          }
+        },
+        {
+          "at": "2026-10-30T20:35:55.896084+00:00",
+          "data": {
+            "type": "response.output_text.delta",
+            "content_index": 0,
+            "delta": "Ara",
+            "item_id": "evidence_id_bb050b98b769d104",
+            "logprobs": [],
+            "obfuscation": "OsRW31HZskzRn",
+            "output_index": 1,
+            "sequence_number": 6
+          }
+        },
+        {
+          "at": "2026-10-30T20:35:55.959332+00:00",
+          "data": {
+            "type": "response.output_text.done",
+            "content_index": 0,
+            "item_id": "evidence_id_bb050b98b769d104",
+            "logprobs": [],
+            "output_index": 1,
+            "sequence_number": 7,
+            "text": "Ara"
+          }
+        },
+        {
+          "at": "2026-10-30T20:35:55.968250+00:00",
+          "data": {
+            "type": "response.content_part.done",
+            "content_index": 0,
+            "item_id": "evidence_id_bb050b98b769d104",
+            "output_index": 1,
+            "part": {
+              "type": "output_text",
+              "annotations": [],
+              "logprobs": [],
+              "text": "Ara"
+            },
+            "sequence_number": 8
+          }
+        },
+        {
+          "at": "2026-10-30T20:35:55.978845+00:00",
+          "data": {
+            "type": "response.output_item.done",
+            "item": {
+              "id": "evidence_id_bb050b98b769d104",
+              "type": "message",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "output_text",
+                  "annotations": [],
+                  "logprobs": [],
+                  "text": "Ara"
+                }
+              ],
+              "phase": "final_answer",
+              "role": "assistant"
+            },
+            "output_index": 1,
+            "sequence_number": 9
+          }
+        },
+        {
+          "at": "2026-10-30T20:35:55.984741+00:00",
+          "data": {
+            "type": "response.completed",
+            "response": {
+              "id": "evidence_id_f9978f93cab7cfe6",
+              "object": "response",
+              "created_at": 1793392555,
+              "status": "completed",
+              "access_programs": null,
+              "background": false,
+              "completed_at": 1793392555,
+              "content_filters": [
+                {
+                  "blocked": false,
+                  "source_type": "prompt",
+                  "content_filter_raw": [],
+                  "content_filter_results": {
+                    "hate": {
+                      "filtered": false,
+                      "severity": "safe"
+                    },
+                    "sexual": {
+                      "filtered": false,
+                      "severity": "safe"
+                    },
+                    "violence": {
+                      "filtered": false,
+                      "severity": "safe"
+                    },
+                    "self_harm": {
+                      "filtered": false,
+                      "severity": "safe"
+                    },
+                    "jailbreak": {
+                      "detected": false,
+                      "filtered": false
+                    }
+                  },
+                  "content_filter_offsets": {
+                    "start_offset": 0,
+                    "end_offset": 873,
+                    "check_offset": 0
+                  }
+                },
+                {
+                  "blocked": false,
+                  "source_type": "completion",
+                  "content_filter_raw": [],
+                  "content_filter_results": {
+                    "protected_material_text": {
+                      "detected": false,
+                      "filtered": false
+                    },
+                    "protected_material_code": {
+                      "detected": false,
+                      "filtered": false
+                    },
+                    "hate": {
+                      "filtered": false,
+                      "severity": "safe"
+                    },
+                    "sexual": {
+                      "filtered": false,
+                      "severity": "safe"
+                    },
+                    "violence": {
+                      "filtered": false,
+                      "severity": "safe"
+                    },
+                    "self_harm": {
+                      "filtered": false,
+                      "severity": "safe"
+                    }
+                  },
+                  "content_filter_offsets": {
+                    "start_offset": 0,
+                    "end_offset": 22,
+                    "check_offset": 0
+                  }
+                }
+              ],
+              "error": null,
+              "frequency_penalty": 0.0,
+              "incomplete_details": null,
+              "instructions": "You are Helios, a precise and helpful local AI assistant. Use workspace context when supplied, clearly distinguish it from instructions, and format answers in Markdown.",
+              "max_output_tokens": 2048,
+              "max_tool_calls": null,
+              "model": "gpt-6-luna",
+              "moderation": null,
+              "output": [
+                {
+                  "id": "evidence_id_30fa6ff5c91496bd",
+                  "type": "reasoning",
+                  "summary": []
+                },
+                {
+                  "id": "evidence_id_bb050b98b769d104",
+                  "type": "message",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "annotations": [],
+                      "logprobs": [],
+                      "text": "Ara"
+                    }
+                  ],
+                  "phase": "final_answer",
+                  "role": "assistant"
+                }
+              ],
+              "parallel_tool_calls": true,
+              "presence_penalty": 0.0,
+              "previous_response_id": null,
+              "prompt_cache_key": null,
+              "prompt_cache_retention": "24h",
+              "reasoning": {
+                "context": "all_turns",
+                "effort": "medium",
+                "mode": "standard",
+                "summary": null
+              },
+              "safety_identifier": null,
+              "service_tier": "default",
+              "store": true,
+              "temperature": 1.0,
+              "text": {
+                "format": {
+                  "type": "text"
+                },
+                "verbosity": "medium"
+              },
+              "tool_choice": "auto",
+              "tool_usage": {
+                "image_gen": {
+                  "input_tokens": 0,
+                  "input_tokens_details": {
+                    "image_tokens": 0,
+                    "text_tokens": 0
+                  },
+                  "output_tokens": 0,
+                  "output_tokens_details": {
+                    "image_tokens": 0,
+                    "text_tokens": 0
+                  },
+                  "total_tokens": 0
+                },
+                "web_search": {
+                  "num_requests": 0
+                }
+              },
+              "tools": [],
+              "top_logprobs": 0,
+              "top_p": 0.98,
+              "truncation": "disabled",
+              "usage": {
+                "input_tokens": 67,
+                "input_tokens_details": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0
+                },
+                "output_tokens": 16,
+                "output_tokens_details": {
+                  "reasoning_tokens": 9
+                },
+                "total_tokens": 83
+              },
+              "user": null,
+              "metadata": {}
+            },
+            "sequence_number": 10
+          }
+        }
+      ],
+      "call_id": "evidence_id_b6613ca7034e081b",
+      "http_status": 200,
+      "closed_at": "2026-10-30T20:35:56.005530+00:00"
+    }
+  ],
+  "app_events": [
+    {
+      "type": "start",
+      "conversation_id": "evidence_id_a0a8c6eedc4f1588",
+      "user_created_at": "2026-10-30T20:34:14.314712+00:00"
+    },
+    {
+      "type": "delta",
+      "text": "Ara"
+    },
+    {
+      "type": "usage",
+      "call_id": "evidence_id_b6613ca7034e081b",
+      "usage": {
+        "input_tokens": 67,
+        "output_tokens": 16,
+        "total_tokens": 83,
+        "response_time_ms": 1349,
+        "estimated_cost": 1.47e-05,
+        "is_long_context": false,
+        "uncached_input_tokens": 67,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "reasoning_tokens": 9,
+        "usage_status": "available",
+        "cost_status": "complete",
+        "provider_usage": {
+          "input_tokens": 67,
+          "input_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0
+          },
+          "output_tokens": 16,
+          "output_tokens_details": {
+            "reasoning_tokens": 9
+          },
+          "total_tokens": 83
+        }
+      },
+      "profile": {
+        "id": "evidence_id_89fe8b5f2bd78377",
+        "name": "Korea GPT-6 Luna",
+        "deployment": "gpt-6-luna"
+      }
+    },
+    {
+      "type": "done",
+      "created_at": "2026-10-30T20:35:56.017512+00:00"
+    }
+  ],
+  "controls": [],
+  "calls": [
+    {
+      "id": "evidence_id_b6613ca7034e081b",
+      "source": "live",
+      "kind": "regeneration",
+      "conversation_id": "evidence_id_a0a8c6eedc4f1588",
+      "status": "completed",
+      "profile_id": "evidence_id_89fe8b5f2bd78377",
+      "profile_name": "Korea GPT-6 Luna",
+      "deployment": "gpt-6-luna",
+      "started_at": "2026-10-30T20:35:54.646303+00:00",
+      "finished_at": "2026-10-30T20:35:55.999779+00:00",
+      "response_id": "evidence_id_f9978f93cab7cfe6",
+      "usage": {
+        "input_tokens": 67,
+        "output_tokens": 16,
+        "total_tokens": 83,
+        "response_time_ms": 1349,
+        "estimated_cost": 1.47e-05,
+        "is_long_context": false,
+        "uncached_input_tokens": 67,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "reasoning_tokens": 9,
+        "usage_status": "available",
+        "cost_status": "complete",
+        "provider_usage": {
+          "input_tokens": 67,
+          "input_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0
+          },
+          "output_tokens": 16,
+          "output_tokens_details": {
+            "reasoning_tokens": 9
+          },
+          "total_tokens": 83
+        }
+      },
+      "price_snapshot": {
+        "currency": "USD",
+        "input_price_per_million": 0.1,
+        "output_price_per_million": 0.5,
+        "long_context_threshold": 272000,
+        "long_input_price_per_million": 0.2,
+        "long_output_price_per_million": 0.75,
+        "cache_read_price_per_million": 0.01,
+        "cache_write_price_per_million": 0.125,
+        "long_cache_read_price_per_million": 0.02,
+        "long_cache_write_price_per_million": 0.25
+      },
+      "http_status": 200,
+      "request_id": "evidence_id_90ce3fa3104519a5",
+      "retry_after_seconds": null,
+      "response_time_ms": 1353,
+      "recorded_at": "2026-10-30T20:35:55.999779+00:00"
+    }
+  ],
+  "conversations": [
+    {
+      "id": "evidence_id_a0a8c6eedc4f1588",
+      "title": "Mina is older than Joon. Joon is older than Ara. Who is the ",
+      "created_at": "2026-10-30T20:34:14.099584+00:00",
+      "updated_at": "2026-10-30T20:35:56.017512+00:00",
+      "memory_summary": "",
+      "summarized_message_count": 0,
+      "version": 3,
+      "workspace": {
+        "schema_version": "0.1",
+        "root": null,
+        "revision": 0,
+        "session_id": "evidence_id_7e00825c1dd05694",
+        "read_options": {
+          "ignore_hidden": false,
+          "use_gitignore": false
+        }
+      },
+      "profile_id": "evidence_id_89fe8b5f2bd78377",
+      "profile_revision": 0,
+      "messages": [
+        {
+          "role": "user",
+          "content": "Mina is older than Joon. Joon is older than Ara. Who is the youngest? Reply with only the name.",
+          "created_at": "2026-10-30T20:34:14.314712+00:00"
+        },
+        {
+          "role": "assistant",
+          "content": "Ara",
+          "created_at": "2026-10-30T20:35:56.017512+00:00",
+          "profile_id": "evidence_id_89fe8b5f2bd78377",
+          "profile_name": "Korea GPT-6 Luna",
+          "deployment": "gpt-6-luna",
+          "input_tokens": 67,
+          "output_tokens": 16,
+          "total_tokens": 83,
+          "response_time_ms": 1349,
+          "estimated_cost": 1.47e-05,
+          "uncached_input_tokens": 67,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": 9,
+          "usage_status": "available",
+          "cost_status": "complete",
+          "provider_usage": {
+            "input_tokens": 67,
+            "input_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0
+            },
+            "output_tokens": 16,
+            "output_tokens_details": {
+              "reasoning_tokens": 9
+            },
+            "total_tokens": 83
+          },
+          "usage_call_id": "evidence_id_b6613ca7034e081b"
+        }
+      ]
+    }
+  ],
+  "runs": [],
+  "profiles": {
+    "luna": {
+      "deployment": "gpt-6-luna",
+      "reasoning_summary": "off",
+      "memory_enabled": false,
+      "output_token_limit": 2048,
+      "model_context_window": null,
+      "input_price_per_million": 0.1,
+      "output_price_per_million": 0.5,
+      "cache_read_price_per_million": 0.01,
+      "cache_write_price_per_million": 0.125
+    },
+    "flash": {
+      "deployment": "DeepSeek-V4.1-Flash",
+      "reasoning_summary": "off",
+      "memory_enabled": false,
+      "output_token_limit": 2048,
+      "model_context_window": 1000000,
+      "input_price_per_million": 0.3,
+      "output_price_per_million": 1.2,
+      "cache_read_price_per_million": null,
+      "cache_write_price_per_million": null
+    }
+  },
+  "workspace": null,
+  "uploads": [],
+  "capture_cleanup_errors": [],
+  "versions": {
+    "python": "3.12.14",
+    "openai": "1.109.1",
+    "mcp": "2.3.0"
+  },
+  "new_provider_http_requests": 1,
+  "original_config_unchanged": true,
+  "instrumentation": "Unmodified production requests/frames; real header-triggered Pause, ASGI disconnect Stop, isolated stores and per-send budget guards. Human UI not observed in this capture.",
+  "sanitization": "Credentials, routing paths, private reasoning and opaque state omitted; original request body hashes retained."
+}

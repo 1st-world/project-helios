@@ -1,0 +1,103 @@
+{
+  "schema_version": "1.0",
+  "id": "attachment-source-2026-10-29",
+  "evidence_kind": "saved_app_observation",
+  "transport": "live_provider",
+  "observed_on": "2026-10-29",
+  "source_file_sha256": "ebd013e880b5e42bf8f4645e1e51eebffbbd7f655271ae23a8d3b75a0a0b3ade",
+  "source_conversation_sha256": "68fc16d1e8baf5f4ba98711fdd189a35c67e1ec4c9a6541e6128f04b9cb0a1fe",
+  "capture_limit": "Original HTTP request/response bodies were not recorded. Offline reconstruction is not wire capture.",
+  "deployment": "gpt-6-luna",
+  "workspace_connected": false,
+  "memory_summary_present": false,
+  "reused_checks": [
+    "P01",
+    "P09-T0"
+  ],
+  "attachment": {
+    "filename": "test1.txt",
+    "size_bytes": 41,
+    "sha256": "95c8caf3b23b7212806794c5d397d8e58a97a4f292fe17a0fbf295ba86b026c1",
+    "text": "이 내용이 보이면 Yes, 아니면 No",
+    "integrity_verified": true
+  },
+  "comparison": {
+    "same_question_and_preceding_message_texts": true,
+    "same_attachment_bytes": true,
+    "question": "첨부한 파일 내용이 보이나요?",
+    "before_answer": "No",
+    "after_answer": "네, 보입니다. `test1.txt`의 내용은 “이 내용이 보이면 Yes, 아니면 No”입니다.",
+    "before_attachment_usage": {
+      "input_tokens": 128,
+      "output_tokens": 47,
+      "total_tokens": 175,
+      "response_time_ms": 1569,
+      "estimated_cost": 3.63e-05,
+      "is_long_context": false,
+      "uncached_input_tokens": 128,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "reasoning_tokens": 40,
+      "usage_status": "available",
+      "cost_status": "complete",
+      "provider_usage": {
+        "input_tokens": 128,
+        "input_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0
+        },
+        "output_tokens": 47,
+        "output_tokens_details": {
+          "reasoning_tokens": 40
+        },
+        "total_tokens": 175
+      }
+    },
+    "after_attachment_usage": {
+      "input_tokens": 218,
+      "output_tokens": 59,
+      "total_tokens": 277,
+      "response_time_ms": 4004,
+      "estimated_cost": 5.13e-05,
+      "is_long_context": false,
+      "uncached_input_tokens": 218,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "reasoning_tokens": 26,
+      "usage_status": "available",
+      "cost_status": "complete",
+      "provider_usage": {
+        "input_tokens": 218,
+        "input_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0
+        },
+        "output_tokens": 59,
+        "output_tokens_details": {
+          "reasoning_tokens": 26
+        },
+        "total_tokens": 277
+      }
+    }
+  },
+  "basic_reply": {
+    "question": "반가워요!",
+    "answer": "반가워요! 무엇을 도와드릴까요?",
+    "usage": {
+      "input_tokens": 46,
+      "output_tokens": 17,
+      "total_tokens": 63,
+      "estimated_cost": 1.31e-05
+    },
+    "note": "One observed successful Luna greeting, reused without a new request."
+  },
+  "outcome": "Observed filename/body association after the attachment-provenance change; one paired observation, not statistical proof.",
+  "public_summary_after": false,
+  "known_call_revision": "Not stored in the call; user reports validation after the improvement",
+  "review_basis": "fbe2598 plus uncommitted attachment-provenance changes",
+  "source_code_hashes": {
+    "services/attachment_service.py": "f3e1e4ff6a1ef5e46c80f3256ec7f63a592e5ec399b57033ca6e30140e8dda3a",
+    "services/prompt_builder.py": "cb72d08918818210a9b32194be86d9f7194c9eb937741d9a8b87415d87c8df9e"
+  },
+  "new_calls_made_for_this_export": 0
+}

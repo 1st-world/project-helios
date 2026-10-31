@@ -57,5 +57,5 @@ profiles.json.v*-*.bak
 # Local Validation & Documentation
 # ========================================
 docs/*
-!docs/api-validation-results.json
+!docs/SHARED-provider-records/
 tests/
