@@ -372,7 +372,10 @@ class AttachmentService:
             content = parts
         return [{
             "type": "input_text",
-            "text": heading + json.dumps(description, ensure_ascii=False),
+            "text": heading + json.dumps(
+                description, ensure_ascii=False, allow_nan=False,
+                separators=(",", ":"),
+            ),
         }, *content]
 
     def _check_text(self, path: str, text: str) -> None:

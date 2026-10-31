@@ -310,6 +310,10 @@ For automatic reload during development, run:
 .\.venv\Scripts\python.exe app.py
 ```
 
+Provider request construction keeps app guidance in `instructions`. Workspace context, file bodies selected through legacy path fields, and applicable conversation memory become JSON source data in the first `user` input. Unsummarized original history and saved tool calls/results follow, with the current question last. New attachment labels and their text or native content immediately follow that question. Empty memory or a summary outside the current history's coverage never replaces original messages.
+
+Input estimates include guidance, JSON framing, and replayed material in the assembled request. Historical inputs and tool results are not rewritten; existing Resume checkpoints retain their prepared inputs.
+
 ### Conversation model selection API
 
 Conversation JSON stores the next response's `profile_id` and an independent `profile_revision`. Credentials and connection settings remain in the shared profile registry. A new conversation captures the active profile at creation; later active-profile changes do not retarget it. Saving a model choice leaves the transcript `version`, memory, Workspace, messages and conversation recency unchanged.
