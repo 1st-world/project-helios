@@ -1,32 +1,26 @@
-Language: **한국어** | [English](README.en.md)
+Language: ***English*** | [한국어](README.ko-kr.md)
 
 # Helios
 
-Microsoft Foundry의 모델 Deployment에 자신의 API 키를 연결해 사용하는 로컬 웹 앱입니다. 대화와 설정을 로컬에 보관하고, 선택한 프로젝트 파일을 모델에 전달해 질문할 수 있습니다.
+A local web app for using models deployed in Microsoft Foundry with your own API key. Save conversations, attach local files, or connect a Workspace to ask questions about a project.
 
-현재 버전은 **`0.4.0-alpha`**입니다. 기본 채팅에서는 모델 용량을 추측해 입력을 줄이거나 제한하지 않고 Provider의 판단에 맡깁니다. 입력 예산·출력 제한·대화 메모리는 사용자가 선택하며, 로컬 파일 처리에는 별도의 자원 제한이 적용됩니다.
+The current version is **`0.4.0-alpha`**. The app UI is in English.
 
-## 현재 기능
+## Features
 
-- 여러 연결 프로필 저장과 응답에 사용할 프로필 선택.
-- 스트리밍 답변, Markdown·코드 강조, 대화 저장·이름 변경·삭제, 메시지 편집과 답변 재생성.
-- 선택적인 Workspace 연결·해제와 자동 프로젝트 문맥, Workspace 없이도 가능한 텍스트·이미지·PDF·Office 파일 첨부.
-- Explore project로 필요한 파일 목록·검색·부분 읽기를 모델에 맡기고, 실행 내역·사용량·저장된 근거 확인.
-- 선택적인 입력 토큰 예산, 출력 제한, 대화 메모리 요약과 일회성 요약 복구.
-- 응답·재생성·요약 호출의 사용량 기록, 프로필별 가격을 이용한 비용 추정, 기간·종류별 조회.
-- 인터페이스 글꼴·텍스트 배율·시간대와 사용량 표시 설정.
+- **Per-conversation models**: Save multiple connection profiles and choose a model for each conversation.
+- **Streaming chat**: Markdown, code highlighting, message editing, response regeneration, and conversation management.
+- **Public summaries and work progress**: Follow supported models' public reasoning summaries and tool activity before the final answer.
+- **Workspace and attachments**: Attach text, images, PDFs, and Office files with or without a connected folder.
+- **Read-only project exploration**: Let Explore project list, search, and read relevant file ranges while retaining evidence.
+- **Pause and resume**: Pause at a safe step boundary, then continue with the same model or hand off to another selected model.
+- **Context and cost controls**: Optional input budgets, output limits, conversation memory, and call-level usage and cost estimates.
 
-`Work tools`의 `Planned` 항목과 비활성화된 설정은 아직 사용할 수 없습니다. 현재 UI 언어는 영어입니다.
+## Getting started
 
-## 시작하기
+These commands use **Windows PowerShell and Python 3.12**. You need a Microsoft Foundry Deployment that supports the Responses API, its API key, and a browser. No Node.js or frontend build is required.
 
-### 실행 환경
-
-아래 설치 예시는 **Windows PowerShell과 Python 3.12** 기준입니다. 브라우저와, API 키로 Responses API를 호출할 수 있는 Microsoft Foundry Deployment가 필요합니다. Node.js나 별도의 프런트엔드 빌드 과정은 필요하지 않습니다.
-
-### 설치와 실행
-
-프로젝트 루트에서 실행합니다.
+Run from the project root:
 
 ```powershell
 python -m venv .venv
@@ -34,380 +28,89 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
-브라우저에서 [Helios 열기](http://127.0.0.1:8000)를 선택합니다. 종료할 때는 실행한 터미널에서 `Ctrl+C`를 누릅니다.
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser. Press `Ctrl + C` in the terminal to stop the server.
 
-기본 구성은 로그인이나 사용자별 권한 분리가 없는 로컬 단일 사용자 앱입니다. 서버는 한 프로세스로 실행하며, 여러 브라우저에서 같은 프로필과 저장된 대화에 접근할 수 있습니다. Workspace 연결은 대화별로 구분합니다.
+### Your first connection
 
-### 첫 연결
+1. Open **Settings → Connections → New profile**.
+2. Enter **Profile name**, **Deployment name**, **Foundry endpoint**, and **API key**.
+3. Choose **Save changes**. The first profile becomes the new-chat default; use **Set as default** to change it.
+4. Check **Conversation model** in the composer and send a message.
 
-1. **Settings → Connections → New profile**을 엽니다.
-2. 구분하기 위한 **Profile name**, 실제 **Deployment name**, **Foundry endpoint**, **API key**를 입력합니다.
-3. **Save changes**로 저장합니다. 첫 프로필은 새 채팅의 기본값이 됩니다. 목록의 **Set as default**로 기본값을 바꿀 수 있으며 **Default** 배지로 구분합니다.
-4. Composer의 **Conversation model**에서 해당 대화의 다음 응답에 사용할 프로필을 선택한 뒤 메시지를 보냅니다. 모델 용량·가격·메모리를 설정하지 않아도 기본 채팅을 시작할 수 있습니다.
-
-모델 선택은 대화별로 저장하고 다시 열 때 복원합니다. 새 채팅은 초안을 열 때의 기본값을 선택하며, 이후 기본값 변경은 기존 대화나 이미 선택한 초안을 바꾸지 않습니다. Settings에서 프로필을 편집하는 것과 새 채팅의 기본값을 지정하는 것은 별개입니다.
-
-모델 선택 저장 중 전송하면 확인이 끝날 때까지 기다립니다. 저장 실패나 다른 탭의 변경이 있으면 현재 선택을 다시 조회하고 질문 초안을 보존하며 자동 재전송하지 않습니다. 조회까지 실패하면 **Reload selection**으로 확인해야 합니다. 삭제된 선택은 **Unavailable model**로 표시하며 다른 모델로 자동 대체하지 않습니다. 첨부 파일 검사도 해당 대화에서 선택한 모델과 설정을 사용합니다.
-
-Endpoint에는 리소스 주소 또는 `/openai/v1/`까지의 주소를 사용합니다. 개별 `/responses` 주소나 Foundry project 관리 주소를 입력하는 항목이 아닙니다.
+**Deployment name** is the name deployed in your resource, not the model catalog name. **Endpoint** is the resource or Foundry project API base used to call the model. A base ending in `/openai/v1/` is also accepted.
 
 ```text
 https://your-resource.cognitiveservices.azure.com/
 https://your-resource.services.ai.azure.com/openai/v1/
+https://your-resource.services.ai.azure.com/api/projects/your-project
 ```
 
-**Deployment name은 모델 카탈로그 이름이 아니라 해당 리소스에 배포한 이름**입니다. 프로필을 저장하는 것은 연결 정보의 로컬 저장이며, 실제 API 호환성과 권한은 요청 시 확인됩니다.
+Saving a profile stores connection details locally; actual API compatibility is checked when a request is made. You can start ordinary chat without configuring model capacity, pricing, or memory.
 
-[profiles.example.json](profiles.example.json)은 저장 형식 참고용입니다. 모델명·Deployment 이름·가격은 예시이므로 실제 배포 정보와 요금을 확인해 입력합니다. 새 연결은 UI에서 생성할 수 있습니다.
+## Basic usage
 
-### 답변 생성 중
+### Conversations and models
 
-**Send** 직후부터 현재 상태와 경과 시간을 표시합니다. 입력 준비, 모델 응답 대기, 실제 텍스트 수신, 응답 마무리를 구별하며, 텍스트가 나타난 뒤에도 완료 전까지 진행 표시를 유지합니다. 준비 중에도 중지할 수 있고 중복 전송을 막습니다. 전송 전 준비를 취소하면 다른 입력을 덮어쓰지 않고 원래 질문을 초안으로 복원합니다. **Stop**은 중지를 요청하며, 탐색은 저장된 종료 상태를 확인한 뒤 취소 결과를 표시합니다.
+Create a chat or reopen one from the sidebar. Model choices are saved per conversation and apply to the next response. Changing the new-chat default leaves existing conversations' choices intact. Editing a message or regenerating an answer can replace the conversation branch from that point onward.
 
-Workspace·첨부 준비를 기다리는 중에는 공유 준비 작업의 완료를 기다리지 않고 전송 대기를 중단합니다. 서버에 제출한 뒤에는 요청 정리를 확인하고 저장된 대화를 불러온 다음 입력을 다시 활성화합니다. 확인 대기는 최대 10초이며, 통신 오류나 시간 초과 시 정리 미확인을 알리고 서버의 중복 요청 방지는 유지합니다. 시작 이벤트 전에 중단한 새 채팅은 Workspace 초안으로 저장된 대화를 찾아 연결하고 질문을 복원합니다. 완료가 먼저 저장되었다면 그 답변을 유지합니다.
+### Workspace and attachments
 
-일반 응답을 중단하면 받은 본문·공개 요약을 미완료로 구분해 현재 화면에서 확인할 수 있습니다. 이 임시 출력은 대화를 다시 열거나 다음 질문을 보내면 제거하며, 저장된 답변이나 후속 입력에 포함하지 않습니다. 재생성 취소는 기존 답변을 보존합니다. 이미 보고된 사용량·비용은 취소로 차감하지 않고, 최종 사용량을 받지 못한 호출은 0 대신 알 수 없음으로 집계합니다. 입력창 오른쪽의 **Send**는 생성 중 같은 위치에서 **Stop**으로 바뀝니다. Stop은 완전 중단이며, Work tools 실행에는 그 왼쪽에 별도의 **Pause after current step**을 제공합니다.
+Use **Workspace** to select a folder on the computer running Helios. Connections are saved per conversation, and a folder is optional. A connected folder's name and top-level overview are included automatically with messages. Inspect **Preview context** or disconnect the folder to stop supplying future automatic context.
 
-Work tools를 선택해도 실제 도구 호출 전에는 일반 응답과 같은 진행·공개 요약을 표시합니다. 도구 호출 없이 답변이 끝나면 Reasoning summary만 남고, 공개 요약이 없으면 빈 섹션을 만들지 않습니다. 첫 도구 호출이 시작되면 파일 목록 조회·검색·읽기 등 현재 작업을 포함하는 Work process로 전환합니다. 공개 요약·모델 중간 출력·도구 단계는 **Work process** 한 곳에 호출 순서대로 표시합니다. 생성 중에는 기본적으로 펼치고 최종 답변으로 전환할 때 한 번 자동으로 접습니다. 이후에는 직접 다시 펼칠 수 있습니다. 진행 표시는 앱이 확인한 상태이며 완료율·남은 시간·모델 내부 사고를 추측하지 않습니다. 경과 시간은 이번 요청의 대기 시간을 포함하므로 저장된 응답/실행 시간이나 과금 시간과 다를 수 있습니다.
+Hidden paths and `.gitignore` matches are not excluded by default. Select filters under **Automatic reading** or create a root `.heliosignore`. An absent file means no custom exclusions; the app does not create it automatically.
 
-### Reasoning summary
+Use **Attach → Add files → Check files → Attach files** to select, inspect, and apply files. The picker opens on the computer running Helios; files inside and outside the Workspace follow the same flow. Attachments are copies, so later edits to the original file do not change content already added.
 
-**Settings → Connections → 프로필 → Context & memory → Input & output → Reasoning summary**에서 지원하는 Deployment에 대해 **On**을 선택하면 공개 추론 요약을 요청합니다. 새 프로필과 기존 프로필의 기본값은 **Off**이며, 모델명이나 reasoning 토큰 수만으로 지원을 추측하지 않습니다. On은 Provider에 `summary: "auto"`를 요청하며, 지원하지 않는 요청은 기존 오류 안내로 처리하고 옵션을 빼서 자동 재요청하지 않습니다. 대화 메모리의 별도 요약 호출에는 이 옵션을 적용하지 않습니다.
-
-공개 요약이 도착하면 답변 위의 **Reasoning summary**를 기본적으로 펼쳐 스트리밍 내용을 보여 줍니다. 생성 중 상태·경과 시간과 열기/접기를 같은 헤더에 표시하며, 최종 답변이 시작되면 한 번 자동으로 접습니다. 생성 도중 직접 접으면 후속 조각이 다시 열지 않으며, 최종 답변 전환 뒤 다시 펼친 상태도 유지합니다. Explore project가 실제 도구를 호출하면 **Work process** 안에 모델 호출별 공개 요약·공개 모델 출력·도구 작업·저장된 결과 열기와 호출별 사용량을 순서대로 모읍니다. 탐색의 모델 출력은 도구 호출 여부가 확정되기 전까지 진행 기록에 표시하고, 최종 응답으로 확인되면 답변 영역으로 옮겨 중복을 제거합니다. 본문 복사에는 최종 답변만 포함합니다. 긴 기록은 내부에서 스크롤하고 저장된 기록은 접힌 상태에서 시작합니다. 일반 응답에 요약이 없으면 빈 섹션을 만들지 않습니다.
-
-성공한 assistant 메시지는 `reasoning_summary_schema_version: "0.1"`과 표시용 `reasoning_summary`를 대화에 저장합니다. 이 데이터는 답변 본문과 분리하며 후속 질문·재생성·대화 메모리의 입력과 입력 추정에서 제외합니다. Explore의 원본 실행 기록은 공개 요약을 보존하되, 다음 도구 호출과 후속 질문의 재생 문맥에서는 `summary` 텍스트를 비웁니다. 암호화된 reasoning 상태와 원본 도구 결과의 재사용은 유지합니다. 저장된 실행의 모델 단계에서도 공개 요약을 조회할 수 있으며 원문·암호화 상태는 브라우저로 보내지 않습니다. 일반 응답의 실패·취소 중간 내용은 기존 정책에 따라 assistant 메시지로 채택하지 않습니다.
-
-처리하는 데이터는 Provider가 공개한 `summary_text`이며 내부 추론 원문이나 reasoning 토큰을 복원한 내용이 아닙니다. 수신·완료 이벤트와 최종 스냅샷은 중복으로 합치지 않으며, 요약만 반환된 응답을 최종 답변으로 취급하지 않습니다.
-
-## API 지원 범위
-
-| 항목 | 현재 구현 |
+| Format | Content sent |
 | --- | --- |
-| 생성 API | `/openai/v1/responses`. 일반 답변·재생성·메모리 요약에 사용합니다. |
-| 인증 | 리소스 API 키. Microsoft Entra ID 인증은 아직 구현하지 않았습니다. |
-| 클라이언트 | Foundry endpoint를 지정한 OpenAI Python SDK. `model`에는 Deployment 이름을 보냅니다. |
-| 모델·입력 | 해당 API와 전송하는 입력 형식·지시문을 지원하는 Deployment가 대상입니다. |
-| 다른 API | Chat Completions·Anthropic Messages 호출이나 자동 API 전환은 제공하지 않습니다. |
+| UTF-8 text | File text |
+| PNG, JPEG, WebP, static GIF, PDF | Original image or PDF input; the model must support that input type. |
+| DOCX, XLSX, PPTX | Extracted text, tables, cells, and related text content; embedded images, charts, and formatting are omitted. |
 
-Microsoft Foundry에는 OpenAI 이외의 모델도 있습니다. Helios는 모델명으로 제조사·용량·지원 기능을 판별하지 않으며, 위 호출 계약을 지원하는지를 기준으로 사용합니다. Foundry의 모든 모델과 입력 조합에 대한 실제 호환성을 검증한 것은 아닙니다.
+File selection requires the native picker. Workspace also accepts a manually entered path. See the [detailed usage guide](docs/reference/usage.md) for format handling and local resource limits.
 
-Microsoft의 [v1 API와 모델 지원 안내](https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle#model-support)는 Responses와 다른 v1 API의 지원을 구분합니다. 리소스·Deployment의 Responses 지원과 입력 조건은 [Microsoft Responses 안내](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/responses)를 확인합니다. Provider 문서의 모델별 조건을 앱 전체의 공통 제한으로 적용하지 않습니다.
+### Explore project and progress controls
 
-## 입력·출력·메모리 설정
+Connect a Workspace, enable **Tools → Explore project**, and send your question. Permission applies once to the next response; the model uses registered read-only tools when needed. File edits and command execution are unsupported. Open **Work process** to inspect progress and saved results.
 
-**Settings → Context & attachments**는 앱 기본값, **Connections → 프로필 → Context & memory**는 프로필별 설정입니다. 입력 예산과 Input check는 프로필에서 앱 기본값을 대신 선택할 수 있습니다. 출력 제한은 앱과 프로필에 명시한 값 중 작은 값이 적용됩니다. 저장한 변경은 새 요청에 적용됩니다.
-
-각 요청은 시작할 때 선택한 연결·모델·가격·정책을 고정합니다. 활성 프로필 선택 변경, 다른 프로필의 추가·수정·삭제, 표시 이름만 변경하거나 같은 값을 다시 저장하는 행위는 해당 요청의 메모리 요약이나 재개 실행을 무효화하지 않습니다. 사용 중인 프로필의 실제 요청 설정 변경·삭제는 그 프로필의 권한을 무효화하며, 값을 되돌리거나 메모리를 다시 켜도 이미 철회된 실행 권한이 되살아나지 않습니다. 앱의 공통 정책 변경은 기존 요청 전체에 적용되는 무효화 검증을 유지합니다.
-
-### 입력과 출력
-
-| 설정 | 새 설치의 기본값 | 의미 |
-| --- | --- | --- |
-| Input budget | No input limit | 로컬 입력 토큰 예산을 두지 않습니다. |
-| Input check | Warn | 입력 예산이 적용될 때, 로컬 추정이 선택한 한도를 넘으면 경고하고 진행합니다. |
-| Output limit | Provider default | `max_output_tokens`를 지정하지 않습니다. |
-| Conversation memory | Off | 자동 요약 없이 원본 대화 이력을 사용합니다. |
-| Deployment information | Unknown | 모델 용량을 자동으로 추측하거나 조회하지 않습니다. |
-
-**Custom budget**은 입력 추정 토큰 값을 직접 지정합니다. **Warn**은 초과해도 진행하고, **Block**은 초과한 요청을 로컬에서 거절하며, **Off**는 입력 예산 검사를 건너뜁니다. Off에서도 명시적인 출력 제한·첨부 검사·메모리 설정은 적용됩니다.
-
-출력 제한을 입력하면 답변과 요약의 출력에 적용되며 reasoning 토큰도 포함됩니다. **Declared maximum output**은 용량 정보로, 사용자 출력 제한과 별개입니다. Deployment 정보 입력만으로 일반 채팅의 입력 예산이나 출력 제한이 활성화되지는 않습니다.
-
-이전 버전에서 가져온 정책은 **Review needed**로 표시될 수 있습니다. 검토 전에는 기존 입력 규칙을 보존하므로, 새 기본 정책을 사용하려면 해당 앱·프로필의 Input budget을 명시적으로 선택해 저장합니다.
-
-### 대화 메모리
-
-메모리는 오래된 대화를 요약해 이후 요청에서 원문 일부 대신 사용하는 선택 기능입니다. **추가 유료 API 호출**이 발생하며, 저장된 원본 메시지는 유지합니다.
-
-1. 프로필의 **Deployment information**에 확인한 용량을 입력합니다. Declared maximum input 또는 Declared context window를 사용할 수 있습니다.
-2. Context window를 사용하는 경우 출력 계획 여유량이 필요합니다. **Summary output headroom → 적용 중인 Output limit → Declared maximum output** 순으로 값을 선택합니다. 최대 입력만으로 계획할 때는 입력·출력 공유 용량을 확인하지 못한 상태로 표시합니다.
-3. **Conversation memory → On**을 선택해 저장하고, **Saved effective policy**에서 준비 상태를 확인합니다. 정보가 부족하면 자동 요약 없이 원본 이력을 준비합니다.
-
-앱의 메모리 기본값은 다음과 같습니다.
-
-| 설정 | 기본값 | 의미 |
-| --- | --- | --- |
-| Summary work budget | 262,144 tokens | 요약 호출 한 번의 입력 추정 예산. 선언한 배포 용량도 함께 고려합니다. |
-| Summary trigger | Automatic | 선언한 입력 허용량의 90%를 사용합니다. `0`은 요약을 일시 중지합니다. |
-| Recent history target | 65,536 tokens | 요약할 때 유지할 최근 원문 목표량. 완전한 대화 턴을 보존하므로 초과할 수 있습니다. |
-| Summary call limit | 8 | 한 번의 요약 작업에서 허용하는 최대 API 호출 수입니다. |
-
-Context window와 최대 입력을 모두 선언하면 메모리는 더 작은 입력 허용량을 사용합니다. Summary output headroom은 계획용 여유량이며 API 출력 상한을 설정하지 않습니다.
-
-### 토큰 추정
-
-로컬 추정은 **모델 맞춤형 토크나이저를 선택하는 방식이 아닙니다.** 로컬 `o200k_base` 어휘 파일이 무결성 검사를 통과하면 이를 사용하고, 사용할 수 없으면 UTF-8 바이트 수 기반 휴리스틱을 사용합니다. 요청 형식과 이미지·PDF에도 근삿값이 포함되므로 Provider의 실제 토큰·과금 사용량과 다를 수 있습니다.
-
-추정용 어휘 파일을 설치하려면 다음 명령을 별도로 실행합니다. 공개 파일을 내려받아 무결성을 확인하며, 모델 API를 호출하지 않습니다. 기본 채팅의 선행 조건은 아닙니다.
-
-```powershell
-.\.venv\Scripts\python.exe -m services.token_estimator --download
-```
-
-일반 실행 중에는 어휘 파일을 자동으로 내려받지 않습니다. 사용 중인 추정 방식은 프로필의 Saved effective policy에서 확인할 수 있습니다.
-
-### 오류와 재요청
-
-Provider 거절 뒤 입력 축소·API 전환·재요청은 자동으로 실행하지 않습니다. 오류 안내에서 질문·첨부·연결·사용량을 검토할 수 있으며, 알려진 사용량은 실패·미완료·취소 때도 기록합니다. 사용량을 받지 못한 요청은 비용이 0이라고 확정할 수 없습니다.
-
-컨텍스트 초과 후 "Summarize once & retry…"가 제공되면 호출 범위와 비용 안내를 확인하고 명시적으로 실행할 수 있습니다. 이 요약은 해당 재시도에만 사용하며 자동 메모리 설정을 켜지 않습니다. 실패한 재생성이 기존 답변과 이후 대화 분기를 교체하지는 않습니다.
-
-## Workspace와 첨부
-
-새 대화는 **Workspace 미지정**으로 시작합니다. 폴더 없이 일반 채팅을 시작할 수 있으며, 폴더 선택은 첫 메시지를 보낼 때 대화와 함께 저장합니다. 저장된 대화를 다시 열면 재시작 후에도 해당 대화의 Workspace 연결을 복원합니다. 연결 정보가 없는 이전 대화에는 폴더를 자동으로 지정하지 않습니다.
-
-**Workspace**에서 앱이 실행되는 컴퓨터의 폴더를 선택하거나 연결을 해제합니다. **Workspace folder** 제목 옆의 **Browse**는 해당 컴퓨터의 Tk 폴더 선택창을 열며, 선택 중에는 **Stop**으로 바뀝니다. Stop은 선택창만 중지하고 입력한 경로와 모달을 유지합니다. 선택창을 사용할 수 없으면 절대 경로를 직접 입력할 수 있습니다. **Apply**로 변경을 현재 대화에 저장하며 다른 대화의 폴더에는 영향을 주지 않습니다. 대화 응답이 생성 중이면 입력창의 **Stop**으로 중지하고 정리가 끝난 뒤 폴더를 변경하거나 해제합니다.
-
-기본 Workspace 폴더를 자동으로 생성하지 않습니다. 저장된 폴더가 이동·삭제되거나 접근할 수 없으면 **Unavailable**로 표시하며, Workspace에서 기존 폴더를 다시 선택하거나 연결을 해제할 수 있습니다. 이 상태에서도 폴더 입력이 없는 일반 채팅은 가능합니다.
-
-폴더를 연결할 때는 경로와 제외 정책의 상태를 확인하며 파일을 생성하지 않습니다. 연결된 대화의 메시지를 준비할 때는 프로젝트 이름과 최상위 파일·폴더 목록의 작은 개요를 자동으로 제공합니다. 별도 구조 공유 On/Off는 없으며, **Workspace → Preview context**를 펼치면 제공될 내용을 미리 볼 수 있습니다. 최상위 항목은 최대 32개, 전체 개요는 8KiB 이내이고 조회 작업량도 제한하므로 일부 항목만 포함될 수 있습니다. **Automatic reading**의 제외 옵션과 `.heliosignore`, 보호 경계는 Workspace를 읽는 Work tools에도 적용합니다.
-
-기본 문맥은 새 메시지와 재생성 요청마다 갱신하고, 한 요청의 후속 모델 호출에서는 같은 개요를 유지합니다. 입력 추정·예산 검사에도 포함하며, 일회성 요약 복구는 실패 당시의 개요를 재사용합니다. 이 개요는 하위 폴더를 재귀 조회하거나 파일 본문·호스트 절대 경로를 자동으로 전송하지 않습니다. 추가 구조·본문 조회는 해당 기능을 지원하는 **Work tools**를 명시적으로 선택하거나 파일 첨부를 사용합니다. 이전 대화나 메모리에서 이미 언급한 프로젝트 정보는 폴더 연결 해제로 삭제되지 않습니다.
-
-이 제외 정책 변경이 포함된 버전에서는 **기존 대화에도 새 기본값이 적용**됩니다. 이전에 강제 적용하던 숨김 경로·`.gitignore` 제외는 모두 초기값이 꺼진 선택 옵션이므로 자동 읽기 범위가 넓어질 수 있습니다. **Workspace → Automatic reading**에서 필요한 옵션과 루트 `.heliosignore`를 확인하세요. 파일이 없으면 커스텀 제외가 없으며 자동 생성·규칙 가져오기·별도 전환 절차는 없습니다. 이전 정책으로 만든 Paused 체크포인트가 현재 검증을 통과하지 못하면 해당 실행을 폐기하고 새 요청을 준비합니다. 저장된 대화·작업 결과·사용량은 보존합니다.
-
-**Attach → Add files**는 Workspace의 Browse와 마찬가지로 **Helios가 실행 중인 컴퓨터**의 파일 선택창을 엽니다. Workspace가 연결되어 있으면 해당 폴더에서 시작하며, 연결하지 않아도 파일을 선택할 수 있습니다. Workspace 안팎의 파일 모두 첨부용 사본으로 가져옵니다. 선택창을 열 수 없는 환경에서는 현재 UI의 파일 선택을 사용할 수 없습니다.
-
-Attach files 상단의 공통 안내는 호스트 위치와 사본 동작을 설명합니다. **Selected files** 중앙에는 빈 상태 또는 선택한 파일 목록을 표시하고, 첨부 유지·지원 형식·선택 상태 안내는 그룹 하단에 함께 표시합니다. 로컬 검사 범위와 결과는 **Selection check** 안에 표시합니다.
-
-**Selected files** 제목 옆의 **Add files**로 파일을 추가하고, 하나의 목록에서 확인·제거합니다. 모달은 내용에 맞춰 커지며, 파일이 많으면 Settings의 Profiles처럼 목록 영역 안에서 스크롤합니다. **Selection check**는 검사 전에도 안내를 표시하며, **Check files → Attach files**로 전달 방식과 검사 결과를 확인한 뒤 적용합니다. 적용 전 선택을 변경한 뒤 Cancel·닫기 X·백드롭·Escape로 나가면 변경 폐기 여부를 확인합니다. 파일 선택 중에는 Add files가 **Stop**으로 바뀌며, 이 버튼이나 첨부 창 닫기로 중지할 수 있습니다. 창 닫기는 선택창 종료를 기다린 다음 적용 전 변경을 확인합니다. 새 선택의 취소·검사 실패는 기존 선택을 유지하며, 준비 도중 실패한 새 묶음은 되돌립니다. 선택 검사는 로컬 준비 상태를 확인하며 모델의 수락을 보장하지는 않습니다.
-
-추가한 사본은 제거할 때까지 새 메시지에 포함됩니다. 원래 파일의 수정·이동이나 Workspace 변경은 이미 추가한 사본에 반영되지 않습니다. 대화를 다시 열면 마지막 사용자 메시지의 첨부 참조를 복원하며, 재생성은 해당 메시지의 원래 첨부를 사용하되 Attach에서 선택을 적용하거나 입력창의 첨부를 제거했다면 변경한 선택을 사용합니다. 선택을 바꿀 때는 다시 검사하며, 실패한 재생성은 이전 답변과 저장된 첨부를 유지합니다.
-
-기존 대화의 Workspace 경로 참조는 해당 연결의 파일을 읽는 의미를 유지합니다. 연결 변경·해제 시 이 경로 첨부만 제거하며, 복원한 오래된 참조는 **Unavailable**로 표시하고 다른 폴더의 같은 이름 파일로 바꾸어 읽지 않습니다. 다시 선택하거나 제거해야 합니다.
-
-사본은 앱 실행 컴퓨터에서 대화 메시지·입력창·Attach files의 선택이 참조하는 동안 보관합니다. 대화 삭제·메시지 분기 교체·첨부 선택 제거·폐기·요청 종료 시 영향을 받은 사본만 확인해 정리합니다. 이전 메시지에서 사용한 첨부는 입력창에서 제거해도 보존하며, 다른 대화·초안·실행 중인 요청·유효한 재시도에서 사용하는 사본도 유지합니다. 원래 선택한 파일은 삭제하지 않습니다.
-
-탭은 15분마다, 화면에 복귀했을 때 선택의 유효기간을 연장하며, 선택이 같으면 만료 시각만 갱신합니다. 비정상 종료로 남은 초안과 전달되지 않은 선택 결과에는 24시간의 유예를 둡니다. 선택 해제는 먼저 저장하고 실제 삭제는 백그라운드에서 처리합니다. 정리는 앱 시작 시 한 번 전체 상태를 대조한 뒤, 참조 변경과 가장 가까운 만료 시각에 맞춰 실행하며 매분 전체 파일을 검사하지 않습니다. 삭제 실패는 해당 파일만 간격을 늘려 재시도하고, 시스템 시간 변경이나 새 알림이 재시도 간격을 단축하지 않습니다. 대화 참조는 저장 성공 후 갱신한 인덱스로 확인합니다. 시작할 때 읽을 수 없는 대화가 있으면 자동 삭제를 중단하고 경고를 한 번 기록하며, 해당 파일을 복구한 뒤 앱을 다시 시작하면 재검증합니다.
-
-| 형식 | 모델에 보내는 내용 |
+| Action | Behavior |
 | --- | --- |
-| UTF-8 텍스트 | 읽은 텍스트. UTF-8 BOM도 지원합니다. |
-| PNG·JPEG·WebP·정적 GIF | 로컬 검사 후 원본 이미지 입력. 애니메이션은 지원하지 않습니다. |
-| PDF | 로컬 구조·페이지 검사 후 원본 파일 입력. 로컬 텍스트 추출을 필수로 요구하지 않습니다. |
-| DOCX | 본문 문단·표와 header/footer의 텍스트. |
-| XLSX | 저장된 셀과 수식 텍스트. 빈 영역 전체를 셀 수로 세거나 수식을 실행하지 않습니다. |
-| PPTX | 슬라이드의 텍스트·표·그룹 도형과 기존 발표자 노트. |
+| **Stop** | Ends the current request while retaining incurred usage and saved work records. |
+| **Pause after current step** | Pauses Work tools after the current model call or tool operation finishes. Work and costs can continue until that boundary. |
+| **Resume** | Continues from the saved boundary. Choosing another model requires confirmation of the handoff. |
+| **Discard run** | Discards a paused run's continuation point. |
 
-Office 첨부에는 내장 이미지·차트·서식이 포함되지 않습니다. 시각 자료가 필요하면 PDF나 이미지로 제공할 수 있습니다. 암호화된 문서와 지원하지 않는 바이너리 형식은 거절합니다. 이미지·PDF 입력 지원 여부는 실제 Deployment가 판단합니다.
+Resume the paused run and wait for the request to end, or discard it, before sending another message in that conversation. Other chats remain available. Saved pauses last up to 24 hours and never restart paid work automatically.
 
-첨부마다 해당 요청의 번호·파일명·출처·전달 방식을 함께 표시해 같은 이름의 파일도 구분합니다. 텍스트와 Office 추출 본문은 JSON의 `content` 값으로 묶고, 이미지·PDF는 출처 표시 바로 다음에 원본 입력을 제공합니다. 첨부가 있는 요청에만 본문이 실제 파일 내용임을 설명하는 공통 지침을 추가하며, 파일 안의 지시문은 사용자가 수행을 요청한 경우에만 따르도록 안내합니다. 내용이 비어 있거나 읽을 수 없는 경우도 실제 제공된 입력에 근거해 설명하도록 합니다.
+## Optional settings and costs
 
-### 로컬 파일 제한
+Ordinary chat defaults to no app input budget or output cap; the Provider enforces its actual model limits. Configure app defaults under **Settings → Context & attachments**, and profile settings under **Connections → Context & memory**.
 
-**Context & attachments → Attachment resource limits**에서 조정합니다. 아래는 로컬 읽기·추출의 잠정 기본값이며 모델의 입력 용량이나 Provider의 공통 파일 상한이 아닙니다. 메모리 사용량·처리 시간 전체를 보장하지 않으며, 실행 환경과 디코더의 보호 한도가 더 낮게 적용될 수 있습니다.
-
-| 항목 | 기본값 |
+| Setting | Purpose |
 | --- | --- |
-| 선택 파일 수 | 50개 |
-| 파일별 원본 크기 | 49,999,999 bytes |
-| 선택 전체 원본 크기 합계 | 49,999,999 bytes |
-| 파일별 읽거나 추출한 UTF-8 텍스트 | 4,194,304 bytes (4MiB) |
-| Office 파일별 ZIP 확장 크기 합계 | 134,217,728 bytes (128MiB) |
-| Office 파일별 ZIP 엔트리 수 | 10,000개 |
-| 이미지별 decode 픽셀 수 | 50,000,000 pixels |
-| PDF별 검사 페이지 수 | 1,024페이지 |
-| XLSX별 저장 셀 수 | 100,000개 |
+| **Input budget / Input check** | Warn or block based on locally estimated input size. Estimates can differ from billed tokens. |
+| **Output limit** | Sets the response output cap, including reasoning tokens. |
+| **Conversation memory** | Summarizes older turns for later input. Originals remain stored, but extra paid calls require capacity information and explicit activation. |
+| **Reasoning summary** | Requests public reasoning summaries from a supported Deployment. Off by default; it does not expose private reasoning text. |
 
-초과한 파일 본문을 조용히 잘라 보내는 대신 선택을 오류로 알립니다. 여러 파일의 추출 결과·전송 직렬화·동시 작업에는 원본 크기보다 큰 자원이 필요할 수 있습니다. 중지는 협력적으로 처리하므로 실행 중인 개별 parser·파일 시스템 호출이 즉시 끝나는 것은 아닙니다.
+Use **Settings → Usage & costs** to inspect usage. Costs are estimates from profile prices and Provider-reported usage, not invoices or remaining credits. Calls without reported usage are not treated as `0`.
 
-### Explore project
+See the [detailed usage guide](docs/reference/usage.md) for settings precedence, memory preparation, recovery, and pricing.
 
-Workspace를 연결한 뒤 **Tools → Explore project**를 선택하면 다음 응답 한 번에 읽기 탐색을 허용합니다. 요청이 시작되면 선택은 해제되며, Workspace 변경·새 대화·다른 대화 열기에도 해제됩니다. 폴더 선택·기본 문맥·첨부만으로 탐색을 켜지 않습니다. 재생성과 메시지 편집 후 응답은 현재 Tools 선택을 사용하며 이전 실행의 권한을 자동 복원하지 않습니다.
+## Local data and precautions
 
-**Tools → Settings**에서 실행 제한·목표와 Explore project의 읽기 범위·제외 규칙을 확인합니다. 현재 제한·목표는 Explore project에만 적용됩니다. 호출 수 제한에는 최종 답변 호출도 포함되며, 시간·추정 비용은 작업 사이에서 확인하는 목표로 진행 중 호출을 끊거나 과금 상한을 보장하지 않습니다. 기본값은 모두 비어 있습니다. **Apply**한 값만 요청에 반영하며, 페이지를 다시 불러올 때까지 새 대화나 Workspace 변경 후에도 유지합니다. **Cancel**·X·Escape·백드롭으로 미적용 변경을 버리려 하면 확인합니다. 설정 적용은 도구를 켜지 않으며 다음 응답의 도구 선택은 별도로 합니다. 응답 생성 중에는 설정을 조회만 할 수 있습니다. 메모리 요약은 별도 정책과 사용량을 따릅니다. 실행 중 **Stop**은 추가 작업을 중지하며 이미 수행한 호출의 비용과 기록은 보존합니다.
+- API keys are stored in **plaintext** in `profiles.json`. Protect settings and their backups together.
+- Conversations are stored in `conversation/`, attachments and work records in `data/`, and usage and app logs in `logs/`. Deleting a conversation does not automatically erase original work records or the separate usage ledger.
+- The app runs locally, but questions, history, selected context, and attachment content are sent to the external Provider to generate replies.
+- The default setup is a **local single-user app** without login or separate user permissions. Run one server process.
+- Alpha features and storage formats can change. Back up related data together as described in [storage and compatibility](docs/reference/architecture.md#versions-and-compatibility).
 
-**Pause after current step**은 현재 모델 호출이나 도구 작업 한 건을 끝낸 뒤 다음 단계 전에 일시중지합니다. **Pause requested** 동안은 작업과 비용 집계가 계속되며, 최종 답변이 먼저 완성되면 Completed로 끝납니다. **Paused**가 되면 Provider·MCP 연결과 Workspace 점유를 해제합니다. **Resume**는 저장된 원본 입력·완료 결과·남은 도구 작업을 같은 실행에서 이어 쓰고, 호출 수·비용·활성 실행 시간을 누적합니다. 일시중지 시간은 시간 목표에서 제외하며 **Discard run**은 재개용 입력을 폐기합니다.
+## Documentation and development
 
-재개는 대화 분기·연결·메모리 권한·Workspace·파일·첨부를 다시 검증한 뒤 명시적으로 시작합니다. 일시중지된 대화는 입력창·첨부·Tools·Workspace context를 잠그되 **Conversation model**에서 이어갈 모델을 선택할 수 있습니다. 오른쪽 기본 버튼은 **Resume**로 바뀌며, 선택한 모델 이름을 접근성 레이블과 툴팁으로 제공합니다. 원래 질문을 확인할 수 없거나 재개 불가가 확인된 실행은 이 버튼도 비활성화합니다. 새 질문·메시지 편집·재생성은 서버에서도 차단합니다. **Resume**의 확인 대화상자를 거쳐 이어서 완료하거나 **Discard run**으로 명시적으로 폐기한 뒤 새 메시지를 보낼 수 있습니다. 입력 초안은 유지하며 다른 대화·새 채팅은 영향을 받지 않습니다. 정상 저장된 일시중지 지점은 앱 재시작 후에도 24시간 이내에 재개할 수 있지만 자동으로 유료 작업을 시작하지 않습니다. 호출 도중 연결 종료·Provider/MCP 오류·앱 종료는 불완전 실행으로 종료하며 자동 반복하거나 재개하지 않습니다. 보존 기한은 각 일시중지 확정 시점부터 24시간이며 완료·Stop·만료·대화 삭제·재개 불가 확정 시 비공개 재개 입력과 추가 첨부 소유권을 해제합니다. 기존 실행 기록과 사용량 원장은 보존합니다.
+- [Detailed usage guide](docs/reference/usage.md): Settings, memory, Workspace, attachments, work results, and costs.
+- [Architecture and storage](docs/reference/architecture.md): Module roles, input construction, MCP, versions, and compatibility.
+- [API reference](docs/reference/api.md): Conversation models, exploration, Pause/Resume, model handoff, and attachments.
+- [Shared Provider communication records](docs/SHARED-provider-records/README.md): Actual requests, responses, usage, and observation limits.
+- [Development guidelines](AGENTS.md) · [Frontend assets and licenses](static/vendor/README.md).
 
-도구를 사용한 답변도 일반 답변과 같은 하단 영역에 모델·생성 일시를 표시합니다. 사용량 요약은 해당 응답의 전체 모델 호출 수·합산 토큰·실행 경과 시간·추정 비용이며, **Details**에서 세부 항목과 집계 범위를 확인합니다. 실행 시간에는 모델 호출과 도구 작업이 포함되며 일시중지 시간은 제외합니다. 불완전한 기록은 알려진 값만 표시하고 누락을 `0`으로 취급하지 않습니다.
-
-**App work result**는 최종 답변이 없는 시도를 모델 답변과 같은 너비의 독립된 응답 영역에 표시합니다. 앱 안내임을 레이블과 아이콘으로 구별하며, 모델의 assistant 메시지로 저장하거나 대화 입력에 추가하지 않습니다. 프로필·실행 시작 시각·사용량은 모델 답변과 같은 하단 정보와 **Details**를 사용합니다. 결과 안내는 호출 수 제한·시간/비용 목표 도달, 비용 기록 누락, 입력 검사 차단, 요청 취소, 앱 중단과 Provider 오류를 구별합니다. Stop 직후에는 정리가 끝나 저장된 종료 상태를 확인할 때까지 **Stopping**으로 표시합니다. 기록과 이미 발생한 사용량은 유지합니다. 원인에 따라 실행 제한·연결·입력 예산·Workspace·사용량 화면으로 이동할 수 있으며, **Review limits & targets**는 현재 적용 설정을 엽니다. 제한으로 중단된 경우에는 관련 목표 값만 결과 안내에 함께 표시합니다.
-
-원래 질문을 검증할 수 있는 기록의 **Prepare new request**는 확인 후 질문을 입력창에 복사하고 Explore project를 선택합니다. 현재 Workspace·모델·첨부·적용 제한을 검토한 뒤 **Send**로 새 요청을 시작하며, 이전 실행을 재개하거나 자동 전송하지 않습니다. 다른 입력 초안이 있으면 교체 여부도 안내합니다. 원래 질문을 확인할 수 없는 이전 기록은 입력창에서 새 요청을 작성하도록 안내합니다.
-
-실제 도구 호출이 있는 **Work process**는 모델 답변 또는 앱 작업 결과 안내 위에 표시합니다. 최종 답변이 없는 시도는 원래 질문을 검증해 독립된 응답 행에 표시하며, 재생성 실패는 이전 성공 답변을 유지한 채 뒤에 표시합니다. 현재 메시지와 연결할 수 없는 이전 기록은 **Other runs**에 남습니다. 펼치면 모델 호출별 공개 요약과 중간 출력, 도구 단계와 호출별 사용량을 페이지로 조회합니다. 호출별 **Details**는 응답 전체 집계와 구별하며, 채택되지 않은 시도도 프로필·실행 시작 시각·실행 집계를 공통 하단 정보에 표시합니다. 결과 설명과 후속 행동은 접힌 활동 안에 반복하지 않습니다. 같은 대화를 다시 그릴 때 펼친 상태와 조회한 활동 페이지를 유지합니다. **Open saved result**는 파일명·요청 범위·반환 범위와 EOF 또는 추가 결과 유무를 먼저 보여 줍니다. 같은 파일·revision에서 byte와 줄·열 위치가 연속인 읽기 조각은 하나의 본문으로 표시하고, 검색은 일치 위치와 발췌 시작 위치를 구별합니다. 폴더 조회는 반환된 파일·폴더 목록을 표시합니다. 긴 폴더 목록·검색 결과·여러 읽기 구간·상세 정보는 각각 높이가 제한된 영역 안에서 스크롤하며 키보드로도 접근할 수 있습니다. revision·정확한 줄/열/byte 위치·누락 내역은 **Result details**, 저장된 원문은 **Original result (JSON)**에서 확인합니다. 현재 파일은 다시 읽지 않으며, 일부 결과를 프로젝트 전체로 표시하거나 추가 결과를 자동 조회하지 않습니다. 비공개 모델 reasoning은 화면에 반환하지 않습니다. 응답 사용량 표시 설정은 응답 집계·미채택 실행 집계·호출별 표시에도 적용됩니다.
-
-실패·취소·중단된 실행과 재생성으로 교체된 실행도 남습니다. 현재 답변으로 채택되지 않은 completed 실행은 별도로 표시하며 자동 복구하지 않습니다. 내역은 대화를 다시 열면 복원되고 오래된 실행·단계는 이어서 조회합니다. 대화를 삭제해도 실행 저장소의 원문과 별도 사용량은 자동 삭제하지 않지만, 삭제된 대화의 내역은 UI/API에서 열 수 없습니다.
-
-## 사용량과 비용
-
-**Settings → Usage & costs**에서 호출 기록과 기간별 집계를 조회합니다. 메시지별·대화별 표시도 선택할 수 있습니다. 사용량은 Provider가 보고한 토큰을 기준으로 하며 누락과 `0`을 구분합니다. reasoning 토큰을 output에 다시 더하지 않습니다.
-
-**Connections → 프로필 → Token pricing**에는 USD / 1M tokens 단위의 요금을 입력합니다. 표준 요금, cache read/write 요금, 긴 컨텍스트 요금과 입력 토큰 분기점을 설정할 수 있습니다. 빈 표준 요금은 미설정, `0`은 무료를 뜻하며, 빈 긴 컨텍스트 요금은 대응하는 표준 요금을 사용합니다. 기본 분기점은 272,000 tokens이며 실제 모델의 과금 조건에 맞춰 변경합니다.
-
-비용 표시는 호출 시점에 저장한 요금과 보고된 사용량에 따른 추정입니다. 필요한 값이 없으면 부분 추정 또는 확인 불가로 표시하며, Azure 청구액이나 계정의 남은 크레딧을 조회하는 기능은 아닙니다. 대화를 삭제해도 독립적인 사용량 원장은 유지합니다.
-
-## 로컬 데이터와 설정
-
-| 위치 | 내용 |
-| --- | --- |
-| `profiles.json` | 연결 프로필·API 키·가격·프로필별 정책과 활성 프로필. |
-| `settings.json` | 앱의 입력·출력·요약·첨부 기본 정책. |
-| `conversation/*.json` | 저장된 대화 원문·메모리 요약·응답 사용량. |
-| `data/attachments/` | 첨부 사본과 SQLite manifest. 대화·초안·요청의 사용 여부에 따라 보존·정리합니다. |
-| `data/work_runs.sqlite3` | 탐색 실행 상태·모델 응답·원본 도구 결과·호출별 사용량 참조. 실패·교체된 실행도 보존하며 자동 만료하지 않습니다. |
-| `logs/usage_calls.sqlite3` | 호출별 사용량·상태·요금 스냅샷과 집계 원장. |
-| `logs/summary_usage.sqlite3` | 요약 사용량 저장소. 호출 원장과 함께 사용합니다. |
-| `logs/helios.log*` | 회전 보관하는 앱 로그. |
-| `.cache/tokenizers/o200k_base.tiktoken` | 선택적으로 설치하는 추정용 어휘 파일. |
-| 브라우저 localStorage | 글꼴·텍스트 배율·시간대·사용량 표시 등 브라우저별 환경 설정. |
-
-기본 파일 위치는 [config.py](config.py)에 정의돼 있습니다. 런타임 데이터와 설정 파일은 Git에서 제외합니다. **API 키는 `profiles.json`에 평문으로 저장**하며, 저장된 키를 조회 응답으로 브라우저에 돌려주지는 않습니다. 프로필 백업도 원본과 같은 수준으로 관리해야 합니다.
-
-앱과 대화 데이터가 로컬에 있어도 답변 생성은 외부 API에서 수행합니다. 전송할 질문·이력·선택한 프로젝트 구조·첨부 내용과 Provider 측 데이터 처리 조건을 고려해 사용합니다. 폰트와 프런트엔드 라이브러리는 로컬 파일로 제공하며 브라우저에서 외부 CDN을 불러오지 않습니다.
-
-실행 기록은 자동 만료하지 않으며 대화 삭제 후에도 보존합니다. 실행 문맥이 있는 대화는 대화 JSON과 실행 저장소를 함께 백업해야 합니다. 사용량 원장은 별도로 유지하며 실행 집계값을 새 API 호출로 가져오지 않습니다.
-
-## 버전과 호환성
-
-앱 버전과 저장 스키마 버전은 독립적으로 관리합니다. 알파 기간에는 각각 `0.x.y`와 문자열 `"0.*"` 범위를 사용합니다.
-
-### 버전을 올리는 시점
-
-앱 버전은 개별 커밋마다 올리지 않고, 여러 커밋을 묶어 검증한 릴리스 단위로 올립니다. 개발 중 세부 코드는 Git 커밋 SHA로 구분하며, 한 번 릴리스한 버전 번호를 다른 코드에 다시 사용하지 않습니다.
-
-| 변경 단위 | 알파 기간의 버전 처리 |
-| --- | --- |
-| 개발 중 개별 커밋, 문서·주석·테스트 정리 | 앱 버전을 유지합니다. |
-| 오류 수정·작은 UI/UX 보완을 묶은 릴리스 | PATCH를 올립니다. 예: `0.2.0 → 0.2.1`. |
-| 기능 추가·의미 있는 정책 변경·알파의 비호환 변경을 묶은 릴리스 | MINOR를 올리고 PATCH를 0으로 바꿉니다. 예: `0.2.x → 0.3.0`. |
-| 정식 릴리스 | 앱 `1.0.0`부터 시작합니다. |
-
-이 MINOR/PATCH 구분은 Helios의 알파 운영 규칙입니다. 알파 릴리스에는 `-alpha` 접미사를 사용합니다. 릴리스 준비 커밋에서 `app.py`와 두 README의 버전을 맞추고, 검증한 커밋에 `v0.4.0-alpha`처럼 버전 태그를 붙입니다. 저장 스키마는 앱 기능 추가만으로 올리지 않고 저장 형식의 계약이 바뀔 때 별도로 갱신합니다.
-
-### 저장 형식과 알파 종료
-
-실행 저장소는 문자열 스키마 `"0.3"`, 선택적 메시지 실행 참조는 독립된 문자열 스키마 `"0.1"`을 사용합니다. 새 메시지 참조는 `run_schema_version`과 `run_id`를 기록합니다. 참조 없는 기존 대화는 그대로 읽으며 자동으로 다시 저장하지 않습니다. 지원하지 않는 버전의 원본은 덮어쓰지 않습니다.
-
-- 현재 앱 버전은 **`0.4.0-alpha`**, 설정·프로필 저장 스키마는 **문자열 `"0.1"`**입니다. JSON 소수로 저장하지 않으므로 `"0.1"`과 `"0.10"`은 다른 식별자입니다.
-- 첨부 manifest는 문자열 `"0.2"`, 메시지의 선택적 첨부 참조는 `"0.1"` 스키마를 사용합니다. 기존 `"0.1"` manifest는 트랜잭션으로 이행하고 미사용 사본에 24시간의 정리 유예를 부여합니다. 대화는 다시 저장하지 않으며, 새 참조에는 `attachment_schema_version`과 `attachment_sources`를 기록합니다. 지원하지 않는 버전은 덮어쓰거나 정리하지 않습니다. 사본과 manifest, 대화 JSON은 함께 백업합니다.
-- 버전 필드가 없는 기존 형식은 내부적으로 `0`으로 식별합니다. 최초 명시적 저장 전에 원본 바이트를 백업하며, 이행 기록의 `from_schema_version: 0`과 백업 이름의 `v0`에 출처를 표시합니다. 새 문서에 숫자 `schema_version: 0`을 쓰는 것은 아닙니다.
-- 유효하지 않거나 지원하지 않는 버전의 설정·프로필은 원본을 덮어쓰지 않고 오류로 처리합니다. 먼저 해당 파일과 백업을 보존한 상태에서 원인을 확인합니다.
-- 알파 기능과 호환 형식은 이후 단계의 영구 지원 계약이 아닙니다. **알파 종료 시점(베타 전환 포함)**에 알파 레거시 이행 코드, deprecated API 필드 alias, 검토 전 legacy 입력 정책의 지원을 종료합니다. 알파 종료 이후의 정상 실행 경로에서 알파 레거시를 자동으로 해석하거나 복구하지 않습니다.
-- 최종 알파 데이터를 옮겨야 한다면 알파 종료 준비 단계에서 별도 절차나 도구를 정합니다. 호환성 종료가 원본·백업의 삭제를 뜻하지는 않습니다. 실제 호환 코드 제거도 알파 종료 작업에서 수행하며, 현재 알파의 보존·호환 처리는 유지합니다.
-- 베타 전환 시 사용할 앱·스키마 버전과 대상 데이터 형식은 전환 전에 별도로 정합니다. 베타는 정식 릴리스보다 먼저 진행할 수 있으며, 정식 릴리스는 앱 **`1.0.0`**, 저장 스키마 **`"1.0"`**부터 시작합니다.
-
-## 개발과 구성
-
-| 경로 | 역할 |
-| --- | --- |
-| `app.py` | 웹 페이지·API와 서비스 연결, 요청 및 스트림 수명 관리. |
-| `models/` | 프로필·앱 설정·대화·메시지 데이터 모델. |
-| `services/` | Responses 호출, 입력 정책·요약·첨부·Workspace·저장·사용량 처리. |
-| `templates/index.html` | 웹 UI 구조. |
-| `static/` | 브라우저 모듈, 스타일, 폰트와 포함된 라이브러리. |
-
-개발 규칙은 [AGENTS.md](AGENTS.md)를 따릅니다. 프런트엔드 자산·원본 라이선스·업데이트 방법은 [자산 목록](static/vendor/README.md)에 정리돼 있습니다.
-
-UI 문장이나 동작 문구에서 특정 모델·프로필·대화 등의 이름을 직접 가리킬 때는 `“이름”`으로 표기합니다. 프런트엔드는 `static/ui.js`의 `nameInText`를 사용합니다. 독립된 레이블·칩·목록 항목과 `레이블: 값`, 괄호로 구분된 값에는 따옴표를 추가하지 않습니다. 일반 안내·상태·개수·시간·금액은 이름처럼 감싸지 않으며, 저장된 값 자체는 바꾸지 않습니다.
-
-개발 중 자동 reload가 필요하면 다음 명령을 사용합니다.
-
-```powershell
-.\.venv\Scripts\python.exe app.py
-```
-
-Provider 입력을 구성할 때 앱 지침은 `instructions`에 두고, Workspace 문맥·기존 경로 방식으로 선택한 파일 본문·유효한 대화 메모리는 첫 번째 `user` 입력의 JSON 참고 자료로 구분합니다. 그 뒤에 메모리가 다루지 않은 원래 이력과 저장된 도구 호출·결과를 재생하고, 현재 질문을 마지막에 둡니다. 새 첨부의 파일 식별 정보와 실제 본문·네이티브 입력은 그 질문 바로 뒤에 이어집니다. 빈 메모리나 현재 이력 범위를 벗어난 요약은 원래 메시지를 대체하지 않습니다.
-
-입력 예산은 안내 문구·JSON 포장·재생 자료를 포함한 실제 조합을 추정합니다. 저장된 과거 입력과 도구 결과는 재작성하지 않으며, 기존 Resume 체크포인트는 준비 당시 입력을 유지합니다.
-
-### 대화별 모델 선택 API
-
-대화 JSON은 다음 응답에 사용할 `profile_id`와 독립적인 `profile_revision`을 저장합니다. 자격 증명과 연결 설정은 프로필 저장소에서 공유하며 대화에 복제하지 않습니다. 새 대화는 생성 시점의 활성 프로필을 초기값으로 저장합니다. 이후 활성 프로필 변경은 기존 선택에 영향을 주지 않습니다. 모델 선택 저장은 본문 `version`·메모리·Workspace·메시지·대화 정렬 시각을 바꾸지 않습니다.
-
-대화 목록·상세 조회와 `GET /api/conversations/{id}/profile`은 `profile_id`, `profile_revision`, `profile_available`을 반환합니다. `PATCH /api/conversations/{id}/profile`에 `{"profile_id":"<profile ID>","expected_profile_revision":0}`을 보내 선택을 저장합니다. 선택이 달라지면 갱신 번호가 증가하며 같은 값 저장은 유지합니다. 오래된 갱신 번호는 `409 conversation_profile_changed`, 존재하지 않는 프로필은 `404`입니다. 저장 실패는 이전 선택을 유지합니다.
-
-기존 대화에서 `POST /api/chat`의 `profile_id`를 생략하면 저장된 선택을 사용합니다. 명시하면 해당 요청과 이후 응답의 선택으로 저장하며, 다른 대화나 전역 활성 프로필은 바꾸지 않습니다. 선택적인 `expected_profile_revision`은 다른 탭이 바꾼 모델로 전송하거나 오래된 선택으로 덮어쓰는 일을 제출 전에 막습니다. 새 대화에서 명시한 모델은 최초 선택으로 저장하고, 준비 실패 후 같은 초안을 재시도해도 그 선택을 유지합니다. 중복 전송·Paused 상태로 거절된 전송은 선택을 바꾸지 않습니다.
-
-선택 필드가 없는 이전 대화는 목록·상세·선택 조회 또는 요청 시 마지막으로 확인 가능한 응답의 프로필로 한 번 초기화합니다. 도구 답변은 실행 기록의 프로필을 확인합니다. 응답에서 확인할 수 없으면 현재 활성 프로필을 초기값으로 저장합니다. 삭제된 프로필의 기록이 있으면 그 ID를 유지하고 `profile_available: false`로 알립니다. 선택이 없거나 사용할 수 없을 때는 자동 대체 없이 `409 conversation_profile_unavailable`로 전송을 거절합니다.
-
-진행 중이거나 Paused인 실행의 다음 응답용 선택도 API로 변경할 수 있습니다. 이미 시작한 요청과 일회성 복구는 준비 당시 프로필을 유지하며 새 선택을 덮어쓰지 않습니다. Resume는 기본적으로 현재 실행 구간의 모델을 유지하고, 명시적인 모델 전환 요청만 새 프로필을 사용합니다. Composer는 대화별 선택을 저장하고, Connections의 기본값은 새 채팅을 초기화합니다. Paused 상태에서도 Composer에서 대화별 모델 선택을 저장할 수 있으며, 선택만으로 실행하지 않습니다. Resume 확인창은 현재 모델과 대상 모델·연결 호스트, 인계 범위와 누적 비용을 설명합니다. 확인 전후로 저장된 선택을 다시 조회하고 승인한 프로필 설정이 달라졌으면 재확인을 요구합니다. 취소하면 새 선택과 기존 Paused 지점을 모두 유지합니다. Connections의 기본값 변경도 가능합니다.
-
-### 로컬 MCP 프로젝트 읽기 기반
-
-`ProjectMCPClient`는 선택한 Workspace에 대해 앱에 포함된 stdio 서버의 `list_files`, `search_text`, `read_file`을 호출합니다. 공식 Python MCP SDK `2.3.0`과 프로토콜 `2026-07-28`을 고정합니다. Explore project UI와 아래의 명시적 탐색 API에서 반복 실행을 지원합니다. 도구 Off의 일반 채팅·Settings·Attach와 저장된 탐색 조회는 MCP 서버를 시작하지 않습니다.
-
-목록은 해당 폴더의 직접 하위 항목만 반환하고, 검색은 대소문자를 구별하는 literal UTF-8 검색입니다. 부분 읽기는 상대 경로·줄·Unicode 열·원본 byte 구간과 메타데이터 기반 파일 revision을 반환합니다. 긴 줄은 조각으로 나누며 원문 개행을 보존합니다. `next_cursor`가 있으면 빈 진행 페이지도 이어서 읽어야 합니다. `complete`는 요청 범위의 순회를 마쳤다는 뜻이며, 제외한 경로나 읽지 못한 파일은 누락 집계에 남습니다. 전체 프로젝트를 읽었다는 보장은 아닙니다.
-
-자동 읽기의 사용자 지정 제외 규칙은 Workspace 루트의 `.heliosignore`에서 읽습니다. 파일이 없으면 커스텀 제외가 없으며, 폴더를 연결해도 자동 생성하지 않습니다. UTF-8 텍스트에 `.gitignore` 형식의 패턴을 사용하고, 하위 폴더의 `.heliosignore`는 정책으로 읽지 않습니다. Workspace의 **Automatic reading**에서 숨김·시스템 경로 제외와 Workspace 내부의 상위·하위 `.gitignore` 적용을 각각 선택하며 두 옵션의 초기값은 꺼짐입니다. 선택은 대화별로 저장되고 기존 대화에도 별도의 호환·전환 모드를 두지 않습니다.
-
-`.heliosignore`의 명시적 재포함(`!`)은 기본 제외 옵션을 덮어쓸 수 있지만 제외된 부모 폴더를 먼저 재포함해야 합니다. Git 내부 메타데이터(`.git`), 심볼릭 링크·junction·hard link, 호스트가 지정한 Helios 자격 증명·백업·런타임 저장소와 Workspace 밖 경로는 보호 경계이며 사용자 규칙이나 모델 인자로 해제할 수 없습니다. Windows 8.3 별칭으로도 우회할 수 없습니다. 이는 명시적 첨부 선택과 별개인 앱 수준 경로 정책이며 OS sandbox가 아닙니다. 열린 파일·폴더와 활성 ignore 정책의 변경을 감지하면 해당 이어 읽기를 거절하며 Paused 재개도 현재 정책을 다시 검증합니다. 파일 revision은 내용 hash나 파일시스템 snapshot이 아닙니다.
-
-ignore 패턴은 대소문자를 구별하며 Git 전역 설정·전역 ignore·`.git/info/exclude`는 읽지 않습니다.
-
-로컬 잠정 자원 한도는 결과 64KiB, stdio 메시지 256KiB, 텍스트 조각 2KiB, 페이지 작업량 1MiB/2,048단계/협력적 5초입니다. 파일시스템 호출 하나의 지연까지 보장하지는 않으며 호스트 호출은 8초 후 세션을 중지합니다. 페이지당 목록 256개·검색 128개·읽기 조각 128개, 탐색 깊이 32, 세션당 cursor 16개/유휴 5분을 적용합니다. 활성 ignore 파일은 파일당 64KiB의 UTF-8만 허용하며 잘못된 패턴·제어 문자·파일 유형·읽기 실패를 빈 정책으로 취급하지 않습니다. Workspace에 정책 상태를 표시하고, 루트 정책이 잘못되면 Explore의 Provider 호출 전에 거절합니다. 도중에 발견한 잘못된 하위 Git 정책도 해당 작업을 실패시킵니다. 이 값은 모델 토큰 한도가 아니며 첨부 제한을 바꾸지 않습니다. 취소·시간 초과·프로토콜 오류·세션 종료 시 프로세스 트리를 정리하고 cursor를 폐기합니다. Windows Job Object를 확보할 수 없으면 시작을 거절하며 임의 명령·외부 MCP 서버는 받지 않습니다.
-
-### 프로젝트 탐색 API
-
-개발용 `POST /api/chat`의 `explore_project: true`로 읽기 탐색을 명시적으로 선택합니다. 새 대화는 `POST /api/workspace`로 독립된 초안을 만들고, 반환된 `session_id`를 `workspace_session_id`로 전달해 `PUT /api/workspace/root`에서 폴더를 선택합니다. 첫 채팅에서 같은 식별자를 보내면 연결을 대화에 저장합니다. 저장된 대화는 `GET /api/workspace?conversation_id=<id>&include_entries=false`로 조회하고, 채팅·폴더 변경·문맥 및 구조 미리보기·파일 읽기·첨부 검사에 `conversation_id`와 현재 `workspace_revision`·`workspace_session_id`를 함께 보냅니다. Workspace가 필요하며 기본 프로젝트 개요는 자동 적용됩니다. 추가 도구 탐색은 별도 선택입니다. 전체 tree나 파일 본문·절대 root를 자동으로 넣지 않습니다. 식별자를 생략하는 기존 API의 임시 Workspace는 브라우저 대화의 선택과 분리됩니다.
-
-`POST /api/workspace/context`에 같은 범위 필드를 보내면 자동 개요를 로컬에서 미리 봅니다. 모델 호출이나 MCP 프로세스는 시작하지 않습니다. 기존 `workspace_structure`와 `POST /api/workspace/structure`는 개발용 명시적 추가 구조 요청으로 유지합니다. 깊이·항목 수·절대 경로 옵션은 이 추가 요청에만 적용되며, `workspace_structure: null`은 기본 개요를 끄지 않습니다. 프로젝트 문맥 없이 대화하려면 Workspace 연결을 해제합니다.
-
-```json
-{"prompt":"이 프로젝트의 설정 로딩을 설명해 주세요.","explore_project":true,"workspace_revision":0,"workspace_session_id":"<current session>","exploration_limits":null}
-```
-
-모델에는 `helios_project_list_files`, `helios_project_search_text`, `helios_project_read_file`만 등록합니다. 여러 함수 호출은 원래 순서대로 직렬 실행하며 모델 메시지·함수 호출·암호화된 reasoning 상태·해당 `call_id`의 원본 도구 결과를 후속 요청에 재전송합니다. 표시용 공개 reasoning 요약은 재전송하지 않습니다. 중간 응답의 텍스트는 최종 답변으로 합치지 않습니다. 저장된 결과와 참조 범위는 다음 턴과 완료한 실행의 메모리 요약에서도 사용하며, 현재 파일을 다시 읽어 과거 결과를 바꾸지 않습니다.
-
-입력 추정과 명시적 Block에는 함수 정의·탐색 지침·누적 도구 결과도 포함합니다. 진행 중 실행은 요약하지 않으며 입력 초과·Provider 실패 뒤 자동 축소나 재요청을 하지 않습니다. 탐색은 `store: false`와 `reasoning.encrypted_content` 요청을 사용합니다. reasoning 항목이 반환됐는데 재사용할 암호화 상태가 없으면 호환성 오류로 중지합니다. 실제 Foundry Deployment의 지원은 별도 확인이 필요하며 모든 조합을 검증한 것은 아닙니다. 함수 계약은 [OpenAI function calling 문서](https://developers.openai.com/api/docs/guides/function-calling)를 참고하되 Foundry 지원 보장으로 해석하지 않습니다.
-
-`exploration_limits`의 세 값은 모두 기본 `null`입니다. `max_model_calls`는 탐색 응답 호출 수를, `elapsed_time_target_seconds`와 `cost_goal_usd`는 작업 사이에서 확인할 활성 실행 시간·알려진 추정 비용 목표를 지정합니다. 시간·비용 목표는 진행 중인 API 호출의 강제 deadline이나 청구 상한이 아니며, 비용 정보가 불완전한 비용 목표 실행은 추가 호출 전에 중지합니다. 초기·백그라운드 대화 메모리 요약은 기존 동의·정책과 별도 사용량을 유지하며 이 탐색 응답 호출 목표에 포함하지 않습니다. 도구 자원 한도나 모델 용량을 이 값으로 바꾸지 않습니다.
-
-SSE의 `start`/최종 `done`에는 `run_id`가, `work_progress`에는 단계·도구 호출 ID가 포함됩니다. `work_usage`는 호출별 사용량, `run_usage`는 별도 집계입니다. 최종 `done`과 `GET /api/conversations/{id}`의 도구 답변에는 기존 실행·사용량 저장소에서 계산한 표시용 `response_metadata`가 포함됩니다. 이 응답 전체 집계를 Message의 단일 호출 필드에 저장하거나 사용량 원장에 다시 기록하지 않습니다. 실패 응답도 실행 참조와 알려진 집계를 제공하며 저장소를 확인할 수 없으면 unknown으로 남깁니다. 연결·가격·정책·읽기 범위는 시작 시 고정하며, 대화 변경·삭제·Workspace 변경과 사용한 메모리 동의 철회는 후속 실행과 답변 채택을 중지합니다. 첫 제출 전 메모리가 철회되면 원본 이력으로 준비할 수 있지만, 이미 그 요약을 사용한 실행은 원본으로 갈아 끼워 계속하지 않습니다.
-
-실행 이력과 활동 API의 추가 `failure` 필드는 허용된 오류 코드·분류·단계·응답 상태, HTTP 상태, request ID와 retry-after만 저장·반환합니다. 오류 원문·응답 본문·자격 증명은 포함하지 않습니다. 상세 진단 저장에 실패해도 기존 종료 처리와 점유 해제는 유지하며, 해당 필드가 없는 이전 실행은 보존된 상태와 reason에 따라 표시합니다.
-
-중지는 요청 취소·연결 종료로 처리하고 MCP 정리까지 Workspace 점유를 유지합니다. 재생성은 새 실행이며 성공한 최종 답변과 첨부 참조만 기존 분기를 교체합니다. 실패·취소는 이전 분기를 보존합니다. 종료 상태 저장도 실패하면 점유는 해제하고 저장 상태를 unavailable로 표시하며, 재시작 시 남은 미완료 실행은 interrupted로 복구합니다. 탐색의 컨텍스트 오류에는 불완전 실행을 재개하는 일회성 요약 receipt를 만들지 않습니다. 입력을 검토한 새 탐색이 필요합니다. 최종 대화 JSON 저장 실패로 채택되지 않은 completed 실행이 남을 수 있으며 자동 채택·재실행하지 않습니다.
-
-`POST /api/work-runs/{run_id}/pause`는 `{ "conversation_id": "..." }`로 안전한 단계 경계에서의 일시중지를 요청합니다. 스트림은 정리 완료 후 `paused` 이벤트로 끝나며 최종 답변은 `done`으로 끝납니다. `/resume`는 같은 본문에 `expected_conversation_version`을 요구하고 기존 run의 SSE를 이어 보냅니다. `/stop`은 활성 또는 일시중지 실행에 명시적 취소를 저장하며 완료된 결과를 덮어쓰지 않습니다. Resume는 대화별 요청 슬롯과 원자적 체크포인트 소유권을 확인하므로 중복 호출을 시작하지 않습니다. 일시중지된 대화의 `/api/chat`과 메시지 편집은 `409 work_run_paused`로 거절하고 기존 체크포인트를 유지합니다. 대화 조회·실행 이력의 `paused_run`은 페이지와 무관한 잠금 상태를 제공합니다.
-
-재개용 입력은 `work_runs.sqlite3`의 별도 테이블에 보존하며 연결 자격 증명은 복제하지 않습니다. 자동 읽기 범위의 파일·ignore 정책은 제한된 metadata manifest로, 명시적으로 선택한 Workspace 파일과 upload 원본은 SHA-256으로 검증합니다. metadata를 보존한 외부 내용 변경이나 검증 직후의 파일 시스템 경쟁까지 막는 snapshot은 아닙니다. 새 MCP 세션의 이전 cursor는 `cursor_expired`로 거부하고 모델에 범위부터 다시 읽도록 안내합니다.
-
-실행 저장소 형식 `0.3`은 원래 프로필·정책을 실행 구간에 연결하고 모델 호출과 도구 결과의 Provider 식별자를 구간별로 구분하며, 전환 구간의 준비 입력을 별도 비공개 테이블에 보존합니다. 기존 `0.1`·`0.2` 자료는 원래 snapshot·원문·사용량 연결을 유지하며 이전합니다. 체크포인트는 구간과 증가하는 일시중지 revision에 연결하고 매 실행 claim은 소유권 revision을 갱신하므로 오래된 요청이 새 실행에 호출을 기록하거나 종료시키지 않습니다. 이전 체크포인트도 원래 실행에서 재개할 수 있습니다. 대화 메시지의 실행 참조 형식은 `0.1`을 유지합니다.
-
-모델 전환을 위한 인계 자료는 원래 준비 입력, 완료된 공개 메시지, 원본 도구 결과·참조 범위와 미실행 요청을 구분해 구성합니다. 원래 입력에 포함된 이전 작업까지 reasoning 전체를 제외하고 Provider 전용 참조를 정규화하며, 원본 저장 기록은 바꾸지 않습니다. 지원하지 않는 참조나 누락된 결과는 조용히 제외하지 않고 인계 준비를 거절합니다. 자료 생성은 모델 호출·도구 실행·자동 요약·체크포인트 소비를 만들지 않습니다.
-
-다른 모델로 이어가려면 대화의 프로필 선택을 먼저 저장한 뒤 `/resume`에 `target_profile_id`, `expected_profile_revision`, `expected_checkpoint_revision`, `expected_execution_revision`을 함께 전달합니다. 프로필 revision은 대화의 선택 API에서, 체크포인트·실행 revision은 Paused run 메타데이터에서 확인합니다. 기존 `conversation_id`·`expected_conversation_version`도 필요합니다. 새 모델의 연결·메모리 정책과 입력·출력 예산을 적용하고 도구 정의·인계 이력·첨부를 포함해 검사합니다. 원본 입력이 메모리를 사용했는데 대상 모델이 이를 허용하지 않으면 출발 지점을 보존한 채 거절합니다. 경고 모드는 경고를 제공하며 명시적 Block만 입력 추정으로 차단합니다. 실행 중 다음 응답용 모델 선택을 다시 바꾸어도 이미 시작한 구간의 모델은 바뀌지 않습니다. Work process는 모델 전환 여부와 관계없이 기존 단계 목록을 시간순으로 표시합니다. Model call을 펼치면 일반 응답과 같은 footer에서 실제 사용 모델·호출 시작 시각·사용량을 확인하고 Details로 토큰 내역을 펼칩니다. 전체 사용량에는 실패한 전환 시도도 포함합니다. 파일 결과 링크는 실행 구간을 함께 지정하므로 서로 다른 모델이 같은 Provider 응답·도구 ID를 반환해도 해당 결과를 엽니다.
-
-전환은 새 모델의 첫 정상 출력과 허용된 도구 요청을 저장한 뒤 원자적으로 확정합니다. 이전 모델의 미실행 도구는 먼저 실행하지 않고 새 모델이 판단하게 합니다. 연결·검사 실패나 첫 정상 출력 전 중단은 출발 Paused 지점과 원래 만료 기한을 보존하며, 시도한 호출·비용·활성 시간은 누적합니다. 이때 모델을 자동으로 재호출하거나 이전 모델로 자동 실행하지 않습니다. 명시적 Stop·원본 권한 철회는 전환 준비와 출발 체크포인트를 모두 폐기합니다. 새 모델이 이미 완료한 작업이 있으면 이전 지점으로 되돌리지 않습니다. 최종 응답 메타데이터는 실제 마지막 모델과 구간별 이력을 제공하며, 후속 질문·메모리 요약에는 여러 모델의 완료 이력을 reasoning 없이 재생합니다.
-
-실행 활동의 `segment_id`는 구간별 도구 결과를 구분합니다. 응답·도구 ID가 겹치는 경우 `/evidence?response_id=...&call_id=...&segment_id=...`로 조회하며, 모호한 참조를 임의의 구간으로 연결하지 않습니다. 종료·만료·삭제 시 모든 구간의 비공개 입력과 추가 첨부 소유권을 해제하고 원문 기록과 사용량은 유지합니다.
-
-연결 검증은 표시 이름을 제외한 실제 요청 설정을 비교합니다. 이름 변경 후에도 기존 체크포인트를 재개할 수 있으며, 해당 실행과 재개 호출의 기록에는 시작 당시 이름을 유지합니다. 이전 연결 검증 형식도 저장된 원래 이름으로 검증하되 자격 증명·모델·가격·권한 검사는 유지합니다.
-
-`GET /api/chat/status?conversation_id=<id>`는 해당 대화의 현재 요청 정리를 최대 10초 기다린 뒤 `conversation_id`와 `in_progress`를 반환합니다. 시작 이벤트 전의 새 채팅은 `workspace_session_id=<id>`로 조회해 초안이 채택된 대화를 찾을 수 있습니다. 정리 완료 이벤트를 기다리며 반복 폴링·Provider 호출·MCP 실행·폴더 조회를 하지 않습니다. 시간 초과 시에도 `in_progress: true`인 요청의 점유는 유지합니다. 취소나 재개를 실행하는 API가 아닙니다.
-
-`0.4.0-alpha`에는 공개 추론 요약 스트리밍, Pause/Resume 및 모델 인계, 대화별 모델 선택, Workspace 제외 정책 및 검증된 프롬프트 최적화가 포함됩니다.
-
-`GET /api/conversations/{id}/work-runs`는 최신 실행 20개와 `next_before`를 반환하며 `before`로 이전 페이지를 조회합니다. `GET /api/conversations/{id}/work-runs/{run_id}?offset=0`는 모델 원문 없이 실행 정보·집계와 순서가 유지된 단계 30개·`next_offset`을 반환합니다. 두 응답의 실행 정보에는 현재 대화에서 검증된 `message_link.user_index`·`assistant_index`가 포함되며, 연결할 수 없는 위치는 `null`입니다. 새 실행은 질문의 위치·생성 시각·내용 체크섬을 내부에 기록해 질문 수정이나 분기 교체 후 잘못 연결되는 것을 방지합니다. 같은 경로의 `/evidence?response_id=...&call_id=...`는 해당 실행에 저장된 도구 결과 하나를 반환합니다. 모두 존재하는 소유 대화를 확인하고 임의 파일 경로나 다른 대화의 실행을 열지 않습니다. 이 조회는 Provider 요청이나 MCP 실행을 만들지 않습니다.
-
-### 독립 첨부 API
-
-네이티브 UI 선택은 `WS /api/attachments/picker/{token}`으로 연결합니다. 브라우저가 보낸 절대 경로를 읽지 않으며, 앱이 띄운 선택창에서 고른 파일만 기존 검사·저장 경로로 가져와 ID 참조를 반환합니다. 선택창의 시작 위치는 현재 대화 또는 Workspace 초안으로 결정합니다.
-
-브라우저 Attach와 같은 준비 경로를 사용하는 백엔드 API를 제공합니다. `POST /api/attachments/uploads?filename=notes.txt`에 원본 bytes를 본문으로 보내면 앱이 발급한 UUID와 `reference`를 반환합니다. 파일명은 표시용 basename이며 서버의 절대 경로나 디렉터리를 받지 않습니다. 수신·검사는 기존 첨부 자원 제한을 적용하고 실패·취소된 업로드를 정리합니다.
-
-`POST /api/attachments/inspect`와 `POST /api/chat`의 `attachment_sources`에 반환된 참조를 전달합니다.
-
-```json
-{"attachment_sources":[{"source":"upload","attachment_id":"<app-issued UUID>"}]}
-```
-
-Workspace 참조는 `{"source":"workspace","path":"notes.txt"}`이며 검사 결과에는 해당 Workspace의 revision과 session ID도 포함됩니다. 두 출처는 파일 개수·합계 bytes·형식 처리 정책을 공유합니다. 기존 `paths` 검사와 `attachment_files`·`workspace_file`·`workspace_files` 채팅 필드도 유지하며, 이 필드에는 Workspace 선택이 필요합니다.
-
-`GET /api/attachments/uploads`는 보존 중인 사본 목록과 존재 여부를, `GET /api/attachments/uploads/{id}`는 사용할 수 있는 사본의 메타데이터를 반환합니다. API 클라이언트도 작성 중인 선택을 보존하려면 `PUT /api/attachments/drafts/{UUID}`에 `{"attachment_ids":["<upload UUID>"]}`를 보내고 24시간 이내에 갱신합니다. 빈 목록은 해당 초안의 참조를 해제합니다. 선택적인 `released_attachment_ids`는 최초 등록이 서버에 도달하지 않은 제거 사본도 해제하며, 다른 소유자나 유지할 선택의 참조는 보호합니다. 참조 없는 새 업로드에는 24시간의 유예가 있으며, 해제된 사본은 더 이상 사용하지 않으면 백그라운드에서 정리합니다. 초안 갱신 응답은 해제 상태의 저장을 확인하며, 물리적 파일 삭제 완료를 기다리지 않습니다. `DELETE /api/attachments/uploads/{id}`는 참조 없는 사본만 명시적으로 삭제합니다. 대화·초안·요청·유효한 재시도에서 사용 중이면 `409`, 삭제·유실된 ID를 읽으면 `410`을 반환합니다. UI에는 재사용 보관 목록이 없습니다.
-
-채팅은 새 참조를 사용자 메시지에 저장하고, 재생성에서 `attachment_sources`를 생략하면 그 참조를 복원합니다. `[]`는 선택 해제이며 변경 참조는 재생성 성공 시 답변과 함께 저장됩니다. 기존 경로 필드의 재생성은 현재 요청의 선택을 사용합니다. 일회성 복구는 실패 요청의 준비 자료를 재사용하며 원본 삭제 시 해당 복구 자료도 폐기합니다. 이미지·PDF bytes와 추출 본문은 대화 JSON에 복제하지 않습니다.
-
-## 이후 검토할 기능
-
-아래 항목은 아직 채팅 UI에서 제공하지 않는 기능이며, 구체적인 범위와 구현 순서는 별도로 정합니다.
-
-- MCP 기반 Work tools의 변경 제안·검토·적용과 명령 실행.
-- 웹 검색과 Sandbox/Docker 등을 활용한 코드 실행 및 실행 자원 관리.
-- 선택적인 Microsoft Entra ID 인증, Foundry 배포·모델 조회와 배포 정보 자동 채움.
-
-Entra ID나 모델 조회는 일반 채팅의 선행 조건으로 두지 않습니다. 모델 정보의 자동 채움과 메모리·토큰 제한을 켜는 사용자 선택도 구분합니다.
+Authentication currently uses resource API keys with Deployments supporting the Responses API. Chat Completions, Anthropic Messages, Entra ID authentication, web search, code execution, and `Planned` tools are not yet available.
