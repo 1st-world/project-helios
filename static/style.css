@@ -1562,6 +1562,7 @@ textarea::placeholder {
 
 .composer-tool-inputs {
   display: flex;
+  flex: none;
   align-items: center;
   gap: inherit;
 }
@@ -1852,7 +1853,7 @@ textarea::placeholder {
   min-width: 0;
 }
 .model-trigger {
-  max-width: 260px;
+  max-width: min(260px, 100%);
   list-style: none;
   cursor: pointer;
 }
@@ -1907,13 +1908,12 @@ textarea::placeholder {
   font-size: var(--font-size-title-group);
   line-height: var(--line-height-heading);
 }
-.model-picker .model-selection-status {
+.model-popover > p {
   flex: none;
   margin: 5px 0 12px;
   color: var(--text-muted);
   font-size: var(--font-size-body-compact);
   line-height: var(--line-height-body-compact);
-  overflow-wrap: anywhere;
 }
 .model-picker .model-popover > .model-popover-link {
   display: inline-flex;
@@ -4754,14 +4754,6 @@ button svg,
   }
   .composer-control {
     padding: 0 6px;
-  }
-  .model-picker {
-    flex: 1;
-    min-width: 0;
-  }
-  .model-trigger {
-    width: 100%;
-    max-width: none;
   }
   .model-popover {
     right: 0;

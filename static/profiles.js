@@ -261,10 +261,6 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
       if (select) select.title = $('#model-trigger').title;
     }
 
-    $('#model-selection-status').textContent = model.error || state.catalogError || (model.saving ? 'Saving model selection...'
-      : !model.ready ? 'Loading saved model selection...'
-      : !activeProfile ? model.profileId ? 'The saved model is unavailable. Choose another model.' : 'Choose a model for this conversation.'
-      : pausedRun ? 'Choose a model to continue this run.' : 'Choose a model for the next response.');
     $('#reload-model-selection').hidden = model.ready && !model.error && !state.catalogError;
     $('#reload-model-selection').disabled = model.saving;
 
