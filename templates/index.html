@@ -138,7 +138,7 @@
       <div class="work-tools-settings-body">
         <div class="info-callout"><i data-lucide="info" aria-hidden="true"></i><p>Choose tools separately for each response. Applying settings does not turn tools on.</p></div>
         <section class="work-tools-settings-group" aria-labelledby="work-tools-run-title">
-          <div class="work-tools-settings-heading"><h3 id="work-tools-run-title">Run limits &amp; targets</h3></div>
+          <div class="work-tools-settings-heading"><div class="dialog-section-title"><h3 id="work-tools-run-title">Run limits &amp; targets</h3><button class="help-popover-trigger" type="button" popovertarget="work-tools-help-limits" aria-controls="work-tools-help-limits" aria-expanded="false" aria-label="About run limits and targets" title="About run limits and targets"><i data-lucide="info" aria-hidden="true"></i></button></div></div>
           <div class="work-tools-settings-content">
             <fieldset id="work-tools-run-fields" aria-labelledby="work-tools-run-title">
               <div class="work-tools-setting"><div class="work-tools-setting-copy"><label for="work-tools-call-limit">Model call limit</label><small id="work-tools-call-hint">Includes the final answer call. The limit can be reached before an answer is produced.</small></div><input id="work-tools-call-limit" type="number" min="1" step="1" placeholder="No limit" aria-describedby="work-tools-call-hint"></div>
@@ -147,25 +147,30 @@
             </fieldset>
           </div>
           <div class="work-tools-run-guidance">
-            <p class="field-hint">Applies to Explore project only. Blank fields set no limit or target. Explore project may make repeated paid model calls.</p>
-            <p class="field-hint">Applied values stay until changed or this page is reloaded. Memory-summary calls follow separate settings and are excluded from these limits and targets.</p>
+            <p class="field-hint">Applies to Explore project. Repeated paid model calls are possible. Memory-summary calls use separate settings and are excluded from these limits and targets.</p>
             <p id="work-tools-settings-busy" class="field-hint" role="status" hidden>Settings are read-only while a response is being generated.</p>
           </div>
         </section>
         <section class="work-tools-settings-group" aria-labelledby="work-tools-scope-title">
-          <div class="work-tools-settings-heading"><h3 id="work-tools-scope-title">Explore project</h3></div>
+          <div class="work-tools-settings-heading"><div class="dialog-section-title"><h3 id="work-tools-scope-title">Explore project</h3><button class="help-popover-trigger" type="button" popovertarget="work-tools-help-explore" aria-controls="work-tools-help-explore" aria-expanded="false" aria-label="About Explore project" title="About Explore project"><i data-lucide="info" aria-hidden="true"></i></button></div></div>
           <div class="work-tools-settings-content">
             <dl class="work-tools-workspace"><div><dt>Workspace</dt><dd id="work-tools-workspace"></dd></div></dl>
-            <p class="field-hint">Read-only access within the connected Workspace. The model may list, search and read allowed UTF-8 file ranges beyond the basic project overview. Selected content is sent to your model provider. Files stay unchanged and commands are unavailable.</p>
-            <details id="work-tools-scope-details" class="work-tools-scope-details">
-              <summary><h4>Read scope &amp; exclusions</h4><i data-lucide="chevron-down" aria-hidden="true"></i></summary>
-              <div class="work-tools-scope-body"><p class="field-hint">The connected Workspace is the read boundary. Automatic reading follows <code>.heliosignore</code> and the exclusions selected in Workspace. Git metadata, links and Helios runtime data stay protected. Explicit attachments use their own selection and processing rules.</p><p class="field-hint">Stop ends further work. Calls already made can still incur cost, and saved activity and usage records are retained.</p></div>
-            </details>
+            <p class="field-hint">Read-only access to allowed Workspace files. Selected content is sent to your model provider.</p>
           </div>
         </section>
       </div>
       <div class="work-tools-settings-footer"><p id="work-tools-settings-status" class="field-hint" role="status"></p><div class="dialog-actions"><button class="quiet" type="button" data-close-dialog="work-tools-settings-dialog"><i data-lucide="x" aria-hidden="true"></i><span>Cancel</span></button><button id="apply-work-tools-settings" class="primary-btn" type="submit"><i data-lucide="check" aria-hidden="true"></i><span>Apply</span></button></div></div>
     </form>
+    <div id="work-tools-help-limits" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="work-tools-help-limits-title" hidden>
+      <h4 id="work-tools-help-limits-title">Run limits &amp; targets</h4>
+      <p>Limits and targets apply to one run. Blank fields leave a limit or target unset. Applied values last until changed or this page is reloaded.</p>
+    </div>
+    <div id="work-tools-help-explore" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="work-tools-help-explore-title" hidden>
+      <h4 id="work-tools-help-explore-title">Explore project</h4>
+      <p>The model can list folders, search text, and read allowed UTF-8 file ranges within the connected Workspace. Files stay unchanged and commands are unavailable.</p>
+      <p>Automatic reading follows <code>.heliosignore</code> and Workspace exclusions. Git metadata, links and Helios runtime data stay protected. Explicit attachments use separate selection and processing rules.</p>
+      <p>Stop ends further work. Calls already made can still incur cost; saved activity and usage records are retained.</p>
+    </div>
   </dialog>
 
   <dialog id="exploration-evidence-dialog" class="settings-dialog exploration-evidence" aria-labelledby="exploration-evidence-title">
@@ -193,25 +198,25 @@
           <div class="workspace-group-body">
             <label for="workspace-path-input">Folder path</label>
             <input id="workspace-path-input" required placeholder="C:/Users/Projects/my-project" aria-describedby="workspace-path-help">
-            <span id="workspace-path-help" class="field-hint" role="status">Enter a folder path or use Browse to select one on the computer running Helios, then apply.</span>
+            <span id="workspace-path-help" class="field-hint">Folder on the computer running Helios. Apply changes to connect it to this conversation.</span>
+            <p id="workspace-path-status" class="field-hint" role="status" hidden></p>
           </div>
         </section>
-        <section class="workspace-group workspace-exclusions" aria-labelledby="workspace-exclusions-title" aria-describedby="workspace-exclusions-help">
-          <div class="workspace-group-heading"><h3 id="workspace-exclusions-title">Automatic reading</h3></div>
+        <section class="workspace-group workspace-exclusions" aria-labelledby="workspace-exclusions-title">
+          <div class="workspace-group-heading"><div class="dialog-section-title"><h3 id="workspace-exclusions-title">Automatic reading</h3><button class="help-popover-trigger" type="button" popovertarget="workspace-help-reading" aria-controls="workspace-help-reading" aria-expanded="false" aria-label="About automatic reading" title="About automatic reading"><i data-lucide="info" aria-hidden="true"></i></button></div></div>
           <div class="workspace-group-body workspace-exclusion-options">
             <label class="workspace-exclusion-row" for="workspace-ignore-hidden"><span class="workspace-exclusion-copy"><strong id="workspace-ignore-hidden-label">Exclude hidden paths</strong><small id="workspace-ignore-hidden-help">Dot files and folders, and Windows hidden or system paths.</small></span><input id="workspace-ignore-hidden" class="workspace-exclusion-switch" type="checkbox" role="switch" aria-labelledby="workspace-ignore-hidden-label" aria-describedby="workspace-ignore-hidden-help"></label>
             <label class="workspace-exclusion-row" for="workspace-use-gitignore"><span class="workspace-exclusion-copy"><strong id="workspace-use-gitignore-label">Use <code>.gitignore</code></strong><small id="workspace-use-gitignore-help">Apply case-sensitive rules from the Workspace root and its subfolders.</small></span><input id="workspace-use-gitignore" class="workspace-exclusion-switch" type="checkbox" role="switch" aria-labelledby="workspace-use-gitignore-label" aria-describedby="workspace-use-gitignore-help"></label>
           </div>
           <div class="workspace-group-guidance">
             <p id="workspace-ignore-status" class="field-hint workspace-policy-status" role="status">Connect a folder to check for <code>.heliosignore</code>.</p>
-            <p id="workspace-exclusions-help" class="field-hint">Applies to project context and enabled Work tools. Place custom rules at the Workspace root using UTF-8 and <code>.gitignore</code> syntax; <code>!</code> overrides selected defaults. Helios does not create this file.</p>
             <p class="field-hint">Git metadata, links and Helios runtime data stay protected.</p>
           </div>
         </section>
         <section class="workspace-group workspace-project-context" aria-labelledby="workspace-project-context-title">
-          <div class="workspace-group-heading"><h3 id="workspace-project-context-title">Project context</h3></div>
+          <div class="workspace-group-heading"><div class="dialog-section-title"><h3 id="workspace-project-context-title">Project context</h3><button class="help-popover-trigger" type="button" popovertarget="workspace-help-context" aria-controls="workspace-help-context" aria-expanded="false" aria-label="About project context" title="About project context"><i data-lucide="info" aria-hidden="true"></i></button></div></div>
           <div class="workspace-group-body">
-            <p class="field-hint">Connected messages include the project name and a small top-level file and folder overview. Subfolders, file contents, and absolute paths are excluded. Use enabled Work tools or attach files for more detail. Apply folder changes before previewing them.</p>
+            <p class="field-hint">Messages include the project name and a small top-level overview.</p>
             <details id="workspace-context-disclosure" class="workspace-context-disclosure">
               <summary id="preview-workspace-context" class="workspace-disclosure-header" aria-disabled="true"><h4 class="workspace-disclosure-title"><i data-lucide="file-text" aria-hidden="true"></i>Preview context</h4><i data-lucide="chevron-down" class="workspace-disclosure-chevron" aria-hidden="true"></i></summary>
               <div class="workspace-context-preview-body">
@@ -232,6 +237,15 @@
         </div>
       </div>
     </form>
+    <div id="workspace-help-reading" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="workspace-help-reading-title" hidden>
+      <h4 id="workspace-help-reading-title">Automatic reading</h4>
+      <p>Automatic reading supplies project context and enabled Work tools. Custom rules use a UTF-8 <code>.heliosignore</code> file at the Workspace root with <code>.gitignore</code> syntax; <code>!</code> can override selected default exclusions. Helios does not create this file.</p>
+    </div>
+    <div id="workspace-help-context" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="workspace-help-context-title" hidden>
+      <h4 id="workspace-help-context-title">Project context</h4>
+      <p>The overview contains top-level file and folder names, without subfolder listings, file contents, or absolute paths. Work tools and attachments provide additional content.</p>
+      <p>Preview uses the connected folder and applied reading options. Folder changes must be applied before previewing them.</p>
+    </div>
   </dialog>
 
   <dialog id="file-dialog" class="settings-dialog attachment-modal" aria-labelledby="file-dialog-title">
@@ -246,7 +260,7 @@
       </div>
       <section class="attachment-selection" aria-labelledby="attachment-selection-title">
         <div class="attachment-group-heading">
-          <h3 id="attachment-selection-title">Selected files</h3>
+          <div class="dialog-section-title"><h3 id="attachment-selection-title">Selected files</h3><button class="help-popover-trigger" type="button" popovertarget="attachment-help-selection" aria-controls="attachment-help-selection" aria-expanded="false" aria-label="About selected files" title="About selected files"><i data-lucide="info" aria-hidden="true"></i></button></div>
           <button id="choose-attachment-files" class="quiet-btn" type="button"><i id="attachment-picker-add-icon" data-lucide="plus" aria-hidden="true"></i><i id="attachment-picker-stop-icon" data-lucide="square" aria-hidden="true" hidden></i><span id="attachment-picker-label">Add files</span></button>
         </div>
         <div class="attachment-group-body">
@@ -259,23 +273,29 @@
           <p id="attachment-selection-notice" class="field-hint" role="status" hidden></p>
           <p id="attachment-file-status" class="field-hint" role="status" hidden></p>
           <p class="field-hint">Attached files are included with new messages until removed.</p>
-          <p class="field-hint">Supported: UTF-8 text, PNG, JPEG, WebP, static GIF, PDF, DOCX, XLSX, and PPTX.</p>
         </div>
       </section>
       <section id="attachment-inspection" class="attachment-inspection" aria-labelledby="attachment-inspection-title">
-        <div class="attachment-group-heading"><h3 id="attachment-inspection-title">Selection check</h3></div>
+        <div class="attachment-group-heading"><div class="dialog-section-title"><h3 id="attachment-inspection-title">Selection check</h3><button class="help-popover-trigger" type="button" popovertarget="attachment-help-check" aria-controls="attachment-help-check" aria-expanded="false" aria-label="About selection checks" title="About selection checks"><i data-lucide="info" aria-hidden="true"></i></button></div></div>
         <div class="attachment-group-body">
           <p id="attachment-inspection-status" role="status">Add files to review their delivery and local preparation.</p>
-          <p class="field-hint">Checks run locally. The full message and model compatibility are checked when you send.</p>
         </div>
       </section>
     </div>
     <div class="dialog-actions file-dialog-actions">
-      <span id="selected-file-label" role="status">No files selected</span>
+      <span id="selected-file-label" role="status" hidden></span>
       <div class="dialog-actions-right">
         <button class="quiet" type="button" data-close-dialog="file-dialog"><i data-lucide="x" aria-hidden="true"></i><span>Cancel</span></button>
         <button id="attach-selected-file" class="primary-btn" type="button" disabled><i data-lucide="check" aria-hidden="true"></i><span id="attach-selected-file-label">Check files</span></button>
       </div>
+    </div>
+    <div id="attachment-help-selection" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="attachment-help-selection-title" hidden>
+      <h4 id="attachment-help-selection-title">Selected files</h4>
+      <p>Supported attachment formats: UTF-8 text, PNG, JPEG, WebP, static GIF, PDF, DOCX, XLSX, and PPTX.</p>
+    </div>
+    <div id="attachment-help-check" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="attachment-help-check-title" hidden>
+      <h4 id="attachment-help-check-title">Selection check</h4>
+      <p>Local checks review file preparation and estimate attachment input. The full message and model compatibility are checked when you send.</p>
     </div>
   </dialog>
 
@@ -393,7 +413,7 @@
             </div>
           </section>
           <section class="settings-group" aria-labelledby="context-summary-title">
-            <div class="settings-panel-heading"><div class="settings-heading-title"><h3 id="context-summary-title">Memory summaries</h3><button class="help-popover-trigger" type="button" popovertarget="settings-help-memory" aria-controls="settings-help-memory" aria-expanded="false" aria-label="About memory summaries" title="About memory summaries"><i data-lucide="info" aria-hidden="true"></i></button></div></div>
+            <div class="settings-panel-heading"><div class="dialog-section-title"><h3 id="context-summary-title">Memory summaries</h3><button class="help-popover-trigger" type="button" popovertarget="settings-help-memory" aria-controls="settings-help-memory" aria-expanded="false" aria-label="About memory summaries" title="About memory summaries"><i data-lucide="info" aria-hidden="true"></i></button></div></div>
             <div class="settings-group-body">
               <p class="field-hint">Memory is enabled per profile. Summaries make additional paid calls; saved messages stay intact.</p>
               <div class="settings-preference-row">
@@ -518,7 +538,7 @@
 
           <section class="settings-group" aria-labelledby="settings-profiles-title">
             <div class="settings-panel-heading">
-              <div class="settings-heading-title"><h3 id="settings-profiles-title">Profiles</h3><button class="help-popover-trigger" type="button" popovertarget="settings-help-profiles" aria-controls="settings-help-profiles" aria-expanded="false" aria-label="About profiles" title="About profiles"><i data-lucide="info" aria-hidden="true"></i></button></div>
+              <div class="dialog-section-title"><h3 id="settings-profiles-title">Profiles</h3><button class="help-popover-trigger" type="button" popovertarget="settings-help-profiles" aria-controls="settings-help-profiles" aria-expanded="false" aria-label="About profiles" title="About profiles"><i data-lucide="info" aria-hidden="true"></i></button></div>
               <button id="add-profile-btn" class="quiet-btn" type="button"><i data-lucide="plus"></i> New profile</button>
             </div>
             <div class="settings-group-body profile-manager">
@@ -739,7 +759,7 @@
         </div>
       </section>
       <section id="settings-usage-overview" class="settings-group settings-usage-overview" aria-labelledby="settings-usage-title">
-        <div class="settings-panel-heading"><div class="settings-heading-title"><h3 id="settings-usage-title">Recorded usage</h3><button class="help-popover-trigger" type="button" popovertarget="settings-help-usage" aria-controls="settings-help-usage" aria-expanded="false" aria-label="About recorded usage" title="About recorded usage"><i data-lucide="info" aria-hidden="true"></i></button></div><button id="refresh-settings-usage" class="quiet-btn" type="button"><i data-lucide="refresh-cw"></i> Refresh</button></div>
+        <div class="settings-panel-heading"><div class="dialog-section-title"><h3 id="settings-usage-title">Recorded usage</h3><button class="help-popover-trigger" type="button" popovertarget="settings-help-usage" aria-controls="settings-help-usage" aria-expanded="false" aria-label="About recorded usage" title="About recorded usage"><i data-lucide="info" aria-hidden="true"></i></button></div><button id="refresh-settings-usage" class="quiet-btn" type="button"><i data-lucide="refresh-cw"></i> Refresh</button></div>
         <div class="settings-group-body">
           <div class="usage-filter-controls">
             <div class="usage-filters">

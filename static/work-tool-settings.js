@@ -2,7 +2,7 @@
 
 import { $, toast } from './ui.js';
 import { showActionDialog } from './dialogs.js';
-import { createDisclosure } from './disclosure.js';
+import { initializeHelpPopovers } from './help-popovers.js';
 
 const fields = [
   ['work-tools-call-limit', 'max_model_calls'],
@@ -13,8 +13,7 @@ const fields = [
 export function createWorkToolSettings({ getWorkspace, isGenerating }) {
   const dialog = $('#work-tools-settings-dialog');
   const form = $('#work-tools-settings-form');
-  const scope = $('#work-tools-scope-details');
-  const disclosure = createDisclosure(scope, scope.querySelector('.work-tools-scope-body'));
+  initializeHelpPopovers(dialog);
   let applied = {};
   let baseline = [];
 
@@ -94,7 +93,6 @@ export function createWorkToolSettings({ getWorkspace, isGenerating }) {
   document.addEventListener('workspace-change', updateState);
   dialog.addEventListener('close', () => {
     if (dialog.open) return;
-    disclosure.finish();
     restoreDraft();
     $('#work-tools-trigger').focus({ preventScroll: true });
   });

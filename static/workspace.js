@@ -8,6 +8,7 @@ import { createAttachmentDrafts } from './attachment-drafts.js';
 import { describeRequestError } from './chat-feedback.js';
 import { createDisclosure } from './disclosure.js';
 import { showActionDialog } from './dialogs.js';
+import { initializeHelpPopovers } from './help-popovers.js';
 
 export function createWorkspace({ getActiveProfileId, getModelContextSignature = getActiveProfileId, onWorkspaceSaved }) {
   // Bound selected-file rendering without changing attachment resource limits.
@@ -181,7 +182,8 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     attachmentDrafts.update();
     const busy = state.attachingFile || state.generating || filePicker.isPicking();
     const count = state.pendingFiles.length;
-    $('#selected-file-label').textContent = count ? `${count} file${count === 1 ? '' : 's'} selected` : 'No files selected';
+    $('#selected-file-label').textContent = count ? `${count} file${count === 1 ? '' : 's'} selected` : '';
+    $('#selected-file-label').hidden = count === 0;
     $('#selected-file-label').dataset.hasFile = String(count > 0);
     $('#selected-file-label').title = state.pendingFiles.map(file => `${file.path} (${attachmentSourceLabel(file)})`).join('\n');
     $('#attach-selected-file').disabled = busy || (!count && !state.attachments.length);
@@ -361,7 +363,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     $('#workspace-path-input').value = state.workspaceRoot || '';
     $('#workspace-ignore-hidden').checked = state.workspaceReadOptions.ignore_hidden;
     $('#workspace-use-gitignore').checked = state.workspaceReadOptions.use_gitignore;
-    if (!picker.isPicking()) $('#workspace-path-help').textContent = 'Enter a folder path or use Browse to select one on the computer running Helios, then apply.';
+    picker.clearStatus();
     updateWorkspaceControls();
     $('#workspace-dialog').showModal();
     if (!picker.isPicking()) void loadWorkspace();
@@ -748,6 +750,8 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
   }
 
   function init() {
+    initializeHelpPopovers($('#workspace-dialog'));
+    initializeHelpPopovers($('#file-dialog'));
     attachmentDrafts.init();
     filePicker.init();
     $('#workspace-card').onclick = openWorkspaceDialog;
@@ -778,7 +782,10 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
       updateSelection();
     });
 
-    $('#workspace-path-input').addEventListener('input', updateWorkspaceControls);
+    $('#workspace-path-input').addEventListener('input', () => {
+      picker.clearStatus();
+      updateWorkspaceControls();
+    });
     ['#workspace-ignore-hidden', '#workspace-use-gitignore'].forEach(selector => $(selector).addEventListener('change', () => {
       resetContextPreview();
       updateWorkspaceControls();

@@ -7,13 +7,20 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
   let workspacePicker = null;
   let pickerPageLeaving = false;
 
+  function setStatus(message, type = 'info') {
+    const status = $('#workspace-path-status');
+    status.textContent = message;
+    status.dataset.state = type;
+    status.hidden = !message;
+  }
+
   function update() {
     const picking = Boolean(workspacePicker);
     $('#browse-workspace-btn').disabled = picking ? Boolean(workspacePicker.cancelRequested && !workspacePicker.cancelFailed) : isBusy();
     $('#workspace-picker-browse-icon').toggleAttribute('hidden', picking);
     $('#workspace-picker-stop-icon').toggleAttribute('hidden', !picking);
     $('#workspace-picker-label').textContent = picking ? 'Stop' : 'Browse';
-    $('#workspace-path-help').setAttribute('aria-busy', String(picking));
+    $('#workspace-path-status').setAttribute('aria-busy', String(picking));
   }
 
   function disconnectWorkspacePicker(picker) {
@@ -46,15 +53,17 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
     }
     picker.socket?.close();
     picker.controls.forEach((control, index) => { control.disabled = picker.disabled[index]; });
-    $('#workspace-path-help').textContent = picker.help;
+    setStatus(picker.feedback.message, picker.feedback.type);
     if (!picker.closeOnCancel && result.status === 'selected' && $('#workspace-dialog').open) {
       $('#workspace-path-input').value = result.path;
-      $('#workspace-path-help').textContent = 'Folder selected. Apply to connect it to this conversation.';
+      setStatus('Folder selected. Apply to connect it to this conversation.');
     } else if (result.status === 'cancelled' || (result.status === 'missing' && picker.cancelRequested)) {
-      $('#workspace-path-help').textContent = 'Folder selection cancelled. Your folder path is unchanged.';
+      setStatus('Folder selection cancelled. Your folder path is unchanged.');
+    } else if (result.status === 'disconnected') {
+      setStatus('Connection lost. Use Browse to check and close the previous folder picker.', 'warning');
     } else if (!picker.closeOnCancel && (result.status === 'error' || result.status === 'missing')) {
       const message = result.detail || 'The previous folder picker has closed. Use Browse to choose a folder again.';
-      $('#workspace-path-help').textContent = message;
+      setStatus(message, 'error');
       toast(message, 'warning');
     }
     onStateChange();
@@ -80,17 +89,17 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
       if (workspacePicker !== picker || picker.socket !== socket || pickerPageLeaving) return;
       const result = JSON.parse(event.data);
       if (result.status === 'reconnecting') {
-        $('#workspace-path-help').textContent = 'Waiting for the previous picker connection to close…';
+        setStatus('Waiting for the previous picker connection to close…');
       } else if (result.status === 'pending') {
         clearTimeout(picker.connectionTimer);
         picker.connectionTimer = null;
-        $('#workspace-path-help').textContent = picker.cancelRequested
+        setStatus(picker.cancelRequested
           ? 'Stopping folder selection…'
-          : 'Choose a folder on the computer running Helios, or use Stop to cancel selection.';
+          : 'Choose a folder on the computer running Helios, or use Stop to cancel selection.');
       } else if (result.status === 'cancel-error') {
         picker.cancelFailed = true;
         const message = result.detail || 'Could not stop folder selection. Try Stop again.';
-        $('#workspace-path-help').textContent = message;
+        setStatus(message, 'error');
         toast(message, 'warning');
         update();
       } else if (picker.cancelRequested && !['cancelled', 'missing'].includes(result.status)) {
@@ -103,7 +112,7 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
     socket.onclose = () => {
       if (workspacePicker !== picker || picker.socket !== socket || pickerPageLeaving) return;
       waitForPickerConnection(picker);
-      $('#workspace-path-help').textContent = 'Reconnecting to folder picker… Use Stop to cancel selection, or close Workspace to leave.';
+      setStatus('Reconnecting to folder picker… Use Stop to cancel selection, or close Workspace to leave.');
       picker.retry = setTimeout(() => connectWorkspacePicker(picker), 1000);
     };
   }
@@ -120,7 +129,7 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
     const controls = Array.from($('#workspace-dialog').querySelectorAll('#apply-workspace, #disconnect-workspace, input'));
     const picker = {
       token, controls, disabled: controls.map((control) => control.disabled),
-      help: $('#workspace-path-help').textContent,
+      feedback: { message: $('#workspace-path-status').textContent, type: $('#workspace-path-status').dataset.state || 'idle' },
       cancelRequested: pendingCancel, closeOnCancel: sessionStorage.getItem(pickerStorageKey + '.close') === token && !restartAfterCancel,
       cancelFailed: false,
       restartAfterCancel, socket: null, retry: null, connectionTimer: null, cancelTimer: null
@@ -128,7 +137,7 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
     if (!picker.closeOnCancel) sessionStorage.removeItem(pickerStorageKey + '.close');
     workspacePicker = picker;
     controls.forEach((control) => { control.disabled = true; });
-    $('#workspace-path-help').textContent = resume ? 'Reconnecting to folder picker…' : 'Opening folder picker…';
+    setStatus(resume ? 'Reconnecting to folder picker…' : 'Opening folder picker…');
     onStateChange();
     update();
     connectWorkspacePicker(picker, !resume);
@@ -144,7 +153,7 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
     picker.restartAfterCancel = false;
     sessionStorage.setItem(pickerStorageKey + '.cancel', picker.token);
     if (picker.closeOnCancel) sessionStorage.setItem(pickerStorageKey + '.close', picker.token);
-    $('#workspace-path-help').textContent = 'Stopping folder selection…';
+    setStatus('Stopping folder selection…');
     update();
     if (picker.socket?.readyState === WebSocket.OPEN) {
       picker.socket.send(JSON.stringify({ action: 'cancel' }));
@@ -199,5 +208,6 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
     });
   }
 
-  return { init, update, cancel: cancelWorkspacePicker, restore: restoreWorkspacePicker, isPicking: () => workspacePicker !== null };
+  return { init, update, cancel: cancelWorkspacePicker, restore: restoreWorkspacePicker, isPicking: () => workspacePicker !== null,
+    clearStatus() { if (!workspacePicker) setStatus('', 'idle'); } };
 }
