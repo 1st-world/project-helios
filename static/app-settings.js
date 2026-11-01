@@ -1,7 +1,7 @@
 /* Edit app-wide context and attachment policies while keeping saved enforcement limits separate from drafts. */
 
 import { $, toast } from './ui.js';
-import { PREFLIGHT_HELP, describeMemoryState, describeRequestError } from './chat-feedback.js';
+import { PREFLIGHT_HELP, describeRequestError } from './chat-feedback.js';
 import { showActionDialog } from './dialogs.js';
 
 export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving }) {
@@ -10,7 +10,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   const resetButtons = [...form.querySelectorAll('[data-reset-setting]')];
   const resetLabels = new Map(resetButtons.map(button => [button, button.getAttribute('aria-label')]));
   const effectiveLabels = [...form.querySelectorAll('[data-effective-setting]')];
-  const state = { saved: null, defaults: null, localLimits: null, summaryPolicy: null, resets: new Set(), loading: false, saving: false, controller: null, policyController: null, feedback: null };
+  const state = { saved: null, defaults: null, localLimits: null, resets: new Set(), loading: false, saving: false, controller: null, feedback: null };
 
   function setStatus(message, type = 'info') {
     state.feedback = message ? { message, type } : null;
@@ -19,9 +19,8 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
 
   function renderStatus() {
     const status = $('#app-settings-status');
-    const dirty = hasUnsavedChanges();
-    status.textContent = state.feedback?.message || (dirty ? 'Unsaved changes' : '');
-    status.dataset.state = state.feedback?.type || (dirty ? 'dirty' : 'idle');
+    status.textContent = state.feedback?.message || '';
+    status.dataset.state = state.feedback?.type || 'idle';
   }
 
   function valueOf(input) {
@@ -67,18 +66,19 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     $('#discard-app-settings').disabled = busy || !hasUnsavedChanges();
     $('#save-app-settings').disabled = busy || !hasUnsavedChanges();
     $('#save-app-settings-label').textContent = state.saving ? 'Saving...' : 'Save changes';
+    $('#save-app-settings').setAttribute('aria-busy', String(state.saving));
+    $('#save-app-settings').setAttribute('aria-label', state.saving ? 'Saving changes' : 'Save changes');
     renderStatus();
     $('#context-preflight-help').textContent = PREFLIGHT_HELP[fields.get('context_preflight_mode').value] || 'How to handle estimates above the selected input limits.';
-    const output = valueOf(fields.get('context_output_reserve'));
-    const budget = inputMode === 'legacy' ? fields.get('context_token_budget').valueAsNumber - (output ?? 0) : valueOf(fields.get('context_input_budget'));
-    const inputText = inputMode === 'unlimited' ? 'No input limit' : Number.isSafeInteger(budget) && budget >= 0 ? `${budget.toLocaleString()} tokens` : 'Enter a custom budget';
-    $('#app-input-budget').textContent = `Draft input budget: ${inputText}.\nOutput limit: ${output === null ? 'Provider default' : `${output.toLocaleString()} tokens`}.`;
     $('#app-input-policy-review').hidden = inputMode !== 'legacy';
+    if (inputMode === 'legacy') {
+      const output = valueOf(fields.get('context_output_reserve'));
+      const budget = fields.get('context_token_budget').valueAsNumber - (output ?? 0);
+      $('#app-input-budget').textContent = Number.isSafeInteger(budget) && budget >= 0
+        ? `Draft legacy input budget: ${budget.toLocaleString()} tokens.`
+        : 'Review the summary work budget and output limit to calculate the legacy input budget.';
+    }
     const trigger = valueOf(fields.get('summary_trigger_tokens'));
-    const policy = state.summaryPolicy;
-    $('#app-memory-status').textContent = policy?.state
-      ? `New-chat default profile (saved): ${describeMemoryState(policy)}.`
-      : 'Default profile memory is unavailable. Reopen Settings to retry.';
     $('#summary-trigger-tokens-help').textContent = trigger === null
       ? 'Blank uses 90% of the declared input allowance. Enter 0 to pause summaries.'
       : trigger === 0 ? 'Summaries are disabled. Requests use original conversation history.'
@@ -108,8 +108,6 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   }
 
   function acceptResponse(data) {
-    state.policyController?.abort();
-    state.policyController = null;
     for (const name of fields.keys()) {
       for (const values of [data?.settings, data?.defaults]) {
         const value = values?.[name];
@@ -122,7 +120,6 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     state.saved = { ...data.settings };
     state.defaults = { ...data.defaults };
     state.localLimits = { ...data.local_attachment_limits };
-    state.summaryPolicy = data.summary_policy || null;
     fillSaved();
   }
 
@@ -156,26 +153,6 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
       if (state.controller === controller) {
         state.controller = null;
         state.loading = false;
-        updateControls();
-      }
-    }
-  }
-
-  async function refreshSummaryPolicy() {
-    if (!state.saved || state.loading || state.saving || !$('#settings-dialog').open) return;
-    state.policyController?.abort();
-    const controller = new AbortController();
-    state.policyController = controller;
-    try {
-      const response = await fetch('/api/settings', { signal: controller.signal });
-      const data = await readResponse(response);
-      if (state.policyController !== controller) return;
-      state.summaryPolicy = data.summary_policy || null;
-    } catch (error) {
-      if (error.name !== 'AbortError' && state.policyController === controller) state.summaryPolicy = null;
-    } finally {
-      if (state.policyController === controller) {
-        state.policyController = null;
         updateControls();
       }
     }
@@ -241,7 +218,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
       if (value !== state.saved[name]) changes[name] = state.resets.has(name) ? null : value;
     }
     state.saving = true;
-    setStatus('Saving changes...');
+    setStatus('');
     updateControls();
     try {
       const response = await fetch('/api/settings', {
@@ -293,22 +270,16 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     };
     $('#settings-dialog').addEventListener('profile-save-state-change', updateControls);
     $('#settings-dialog').addEventListener('settings-panel-change', event => {
-      if (event.detail.name === 'context') {
-        if (state.saved) refreshSummaryPolicy();
-        else load();
-      }
+      if (event.detail.name === 'context') load();
     });
     $('#settings-dialog').addEventListener('close', () => {
       if ($('#settings-dialog').open) return;
       state.controller?.abort();
-      state.policyController?.abort();
       state.controller = null;
-      state.policyController = null;
       state.loading = false;
       state.saved = null;
       state.defaults = null;
       state.localLimits = null;
-      state.summaryPolicy = null;
       fillSaved();
       setStatus('');
     });

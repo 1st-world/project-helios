@@ -2887,6 +2887,7 @@ textarea::placeholder {
   padding-top: 0;
 }
 .preferences-dialog .settings-group-body > .settings-preference-row:last-child,
+.preferences-dialog .settings-group-body > .settings-preference-row:has(+ .settings-policy-summary[hidden]),
 .preferences-dialog .settings-field-group > .settings-preference-row:last-child {
   padding-bottom: 0;
   border-bottom: 0;
@@ -2956,6 +2957,10 @@ textarea::placeholder {
   margin: 0;
   padding: 0;
   border: 0;
+}
+.preferences-dialog .settings-field-group:has(+ .settings-policy-summary) {
+  padding-bottom: var(--settings-content-spacing);
+  border-bottom: 1px solid var(--border);
 }
 .preferences-dialog .settings-field-group + .settings-field-group {
   margin-top: calc(var(--settings-content-spacing) + 8px);
@@ -3029,13 +3034,13 @@ textarea::placeholder {
 .preferences-dialog h4.settings-disclosure-title {
   font-size: var(--font-size-title-group);
 }
-.preferences-dialog .settings-disclosure-title svg,
+.preferences-dialog .settings-disclosure-title > svg,
 .preferences-dialog .settings-disclosure-chevron {
   flex: none;
   width: 14px;
   height: 14px;
 }
-.preferences-dialog .settings-disclosure-title svg {
+.preferences-dialog .settings-disclosure-title > svg {
   color: var(--accent);
 }
 .preferences-dialog .settings-disclosure-chevron {
@@ -3059,6 +3064,14 @@ textarea::placeholder {
 .preferences-dialog .settings-subgroup-disclosure > .settings-disclosure-body {
   padding-right: 0;
   padding-left: 0;
+  border-top: 0;
+}
+
+.preferences-dialog .settings-heading-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
 }
 
 .preferences-dialog .settings-editor-panel {
@@ -3111,9 +3124,6 @@ textarea::placeholder {
   white-space: pre-line;
   overflow-wrap: anywhere;
 }
-.preferences-dialog .settings-editor-footer .settings-editor-status[data-state="dirty"] {
-  color: var(--warning-text);
-}
 .preferences-dialog .settings-editor-footer .settings-editor-status[data-state="error"] {
   color: var(--danger-text);
 }
@@ -3157,12 +3167,6 @@ textarea::placeholder {
   color: var(--danger);
 }
 
-.preferences-dialog .settings-attachment-resources .settings-resource-note {
-  margin: var(--settings-content-spacing) 0 0;
-  color: var(--text-muted);
-  font-size: var(--font-size-description);
-  line-height: var(--line-height-description);
-}
 .preferences-dialog .settings-attachment-resources [data-effective-setting]:not([hidden]) {
   display: block;
   margin-top: 5px;
@@ -3191,13 +3195,6 @@ textarea::placeholder {
   height: 32px;
   padding: 0;
   line-height: var(--line-height-control);
-}
-.preferences-dialog .profile-context-settings .profile-context-note {
-  margin: 0 0 var(--settings-content-spacing);
-  color: var(--text-muted);
-  font-size: var(--font-size-description);
-  line-height: var(--line-height-description);
-  white-space: pre-line;
 }
 .preferences-dialog .profile-context-settings button[hidden] {
   display: none;
@@ -3456,7 +3453,6 @@ textarea::placeholder {
   flex-direction: column;
   padding: 12px 0 0;
   gap: 12px;
-  border-top: 0;
 }
 .preferences-dialog .settings-usage-overview summary {
   color: var(--text-muted);
@@ -3683,6 +3679,65 @@ textarea::placeholder {
 .dialog-actions .danger-btn:not(:disabled):hover {
   background: var(--danger-hover);
   color: var(--danger);
+}
+
+.help-popover-trigger {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  line-height: var(--line-height-control);
+}
+.help-popover-trigger > svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: inherit;
+}
+.help-popover-trigger:not(:disabled):hover,
+.help-popover-trigger[aria-expanded="true"] {
+  background: var(--bg-element);
+  color: var(--text-main);
+}
+.help-popover-trigger:focus-visible,
+.help-popover:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.help-popover {
+  z-index: 20;
+  position: fixed;
+  width: min(320px, calc(100vw - 32px));
+  margin: 0;
+  inset: auto;
+  padding: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--bg-surface-elevated);
+  box-shadow: var(--shadow-lg);
+  color: var(--text-sub);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+  font-family: var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.help-popover > h4 {
+  margin: 0;
+  color: var(--text-main);
+  font-weight: var(--font-weight-heading);
+  font-size: var(--font-size-title-group);
+  line-height: var(--line-height-heading);
+}
+.help-popover > p {
+  margin: 8px 0 0;
 }
 
 .info-callout {
@@ -3985,9 +4040,6 @@ textarea::placeholder {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-.pricing-accordion .pricing-overview > .field-hint {
-  margin: 0;
 }
 .pricing-accordion .pricing-completeness {
   margin-bottom: 10px;

@@ -383,20 +383,19 @@
                 <div class="settings-preference-copy"><span id="context-output-reserve-label" class="settings-preference-label">Output limit (tokens)</span><small id="context-output-reserve-help">Leave blank for the provider default. A value caps output, including reasoning, for replies and summaries.</small></div>
                 <div class="settings-preference-control">
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="context_output_reserve" aria-label="Use the provider default output limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                  <input id="context-output-reserve" type="number" min="1" step="1" placeholder="Provider default" data-app-setting="context_output_reserve" aria-describedby="context-output-reserve-help app-input-budget" disabled aria-labelledby="context-output-reserve-label">
+                  <input id="context-output-reserve" type="number" min="1" step="1" placeholder="Provider default" data-app-setting="context_output_reserve" aria-describedby="context-output-reserve-help" disabled aria-labelledby="context-output-reserve-label">
                 </div>
               </div>
-              <div class="settings-policy-summary">
-                <p id="app-input-budget" class="settings-policy-values">Draft input budget: —. Output limit: —.</p>
-                <p id="app-input-policy-review" hidden>Review needed: previous input rules also use the summary work budget and declared model capacity. Choose No input limit or Custom budget to finish review.</p>
+              <div id="app-input-policy-review" class="settings-policy-summary" hidden>
+                <p>Review needed: previous input rules subtract any explicit output limit from the summary work budget and may apply declared model capacity. Choose No input limit or Custom budget to finish review.</p>
+                <p id="app-input-budget" class="settings-policy-values">Draft legacy input budget: —.</p>
               </div>
             </div>
           </section>
           <section class="settings-group" aria-labelledby="context-summary-title">
-            <div class="settings-panel-heading"><h3 id="context-summary-title">Memory summaries</h3></div>
+            <div class="settings-panel-heading"><div class="settings-heading-title"><h3 id="context-summary-title">Memory summaries</h3><button class="help-popover-trigger" type="button" popovertarget="settings-help-memory" aria-controls="settings-help-memory" aria-expanded="false" aria-label="About memory summaries" title="About memory summaries"><i data-lucide="info" aria-hidden="true"></i></button></div></div>
             <div class="settings-group-body">
-              <p class="field-hint">Defaults for conversation memory, enabled per profile in Connections. Summaries make additional paid API calls and replace older request text; saved messages stay intact.</p>
-              <div class="settings-policy-summary"><p id="app-memory-status" class="settings-policy-values" role="status">Default profile memory: —.</p></div>
+              <p class="field-hint">Memory is enabled per profile. Summaries make additional paid calls; saved messages stay intact.</p>
               <div class="settings-preference-row">
                 <div class="settings-preference-copy"><span id="context-token-budget-label" class="settings-preference-label">Summary work budget (tokens)</span><small id="context-token-budget-help">Maximum estimated input per summary call, within the declared deployment capacity. Separate from the chat input budget.</small></div>
                 <div class="settings-preference-control">
@@ -428,9 +427,8 @@
             </div>
           </section>
           <details id="attachment-resource-settings" class="settings-group settings-attachment-resources settings-disclosure">
-            <summary class="settings-disclosure-header"><h3 class="settings-disclosure-title">Attachment resource limits</h3><i data-lucide="chevron-down" class="settings-disclosure-chevron" aria-hidden="true"></i></summary>
+            <summary class="settings-disclosure-header"><h3 class="settings-disclosure-title">Attachment resource limits<button class="help-popover-trigger" type="button" popovertarget="settings-help-attachments" aria-controls="settings-help-attachments" aria-expanded="false" aria-label="About attachment resource limits" title="About attachment resource limits"><i data-lucide="info" aria-hidden="true"></i></button></h3><i data-lucide="chevron-down" class="settings-disclosure-chevron" aria-hidden="true"></i></summary>
             <div class="settings-disclosure-body settings-group-body">
-              <p id="attachment-provider-limits" class="settings-resource-note">Limits for local reading and extraction; the provider checks model capacity. Byte values are exact, and server ceilings may lower them. These limits do not guarantee memory use or processing time.</p>
               <div class="settings-preference-row">
                 <div class="settings-preference-copy"><span id="attachment-max-files-label" class="settings-preference-label">Attachments per selection</span><small id="attachment-max-files-help">Distinct files across all supported types.<span data-effective-setting="attachment_max_files" data-limit-key="MAX_FILES" data-unit="files" hidden></span></small></div>
                 <div class="settings-preference-control">
@@ -520,7 +518,7 @@
 
           <section class="settings-group" aria-labelledby="settings-profiles-title">
             <div class="settings-panel-heading">
-              <h3 id="settings-profiles-title">Profiles</h3>
+              <div class="settings-heading-title"><h3 id="settings-profiles-title">Profiles</h3><button class="help-popover-trigger" type="button" popovertarget="settings-help-profiles" aria-controls="settings-help-profiles" aria-expanded="false" aria-label="About profiles" title="About profiles"><i data-lucide="info" aria-hidden="true"></i></button></div>
               <button id="add-profile-btn" class="quiet-btn" type="button"><i data-lucide="plus"></i> New profile</button>
             </div>
             <div class="settings-group-body profile-manager">
@@ -553,11 +551,10 @@
               </div>
               <details id="profile-context-settings" class="profile-context-settings settings-disclosure settings-subgroup-disclosure">
                 <summary class="settings-disclosure-header">
-                  <h4 class="settings-disclosure-title"><i data-lucide="sliders-horizontal" aria-hidden="true"></i>Context & memory</h4>
+                  <h4 class="settings-disclosure-title"><i data-lucide="sliders-horizontal" aria-hidden="true"></i>Context & memory<button class="help-popover-trigger" type="button" popovertarget="settings-help-profile-context" aria-controls="settings-help-profile-context" aria-expanded="false" aria-label="About profile context and memory" title="About profile context and memory"><i data-lucide="info" aria-hidden="true"></i></button></h4>
                   <i data-lucide="chevron-down" class="settings-disclosure-chevron" aria-hidden="true"></i>
                 </summary>
                 <div class="settings-disclosure-body">
-                  <p class="profile-context-note">Input and output settings inherit app defaults unless overridden. Use deployment information for memory planning; input and output budgets are set separately.</p>
                   <div class="settings-field-group" role="group" aria-labelledby="profile-input-output-title">
                     <h5 id="profile-input-output-title" class="settings-field-title">Input & output</h5>
                     <div class="settings-preference-row">
@@ -646,13 +643,12 @@
               </details>
               <details id="profile-pricing-accordion" class="pricing-accordion settings-disclosure settings-subgroup-disclosure">
                 <summary class="settings-disclosure-header">
-                  <h4 class="settings-disclosure-title"><i data-lucide="calculator" aria-hidden="true"></i>Token pricing</h4>
+                  <h4 class="settings-disclosure-title"><i data-lucide="calculator" aria-hidden="true"></i>Token pricing<button class="help-popover-trigger" type="button" popovertarget="settings-help-pricing" aria-controls="settings-help-pricing" aria-expanded="false" aria-label="About token pricing" title="About token pricing"><i data-lucide="info" aria-hidden="true"></i></button></h4>
                   <span class="pricing-accordion-status" id="pricing-accordion-status"><i data-lucide="circle-dashed"></i> Not configured</span>
                   <i data-lucide="chevron-down" class="settings-disclosure-chevron" aria-hidden="true"></i>
                 </summary>
                 <div class="pricing-accordion-body settings-disclosure-body">
                   <div class="pricing-overview">
-                    <p class="field-hint">Optional rates for estimating costs of new calls. Rates are USD per 1M tokens; status reflects the current form.</p>
                     <div class="pricing-completeness" role="status" aria-atomic="true">
                       <p id="pricing-standard-status"></p>
                       <p id="pricing-long-status"></p>
@@ -743,9 +739,8 @@
         </div>
       </section>
       <section id="settings-usage-overview" class="settings-group settings-usage-overview" aria-labelledby="settings-usage-title">
-        <div class="settings-panel-heading"><h3 id="settings-usage-title">Recorded usage</h3><button id="refresh-settings-usage" class="quiet-btn" type="button"><i data-lucide="refresh-cw"></i> Refresh</button></div>
+        <div class="settings-panel-heading"><div class="settings-heading-title"><h3 id="settings-usage-title">Recorded usage</h3><button class="help-popover-trigger" type="button" popovertarget="settings-help-usage" aria-controls="settings-help-usage" aria-expanded="false" aria-label="About recorded usage" title="About recorded usage"><i data-lucide="info" aria-hidden="true"></i></button></div><button id="refresh-settings-usage" class="quiet-btn" type="button"><i data-lucide="refresh-cw"></i> Refresh</button></div>
         <div class="settings-group-body">
-          <p class="field-hint">Totals and call history share the filters below and include regeneration, memory summaries, and unsuccessful calls. Costs use the rates saved with each call.</p>
           <div class="usage-filter-controls">
             <div class="usage-filters">
               <label>Scope<select id="usage-scope"><option value="conversation">This conversation</option><option value="all">All conversations</option></select></label>
@@ -824,6 +819,30 @@
         </div>
       </section>
     </section>
+    <div id="settings-help-memory" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="settings-help-memory-title" hidden>
+      <h4 id="settings-help-memory-title">Memory summaries</h4>
+      <p>These defaults control how memory-enabled profiles summarize older request text. Summary work has its own input budget. Recent history is a target; complete conversation turns may exceed it.</p>
+    </div>
+    <div id="settings-help-attachments" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="settings-help-attachments-title" hidden>
+      <h4 id="settings-help-attachments-title">Attachment resource limits</h4>
+      <p id="attachment-provider-limits">Limits for local reading and extraction; the provider checks model capacity. Byte values are exact, and server ceilings may lower them. These limits do not guarantee memory use or processing time.</p>
+    </div>
+    <div id="settings-help-profiles" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="settings-help-profiles-title" hidden>
+      <h4 id="settings-help-profiles-title">Profiles</h4>
+      <p>Profiles store connection details and model settings. The default profile is the initial choice for new chats; each chat keeps its own selection.</p>
+    </div>
+    <div id="settings-help-profile-context" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="settings-help-profile-context-title" hidden>
+      <h4 id="settings-help-profile-context-title">Context &amp; memory</h4>
+      <p>Input and output settings inherit app defaults unless overridden. Use deployment information for memory planning; input and output budgets are set separately.</p>
+    </div>
+    <div id="settings-help-pricing" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="settings-help-pricing-title" hidden>
+      <h4 id="settings-help-pricing-title">Token pricing</h4>
+      <p>Optional rates for estimating costs of new calls. Rates are USD per 1M tokens; status reflects the current form.</p>
+    </div>
+    <div id="settings-help-usage" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="settings-help-usage-title" hidden>
+      <h4 id="settings-help-usage-title">Recorded usage</h4>
+      <p>Totals and call history share the filters and include regeneration, memory summaries, and unsuccessful calls. Costs use the rates saved with each call.</p>
+    </div>
   </dialog>
 
   <script src="/static/vendor/marked/18.0.14/marked.umd.js"></script>

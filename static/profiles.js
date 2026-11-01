@@ -89,12 +89,14 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
   function updateEditorControls() {
     const dirty = hasUnsavedChanges();
     const status = $('#profile-settings-status');
-    status.textContent = state.feedback?.message || (state.saving ? 'Saving changes...' : dirty ? 'Unsaved changes' : '');
-    status.dataset.state = state.feedback?.type || (state.saving ? 'info' : dirty ? 'dirty' : 'idle');
+    status.textContent = state.feedback?.message || '';
+    status.dataset.state = state.feedback?.type || 'idle';
     $('#save-profile-btn').disabled = state.saving || state.defaultSaving || !dirty;
     $('#delete-profile-btn').disabled = state.saving || state.defaultSaving;
     $('#discard-profile-edit').disabled = state.saving || !dirty;
     $('#save-profile-label').textContent = state.saving ? 'Saving...' : 'Save changes';
+    $('#save-profile-btn').setAttribute('aria-busy', String(state.saving));
+    $('#save-profile-btn').setAttribute('aria-label', state.saving ? 'Saving changes' : 'Save changes');
   }
 
   function setSaving(saving) {

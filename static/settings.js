@@ -5,6 +5,7 @@ import { createAppSettings } from './app-settings.js';
 import { initializeFontSettings, initializeFontSizeSettings } from './font-settings.js';
 import { createDisclosure } from './disclosure.js';
 import { initializeTimezoneSettings } from './timezone.js';
+import { initializeHelpPopovers } from './help-popovers.js';
 
 const panelScrollPositions = new Map();
 
@@ -49,6 +50,8 @@ export function initializeSettings({ onConversationUsageVisibilityChange, onResp
   initializeFontSizeSettings();
   initializeTimezoneSettings();
   initializeSettingsDisclosures();
+  const help = initializeHelpPopovers($('#settings-dialog'));
+  $('#settings-dialog').addEventListener('settings-panel-change', help.close);
   const appSettings = createAppSettings({ hasUnsavedProfileChanges, isProfileSaving });
   appSettings.init();
   const tabs = [...document.querySelectorAll('[data-settings-tab]')];
