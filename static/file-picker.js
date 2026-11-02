@@ -7,6 +7,18 @@ export function createFilePicker({ getWorkspaceScope, isBusy, onSelected, onChan
   let current = null;
   let leaving = false;
 
+  function setStatus(message, state = 'busy') {
+    const status = $('#attachment-file-status');
+    if (status.textContent !== message) status.textContent = message;
+    status.dataset.state = state;
+    status.hidden = !message;
+  }
+
+  function clearNotice() {
+    if (current || ['error', 'warning'].includes($('#attachment-file-status').dataset.state)) return;
+    setStatus('', 'idle');
+  }
+
   function savedSession() {
     try {
       const saved = JSON.parse(sessionStorage.getItem(storageKey));
@@ -38,22 +50,18 @@ export function createFilePicker({ getWorkspaceScope, isBusy, onSelected, onChan
       try { sessionStorage.removeItem(storageKey); } catch { /* No persisted session needs clearing. */ }
     }
     picker.socket?.close();
-    const status = $('#attachment-file-status');
-    status.hidden = false;
-    status.dataset.state = ['error', 'disconnected', 'missing'].includes(result.status) ? 'error' : 'ready';
     if (result.status === 'selected' && !picker.cancelRequested && $('#file-dialog').open) {
       if (!Array.isArray(result.files) || !result.files.length || result.files.some(file => file.reference?.source !== 'upload'
           || typeof file.reference.attachment_id !== 'string' || typeof file.filename !== 'string')) {
-        status.textContent = 'Could not read the file selection. Use Add files to try again.';
-        status.dataset.state = 'error';
+        setStatus('Could not read the file selection. Use Add files to try again.', 'error');
       } else {
+        setStatus('', 'idle');
         onSelected(result.files.map(file => ({ ...file.inspection, path: file.filename, reference: file.reference, size_bytes: file.size_bytes, available: true })));
-        status.textContent = `${result.files.length} file${result.files.length === 1 ? '' : 's'} added to this selection.`;
       }
     } else if (result.status === 'cancelled' || (result.status === 'missing' && picker.cancelRequested)) {
-      status.textContent = 'File selection cancelled. Your previous selection is kept.';
+      setStatus('File selection cancelled. Your previous selection is kept.', 'idle');
     } else {
-      status.textContent = result.detail || 'The previous file picker has closed. Use Add files to select files again.';
+      setStatus(result.detail || 'The previous file picker has closed. Use Add files to select files again.', result.status === 'disconnected' ? 'warning' : 'error');
     }
     onChange();
     update();
@@ -89,18 +97,17 @@ export function createFilePicker({ getWorkspaceScope, isBusy, onSelected, onChan
       let result;
       try { result = JSON.parse(event.data); }
       catch { return; }
-      const status = $('#attachment-file-status');
       if (result.status === 'pending' || result.status === 'preparing') {
         clearTimeout(picker.timer);
         picker.timer = null;
-        status.textContent = picker.cancelRequested ? 'Stopping file selection…'
-          : result.status === 'preparing' ? 'Preparing the selected files locally…' : 'Choose files in the picker on the computer running Helios.';
+        if (!picker.cancelFailed) setStatus(picker.cancelRequested ? 'Stopping file selection…'
+          : result.status === 'preparing' ? 'Preparing the selected files locally…' : 'Choose files in the picker on the computer running Helios.');
       } else if (result.status === 'reconnecting') {
-        status.textContent = 'Waiting for the previous file picker connection to close…';
+        setStatus('Waiting for the previous file picker connection to close…');
       } else if (result.status === 'cancel-error') {
         picker.cancelFailed = true;
         remember(picker);
-        status.textContent = result.detail || 'Could not stop file selection. Try Stop again.';
+        setStatus(result.detail || 'Could not stop file selection. Try Stop again.', 'error');
         update();
       } else if (picker.cancelRequested && !['cancelled', 'missing'].includes(result.status)) {
         socket.send(JSON.stringify({ action: 'cancel' }));
@@ -109,7 +116,7 @@ export function createFilePicker({ getWorkspaceScope, isBusy, onSelected, onChan
     socket.onclose = () => {
       if (current !== picker || leaving || picker.socket !== socket) return;
       waitForConnection(picker);
-      $('#attachment-file-status').textContent = 'Reconnecting to file picker…';
+      setStatus('Reconnecting to file picker…');
       picker.retry = setTimeout(() => connect(picker), 1000);
     };
   }
@@ -120,9 +127,7 @@ export function createFilePicker({ getWorkspaceScope, isBusy, onSelected, onChan
     const picker = { token: saved?.token || crypto.randomUUID(), scope: saved?.scope || {}, socket: null,
       cancelRequested: Boolean(saved), closeOnCancel: false, restart: Boolean(saved) && !recovering, retry: null, timer: null };
     current = picker;
-    $('#attachment-file-status').hidden = false;
-    $('#attachment-file-status').dataset.state = 'busy';
-    $('#attachment-file-status').textContent = saved ? 'Closing the previous file picker…' : 'Opening file picker on the computer running Helios…';
+    setStatus(saved ? 'Closing the previous file picker…' : 'Opening file picker on the computer running Helios…');
     onChange();
     update();
     try {
@@ -144,7 +149,7 @@ export function createFilePicker({ getWorkspaceScope, isBusy, onSelected, onChan
     picker.closeOnCancel ||= close;
     picker.restart = false;
     remember(picker);
-    $('#attachment-file-status').textContent = 'Stopping file selection…';
+    setStatus('Stopping file selection…');
     if (picker.socket?.readyState === WebSocket.OPEN) picker.socket.send(JSON.stringify({ action: 'cancel' }));
     waitForConnection(picker);
     update();
@@ -168,5 +173,5 @@ export function createFilePicker({ getWorkspaceScope, isBusy, onSelected, onChan
     if (savedSession()) begin({ recovering: true });
   }
 
-  return { init, update, cancel, isPicking: () => current !== null };
+  return { init, update, cancel, clearNotice, isPicking: () => current !== null };
 }

@@ -4476,6 +4476,9 @@ textarea::placeholder {
 .attachment-modal #attachment-file-status[data-state="error"] {
   color: var(--danger-text);
 }
+.attachment-modal #attachment-file-status[data-state="warning"] {
+  color: var(--warning-text);
+}
 .attachment-modal .file-dialog-actions svg {
   flex: none;
   width: 14px;

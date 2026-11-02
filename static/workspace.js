@@ -387,7 +387,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     if (!filePicker.isPicking()) {
       $('#attachment-file-status').textContent = '';
       $('#attachment-file-status').hidden = true;
-      $('#attachment-file-status').dataset.state = 'ready';
+      $('#attachment-file-status').dataset.state = 'idle';
     }
     $('#attachment-selection-notice').hidden = true;
     $('#file-dialog').showModal();
@@ -628,6 +628,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
   }
 
   function invalidateInspection() {
+    filePicker.clearNotice();
     state.inspectionController?.abort();
     state.inspectionController = null;
     state.attachingFile = false;
@@ -676,6 +677,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
   async function checkOrApplySelection() {
     const files = [...state.pendingFiles];
     if (state.attachingFile || state.generating || (!files.length && !state.attachments.length) || filePicker.isPicking()) return;
+    filePicker.clearNotice();
     if (!files.length || (inspectionIsCurrent() && !state.inspection.data.context_policy.blocked)) {
       state.attachments = files.length ? state.inspection.data.files.map((file, index) => ({ ...files[index], ...file })) : [];
       state.selectionEdited = true;
