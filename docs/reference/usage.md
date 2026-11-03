@@ -49,7 +49,7 @@ When a public summary arrives, **Reasoning summary** opens by default above the 
 
 ## Input, output, and memory settings
 
-**Settings → Context & attachments** contains app defaults. **Connections → profile → Context & memory** contains profile settings. A profile can replace the app's input budget and Input check mode. For output, the smaller explicit app or profile limit applies. Saved changes apply to new requests.
+**Settings → Context & attachments** contains app-wide settings. **Connections → profile → Context & memory** contains profile settings. A profile can replace the app's input budget and Input check mode. For output, the smaller explicit app or profile limit applies. Saved changes apply to new requests.
 
 Each request pins its selected connection, model, pricing and policy at the start. Changing the active selection, adding/editing/deleting another profile, renaming a profile, or saving identical values does not revoke that request's memory summary or resumed work. Changes to the pinned profile's actual request settings, or its deletion, revoke only that profile's authorization. Restoring values or turning memory back on does not revive previously revoked work. Shared app policy changes retain validation that revokes existing requests across profiles.
 
@@ -77,7 +77,7 @@ Memory optionally summarizes older conversation text and uses the summary in lat
 2. Planning from a context window requires output headroom. Values are selected in this order: **Summary output headroom → effective Output limit → Declared maximum output**. Planning from maximum input alone is shown as having unverified shared input/output capacity.
 3. Select **Conversation memory → On**, save, and check **Saved effective policy** for readiness. When information is missing, Helios prepares original history without automatic summaries.
 
-App defaults for memory are:
+Initial app settings for memory are:
 
 | Setting | Default | Meaning |
 | --- | --- | --- |

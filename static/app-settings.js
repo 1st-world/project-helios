@@ -88,15 +88,24 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     showAttachmentLimits();
   }
 
+  function describeDefault(button) {
+    const name = button.dataset.resetSetting;
+    const value = state.defaults?.[name];
+    if (value === undefined) return '';
+    const input = fields.get(name);
+    if (input.tagName === 'SELECT') return [...input.options].find(option => option.value === value)?.textContent.trim() || value;
+    if (value === null) return input.placeholder || fields.get('context_input_budget_mode').querySelector('[value="unlimited"]').textContent.trim();
+    return `${value.toLocaleString()}${button.dataset.resetUnit ? ` ${button.dataset.resetUnit}` : ''}`;
+  }
+
   function fillSaved() {
     state.resets.clear();
     validation.reset();
     for (const [name, input] of fields) input.value = state.saved?.[name] ?? '';
     resetButtons.forEach(button => {
-      const value = state.defaults?.[button.dataset.resetSetting];
       const label = resetLabels.get(button);
-      const formatted = value === undefined ? '' : value === null ? button.dataset.resetSetting === 'summary_trigger_tokens' ? 'Automatic' : button.dataset.resetSetting === 'context_input_budget' ? 'No input limit' : 'Provider default' : typeof value === 'number' ? value.toLocaleString() : value.charAt(0).toUpperCase() + value.slice(1);
-      button.title = value === undefined ? label : `${label} (default: ${formatted})`;
+      const formatted = describeDefault(button);
+      button.title = formatted ? `${label}: ${formatted}` : label;
       button.setAttribute('aria-label', button.title);
     });
     updateControls();

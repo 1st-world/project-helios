@@ -97,6 +97,9 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     $('#save-profile-btn').disabled = state.saving || state.defaultSaving || !dirty;
     $('#delete-profile-btn').disabled = state.saving || state.defaultSaving;
     $('#discard-profile-edit').disabled = state.saving || !dirty;
+    $('#discard-profile-edit').title = state.editingProfileId
+      ? 'Restore the last saved values for this profile'
+      : 'Restore the new profile form';
     $('#save-profile-label').textContent = state.saving ? 'Saving...' : 'Save changes';
     $('#save-profile-btn').setAttribute('aria-busy', String(state.saving));
     $('#save-profile-btn').setAttribute('aria-label', state.saving ? 'Saving changes' : 'Save changes');

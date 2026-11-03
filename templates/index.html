@@ -374,35 +374,35 @@
     <section id="settings-context" class="settings-panel settings-editor-panel" role="tabpanel" aria-labelledby="settings-context-tab" tabindex="0" hidden>
       <form id="app-settings-form" class="app-settings-form settings-editor-form" novalidate>
         <div class="settings-editor-body">
-          <div class="info-callout"><i data-lucide="info"></i><p>Defaults for all profiles. Saved changes apply to new requests; running requests keep their settings.</p></div>
+          <div class="info-callout"><i data-lucide="info"></i><p>App-wide settings. Saved changes apply to new requests; running requests keep their settings.</p></div>
           <section class="settings-group" aria-labelledby="context-input-title">
             <div class="settings-panel-heading"><h3 id="context-input-title">Input & output</h3></div>
             <div class="settings-group-body">
               <div class="settings-preference-row" data-field-row>
                 <div class="settings-preference-copy"><span id="context-input-budget-mode-label" class="settings-preference-label">Input budget</span><small id="context-input-budget-mode-help">Optional token budget for controlling input cost. With no budget, the provider checks input capacity.</small></div>
                 <div class="settings-preference-control" data-field-control>
-                  <button class="quiet settings-default-reset" type="button" data-reset-setting="context_input_budget_mode" aria-label="Remove the input budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="context_input_budget_mode" aria-label="Restore initial input budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <select id="context-input-budget-mode" data-app-setting="context_input_budget_mode" aria-describedby="context-input-budget-mode-help" required disabled aria-labelledby="context-input-budget-mode-label"><option value="unlimited">No input limit</option><option value="custom">Custom budget</option><option value="legacy" hidden>Previous policy · Review needed</option></select>
                 </div>
               </div>
               <div class="settings-preference-row" data-field-row>
                 <div class="settings-preference-copy"><span id="context-input-budget-label" class="settings-preference-label">Input budget (tokens)</span><small id="context-input-budget-help">Estimated input tokens allowed by Custom budget. The input check below determines whether to warn or stop.</small></div>
                 <div class="settings-preference-control" data-field-control>
-                  <button class="quiet settings-default-reset" type="button" data-reset-setting="context_input_budget" aria-label="Remove the input budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="context_input_budget" data-reset-unit="tokens" aria-label="Restore initial input budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="context-input-budget" type="number" min="1" step="1" data-app-setting="context_input_budget" aria-describedby="context-input-budget-help" disabled aria-labelledby="context-input-budget-label">
                 </div>
               </div>
               <div class="settings-preference-row" data-field-row>
                 <div class="settings-preference-copy"><span id="context-preflight-mode-label" class="settings-preference-label">Input check</span><small id="context-preflight-help">How to handle estimates above the selected input limits.</small></div>
                 <div class="settings-preference-control" data-field-control>
-                  <button class="quiet settings-default-reset" type="button" data-reset-setting="context_preflight_mode" aria-label="Restore default input check" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="context_preflight_mode" aria-label="Restore initial input check" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <select id="context-preflight-mode" data-app-setting="context_preflight_mode" aria-describedby="context-preflight-help" required disabled aria-labelledby="context-preflight-mode-label"><option value="" disabled selected>Select a mode</option><option value="warn">Warn</option><option value="block">Block</option><option value="off">Off</option></select>
                 </div>
               </div>
               <div class="settings-preference-row" data-field-row>
                 <div class="settings-preference-copy"><span id="context-output-reserve-label" class="settings-preference-label">Output limit (tokens)</span><small id="context-output-reserve-help">Leave blank for the provider default. A value caps output, including reasoning, for replies and summaries.</small></div>
                 <div class="settings-preference-control" data-field-control>
-                  <button class="quiet settings-default-reset" type="button" data-reset-setting="context_output_reserve" aria-label="Use the provider default output limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="context_output_reserve" data-reset-unit="tokens" aria-label="Restore initial output limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="context-output-reserve" type="number" min="1" step="1" placeholder="Provider default" data-app-setting="context_output_reserve" aria-describedby="context-output-reserve-help" disabled aria-labelledby="context-output-reserve-label">
                 </div>
               </div>
@@ -419,28 +419,28 @@
               <div class="settings-preference-row" data-field-row>
                 <div class="settings-preference-copy"><span id="context-token-budget-label" class="settings-preference-label">Summary work budget (tokens)</span><small id="context-token-budget-help">Maximum estimated input per summary call, within the declared deployment capacity. Separate from the chat input budget.</small></div>
                 <div class="settings-preference-control" data-field-control>
-                  <button class="quiet settings-default-reset" type="button" data-reset-setting="context_token_budget" aria-label="Restore default summary work budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="context_token_budget" data-reset-unit="tokens" aria-label="Restore initial summary work budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="context-token-budget" type="number" min="1024" step="1" data-app-setting="context_token_budget" aria-describedby="context-token-budget-help" required disabled aria-labelledby="context-token-budget-label">
                 </div>
               </div>
               <div class="settings-preference-row" data-field-row>
                 <div class="settings-preference-copy"><span id="summary-trigger-tokens-label" class="settings-preference-label">Summary trigger (tokens)</span><small id="summary-trigger-tokens-help">Blank uses 90% of the declared input allowance. Enter 0 to pause summaries.</small></div>
                 <div class="settings-preference-control" data-field-control>
-                  <button class="quiet settings-default-reset" type="button" data-reset-setting="summary_trigger_tokens" aria-label="Restore default summary token trigger" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="summary_trigger_tokens" data-reset-unit="tokens" aria-label="Restore initial summary token trigger" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="summary-trigger-tokens" type="number" min="0" step="1" placeholder="Automatic" data-app-setting="summary_trigger_tokens" aria-describedby="summary-trigger-tokens-help" disabled aria-labelledby="summary-trigger-tokens-label">
                 </div>
               </div>
               <div class="settings-preference-row" data-field-row>
                 <div class="settings-preference-copy"><span id="keep-recent-tokens-label" class="settings-preference-label">Recent history target (tokens)</span><small id="keep-recent-tokens-help">Original history to retain when summarizing. Complete turns stay intact, so the newest turn may exceed this target.</small></div>
                 <div class="settings-preference-control" data-field-control>
-                  <button class="quiet settings-default-reset" type="button" data-reset-setting="keep_recent_tokens" aria-label="Restore default recent token target" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="keep_recent_tokens" data-reset-unit="tokens" aria-label="Restore initial recent token target" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="keep-recent-tokens" type="number" min="1" step="1" data-app-setting="keep_recent_tokens" aria-describedby="keep-recent-tokens-help" required disabled aria-labelledby="keep-recent-tokens-label">
                 </div>
               </div>
               <div class="settings-preference-row" data-field-row>
                 <div class="settings-preference-copy"><span id="max-summary-calls-label" class="settings-preference-label">Summary call limit</span><small id="max-summary-calls-help">Maximum paid API calls for one summary operation.</small></div>
                 <div class="settings-preference-control" data-field-control>
-                  <button class="quiet settings-default-reset" type="button" data-reset-setting="max_summary_calls" aria-label="Restore default summary call budget" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="max_summary_calls" data-reset-unit="calls" aria-label="Restore initial summary call limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="max-summary-calls" type="number" min="1" step="1" data-app-setting="max_summary_calls" aria-describedby="max-summary-calls-help" required disabled aria-labelledby="max-summary-calls-label">
                 </div>
               </div>
@@ -452,63 +452,63 @@
               <div class="settings-preference-row" data-field-row>
                 <div class="settings-preference-copy"><span id="attachment-max-files-label" class="settings-preference-label">Attachments per selection</span><small id="attachment-max-files-help">Distinct files across all supported types.<span data-effective-setting="attachment_max_files" data-limit-key="MAX_FILES" data-unit="files" hidden></span></small></div>
                 <div class="settings-preference-control" data-field-control>
-                  <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_files" aria-label="Restore default attachment count" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_files" data-reset-unit="files" aria-label="Restore initial attachment count" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="attachment-max-files" type="number" min="1" step="1" data-app-setting="attachment_max_files" aria-describedby="attachment-max-files-help" required disabled aria-labelledby="attachment-max-files-label">
                 </div>
               </div>
               <div class="settings-preference-row" data-field-row>
                 <div class="settings-preference-copy"><span id="attachment-max-file-bytes-label" class="settings-preference-label">Original bytes per file</span><small id="attachment-max-file-bytes-help">Original size of each file. The selection total also applies.<span data-effective-setting="attachment_max_file_bytes" data-limit-key="MAX_FILE_BYTES" data-unit="bytes" hidden></span></small></div>
                 <div class="settings-preference-control" data-field-control>
-                  <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_file_bytes" aria-label="Restore default file byte limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_file_bytes" data-reset-unit="bytes" aria-label="Restore initial file byte limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="attachment-max-file-bytes" type="number" min="1" step="1" data-app-setting="attachment_max_file_bytes" aria-describedby="attachment-max-file-bytes-help" required disabled aria-labelledby="attachment-max-file-bytes-label">
                 </div>
               </div>
               <div class="settings-preference-row" data-field-row>
                 <div class="settings-preference-copy"><span id="attachment-max-total-bytes-label" class="settings-preference-label">Original bytes per selection</span><small id="attachment-max-total-bytes-help">Combined original size of all selected files. Memory use may exceed this total.<span data-effective-setting="attachment_max_total_bytes" data-limit-key="MAX_TOTAL_BYTES" data-unit="bytes" hidden></span></small></div>
                 <div class="settings-preference-control" data-field-control>
-                  <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_total_bytes" aria-label="Restore default combined byte limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_total_bytes" data-reset-unit="bytes" aria-label="Restore initial combined byte limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="attachment-max-total-bytes" type="number" min="1" step="1" data-app-setting="attachment_max_total_bytes" aria-describedby="attachment-max-total-bytes-help" required disabled aria-labelledby="attachment-max-total-bytes-label">
                 </div>
               </div>
               <div class="settings-preference-row" data-field-row>
                 <div class="settings-preference-copy"><span id="attachment-max-text-bytes-label" class="settings-preference-label">Text bytes per file</span><small id="attachment-max-text-bytes-help">UTF-8 size of text read or extracted from each file. Oversized text is rejected, not truncated.<span data-effective-setting="attachment_max_text_bytes" data-limit-key="MAX_TEXT_BYTES" data-unit="bytes" hidden></span></small></div>
                 <div class="settings-preference-control" data-field-control>
-                  <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_text_bytes" aria-label="Restore default text byte limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_text_bytes" data-reset-unit="bytes" aria-label="Restore initial text byte limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="attachment-max-text-bytes" type="number" min="1" step="1" data-app-setting="attachment_max_text_bytes" aria-describedby="attachment-max-text-bytes-help" required disabled aria-labelledby="attachment-max-text-bytes-label">
                 </div>
               </div>
               <div class="settings-preference-row" data-field-row>
                 <div class="settings-preference-copy"><span id="attachment-max-zip-bytes-label" class="settings-preference-label">Expanded bytes per Office file</span><small id="attachment-max-zip-bytes-help">Combined uncompressed ZIP entries in DOCX, XLSX, or PPTX, independent of original file size.<span data-effective-setting="attachment_max_zip_bytes" data-limit-key="MAX_ZIP_BYTES" data-unit="bytes" hidden></span></small></div>
                 <div class="settings-preference-control" data-field-control>
-                  <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_zip_bytes" aria-label="Restore default expanded document byte limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_zip_bytes" data-reset-unit="bytes" aria-label="Restore initial expanded document byte limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="attachment-max-zip-bytes" type="number" min="1" step="1" data-app-setting="attachment_max_zip_bytes" aria-describedby="attachment-max-zip-bytes-help" required disabled aria-labelledby="attachment-max-zip-bytes-label">
                 </div>
               </div>
               <div class="settings-preference-row" data-field-row>
                 <div class="settings-preference-copy"><span id="attachment-max-zip-members-label" class="settings-preference-label">ZIP entries per Office file</span><small id="attachment-max-zip-members-help">Entries inside a DOCX, XLSX, or PPTX archive.<span data-effective-setting="attachment_max_zip_members" data-limit-key="MAX_ZIP_MEMBERS" data-unit="entries" hidden></span></small></div>
                 <div class="settings-preference-control" data-field-control>
-                  <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_zip_members" aria-label="Restore default document entry count" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_zip_members" data-reset-unit="entries" aria-label="Restore initial document entry count" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="attachment-max-zip-members" type="number" min="1" step="1" data-app-setting="attachment_max_zip_members" aria-describedby="attachment-max-zip-members-help" required disabled aria-labelledby="attachment-max-zip-members-label">
                 </div>
               </div>
               <div class="settings-preference-row" data-field-row>
                 <div class="settings-preference-copy"><span id="attachment-max-image-pixels-label" class="settings-preference-label">Decoded pixels per image</span><small id="attachment-max-image-pixels-help">Width multiplied by height. The image decoder may impose a lower limit.<span data-effective-setting="attachment_max_image_pixels" data-limit-key="MAX_IMAGE_PIXELS" data-unit="pixels" hidden></span></small></div>
                 <div class="settings-preference-control" data-field-control>
-                  <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_image_pixels" aria-label="Restore default image pixel limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_image_pixels" data-reset-unit="pixels" aria-label="Restore initial image pixel limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="attachment-max-image-pixels" type="number" min="1" step="1" data-app-setting="attachment_max_image_pixels" aria-describedby="attachment-max-image-pixels-help" required disabled aria-labelledby="attachment-max-image-pixels-label">
                 </div>
               </div>
               <div class="settings-preference-row" data-field-row>
                 <div class="settings-preference-copy"><span id="attachment-max-pdf-pages-label" class="settings-preference-label">Inspected pages per PDF</span><small id="attachment-max-pdf-pages-help">Maximum pages processed locally in each PDF.<span data-effective-setting="attachment_max_pdf_pages" data-limit-key="MAX_PDF_PAGES" data-unit="pages" hidden></span></small></div>
                 <div class="settings-preference-control" data-field-control>
-                  <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_pdf_pages" aria-label="Restore default PDF page limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_pdf_pages" data-reset-unit="pages" aria-label="Restore initial PDF page limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="attachment-max-pdf-pages" type="number" min="1" step="1" data-app-setting="attachment_max_pdf_pages" aria-describedby="attachment-max-pdf-pages-help" required disabled aria-labelledby="attachment-max-pdf-pages-label">
                 </div>
               </div>
               <div class="settings-preference-row" data-field-row>
                 <div class="settings-preference-copy"><span id="attachment-max-sheet-cells-label" class="settings-preference-label">Stored cells per XLSX</span><small id="attachment-max-sheet-cells-help">Counts stored cells across all sheets; empty gaps do not count.<span data-effective-setting="attachment_max_sheet_cells" data-limit-key="MAX_SHEET_CELLS" data-unit="cells" hidden></span></small></div>
                 <div class="settings-preference-control" data-field-control>
-                  <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_sheet_cells" aria-label="Restore default spreadsheet cell limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="attachment_max_sheet_cells" data-reset-unit="cells" aria-label="Restore initial spreadsheet cell limit" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="attachment-max-sheet-cells" type="number" min="1" step="1" data-app-setting="attachment_max_sheet_cells" aria-describedby="attachment-max-sheet-cells-help" required disabled aria-labelledby="attachment-max-sheet-cells-label">
                 </div>
               </div>
@@ -518,9 +518,9 @@
         <div class="settings-editor-footer">
           <p id="app-settings-status" class="settings-editor-status" role="status"></p>
           <div class="dialog-actions">
-            <button id="restore-app-defaults" class="quiet settings-leading-action" type="button" title="Stage default context and attachment values; save to apply" aria-label="Restore defaults" disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i><span class="settings-action-label">Restore defaults</span></button>
+            <button id="restore-app-defaults" class="quiet settings-leading-action" type="button" title="Restore initial app values for this tab" aria-label="Restore defaults" disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i><span class="settings-action-label">Restore defaults</span></button>
             <div class="dialog-actions-right">
-              <button id="discard-app-settings" class="quiet" type="button" title="Discard unsaved context and attachment changes" aria-label="Discard changes" disabled><i data-lucide="undo-2" aria-hidden="true"></i><span class="settings-action-label">Discard changes</span><span class="settings-action-short" aria-hidden="true">Discard</span></button>
+              <button id="discard-app-settings" class="quiet" type="button" title="Restore the last saved values for this tab" aria-label="Discard changes" disabled><i data-lucide="undo-2" aria-hidden="true"></i><span class="settings-action-label">Discard changes</span><span class="settings-action-short" aria-hidden="true">Discard</span></button>
               <button id="save-app-settings" class="primary-btn" type="submit" title="Save context and attachment changes" aria-label="Save changes" disabled><i data-lucide="save" aria-hidden="true"></i><span id="save-app-settings-label" class="settings-action-label">Save changes</span><span class="settings-action-short" aria-hidden="true">Save</span></button>
             </div>
           </div>
@@ -586,28 +586,28 @@
                     <div class="settings-preference-row" data-field-row>
                       <div class="settings-preference-copy"><span id="profile-input-budget-mode-label" class="settings-preference-label">Input budget</span><small id="profile-input-budget-mode-help">Use the app budget, remove it for this profile, or choose a custom token budget.</small></div>
                       <div class="profile-context-control" data-field-control>
-                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_input_budget_mode" title="Use the app input budget" aria-label="Use the app input budget" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_input_budget_mode" title="Use the saved app input budget" aria-label="Use the saved app input budget" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                         <select id="profile-input-budget-mode" data-profile-context="context_input_budget_mode" aria-describedby="profile-input-budget-mode-help" aria-labelledby="profile-input-budget-mode-label"><option value="inherit">Use app setting</option><option value="unlimited">No input limit</option><option value="custom">Custom budget</option><option value="legacy" hidden>Previous policy · Review needed</option></select>
                       </div>
                     </div>
                     <div class="settings-preference-row" data-field-row>
                       <div class="settings-preference-copy"><span id="profile-context-input-budget-label" class="settings-preference-label">Input budget (tokens)</span><small id="profile-context-input-budget-help">Estimated input tokens allowed by Custom budget. The input check below determines whether to warn or stop.</small></div>
                       <div class="profile-context-control" data-field-control>
-                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_input_budget" title="Use the app input budget" aria-label="Use the app input budget" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_input_budget" title="Use the saved app input budget" aria-label="Use the saved app input budget" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                         <input id="profile-context-input-budget" type="number" min="1" step="1" data-profile-context="context_input_budget" aria-describedby="profile-context-input-budget-help" aria-labelledby="profile-context-input-budget-label">
                       </div>
                     </div>
                     <div class="settings-preference-row" data-field-row>
                       <div class="settings-preference-copy"><span id="profile-context-preflight-label" class="settings-preference-label">Input check</span><small id="profile-context-preflight-help">Uses the input check selected in Context & attachments.</small></div>
                       <div class="profile-context-control" data-field-control>
-                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_preflight_mode" title="Use the app input check" aria-label="Use the app input check" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="context_preflight_mode" title="Use the saved app input check" aria-label="Use the saved app input check" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                         <select id="profile-context-preflight" data-profile-context="context_preflight_mode" aria-describedby="profile-context-preflight-help" aria-labelledby="profile-context-preflight-label"><option value="">Use app setting</option><option value="warn">Warn</option><option value="block">Block</option><option value="off">Off</option></select>
                       </div>
                     </div>
                     <div class="settings-preference-row" data-field-row>
                       <div class="settings-preference-copy"><span id="profile-model-max-output-label" class="settings-preference-label">Output limit (tokens)</span><small id="profile-model-max-output-help">Caps output, including reasoning. The lower app or profile limit applies. Leave both blank for the provider default.</small></div>
                       <div class="profile-context-control" data-field-control>
-                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="output_token_limit" title="Use the app or provider output setting" aria-label="Use the app or provider output setting" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="output_token_limit" title="Use the saved app output limit or provider default" aria-label="Use the saved app output limit or provider default" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                         <input id="profile-model-max-output" type="number" min="1" step="1" placeholder="Use app setting" data-profile-context="output_token_limit" aria-describedby="profile-model-max-output-help" aria-labelledby="profile-model-max-output-label">
                       </div>
                     </div>
@@ -617,21 +617,21 @@
                     <div class="settings-preference-row" data-field-row>
                       <div class="settings-preference-copy"><span id="profile-model-context-window-label" class="settings-preference-label">Declared context window (tokens)</span><small id="profile-model-context-window-help">Combined input and output capacity of this deployment. Memory planning subtracts output headroom.</small></div>
                       <div class="profile-context-control" data-field-control>
-                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_context_window" title="Clear the context window declaration" aria-label="Clear the context window declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_context_window" title="Clear the declared context window" aria-label="Clear the declared context window" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                         <input id="profile-model-context-window" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_context_window" aria-describedby="profile-model-context-window-help" aria-labelledby="profile-model-context-window-label">
                       </div>
                     </div>
                     <div class="settings-preference-row" data-field-row>
                       <div class="settings-preference-copy"><span id="profile-model-max-input-label" class="settings-preference-label">Declared maximum input (tokens)</span><small id="profile-model-max-input-help">Independent input capacity for memory planning. If both capacities are provided, memory uses the smaller input allowance.</small></div>
                       <div class="profile-context-control" data-field-control>
-                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_max_input_tokens" title="Clear the input limit declaration" aria-label="Clear the input limit declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="model_max_input_tokens" title="Clear the declared maximum input" aria-label="Clear the declared maximum input" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                         <input id="profile-model-max-input" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="model_max_input_tokens" aria-describedby="profile-model-max-input-help" aria-labelledby="profile-model-max-input-label">
                       </div>
                     </div>
                     <div class="settings-preference-row" data-field-row>
                       <div class="settings-preference-copy"><span id="profile-declared-model-max-output-label" class="settings-preference-label">Declared maximum output (tokens)</span><small id="profile-declared-model-max-output-help">Output capacity of this deployment. Used as memory planning headroom when no headroom or output limit is set.</small></div>
                       <div class="profile-context-control" data-field-control>
-                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="declared_model_max_output_tokens" title="Clear the output capacity declaration" aria-label="Clear the output capacity declaration" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="declared_model_max_output_tokens" title="Clear the declared maximum output" aria-label="Clear the declared maximum output" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                         <input id="profile-declared-model-max-output" type="number" min="1" step="1" placeholder="Unknown" data-profile-context="declared_model_max_output_tokens" aria-describedby="profile-declared-model-max-output-help" aria-labelledby="profile-declared-model-max-output-label">
                       </div>
                     </div>
@@ -641,14 +641,14 @@
                     <div class="settings-preference-row" data-field-row>
                       <div class="settings-preference-copy"><span id="profile-memory-enabled-label" class="settings-preference-label">Conversation memory</span><small id="profile-memory-enabled-help">Off sends original history. On permits paid summaries when deployment information is ready; saved messages stay intact.</small></div>
                       <div class="profile-context-control" data-field-control>
-                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="memory_enabled" title="Turn memory off" aria-label="Turn memory off" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="memory_enabled" title="Turn conversation memory off" aria-label="Turn conversation memory off" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                         <select id="profile-memory-enabled" data-profile-context="memory_enabled" aria-describedby="profile-memory-enabled-help" aria-labelledby="profile-memory-enabled-label"><option value="false">Off</option><option value="true">On</option><option value="" hidden>Off · Review needed</option></select>
                       </div>
                     </div>
                     <div class="settings-preference-row" data-field-row>
                       <div class="settings-preference-copy"><span id="profile-memory-output-headroom-label" class="settings-preference-label">Summary output headroom (tokens)</span><small id="profile-memory-output-headroom-help">Output and reasoning allowance for planning, without capping API output. Blank uses an output limit or declared maximum output. Required when planning from a context window.</small></div>
                       <div class="profile-context-control" data-field-control>
-                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="memory_output_headroom" title="Clear summary planning headroom" aria-label="Clear summary planning headroom" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                        <button class="quiet profile-context-reset" type="button" data-clear-profile-context="memory_output_headroom" title="Clear the summary output headroom" aria-label="Clear the summary output headroom" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                         <input id="profile-memory-output-headroom" type="number" min="1" step="1" placeholder="From output settings" data-profile-context="memory_output_headroom" aria-describedby="profile-memory-output-headroom-help" aria-labelledby="profile-memory-output-headroom-label">
                       </div>
                     </div>
@@ -842,7 +842,7 @@
     </section>
     <div id="settings-help-memory" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="settings-help-memory-title" hidden>
       <h4 id="settings-help-memory-title">Memory summaries</h4>
-      <p>These defaults control how memory-enabled profiles summarize older request text. Summary work has its own input budget. Recent history is a target; complete conversation turns may exceed it.</p>
+      <p>These app settings control how memory-enabled profiles summarize older request text. Summary work has its own input budget. Recent history is a target; complete conversation turns may exceed it.</p>
     </div>
     <div id="settings-help-attachments" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="settings-help-attachments-title" hidden>
       <h4 id="settings-help-attachments-title">Attachment resource limits</h4>
@@ -854,7 +854,7 @@
     </div>
     <div id="settings-help-profile-context" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="settings-help-profile-context-title" hidden>
       <h4 id="settings-help-profile-context-title">Context &amp; memory</h4>
-      <p>Input and output settings inherit app defaults unless overridden. Use deployment information for memory planning; input and output budgets are set separately.</p>
+      <p>Profile input settings can use the saved app settings. Output uses the lower explicit app or profile limit. Deployment information supports memory planning.</p>
     </div>
     <div id="settings-help-pricing" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="settings-help-pricing-title" hidden>
       <h4 id="settings-help-pricing-title">Token pricing</h4>
