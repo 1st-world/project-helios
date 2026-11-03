@@ -1,6 +1,6 @@
 /* Edit app-wide context and attachment policies while keeping saved enforcement limits separate from drafts. */
 
-import { $, toast } from './ui.js';
+import { $, setText, toast } from './ui.js';
 import { PREFLIGHT_HELP, describeRequestError } from './chat-feedback.js';
 import { showActionDialog } from './dialogs.js';
 import { createFieldValidation } from './field-validation.js';
@@ -21,7 +21,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
 
   function renderStatus() {
     const status = $('#app-settings-status');
-    status.textContent = state.feedback?.message || '';
+    setText(status, state.feedback?.message || '');
     status.dataset.state = state.feedback?.type || 'idle';
   }
 
@@ -157,11 +157,8 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     }
   }
 
-  function restoreDefault(name) {
-    if (!state.saved || state.loading || state.saving || isProfileSaving()) return;
-    const reviewing = validation.isReviewing();
+  function restoreDefaultValue(name) {
     const input = fields.get(name);
-    const restoreFocus = document.activeElement?.dataset.resetSetting === name;
     input.value = state.defaults[name] ?? '';
     if (['context_input_budget_mode', 'context_input_budget'].includes(name)) {
       fields.get('context_input_budget_mode').value = 'unlimited';
@@ -171,11 +168,20 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     }
     if (valueOf(input) !== state.saved[name]) state.resets.add(name);
     else state.resets.delete(name);
-    setStatus('');
+  }
+
+  function restoreDefaults(names) {
+    if (!state.saved || state.loading || state.saving || isProfileSaving()) return;
+    const restoreAllFocus = document.activeElement === $('#restore-app-defaults');
+    const focusedSetting = document.activeElement?.dataset.resetSetting;
+    const reviewing = validation.isReviewing();
+    for (const name of names) restoreDefaultValue(name);
+    state.feedback = null;
     updateControls();
     if (reviewing) validate(false);
-    if (restoreFocus) {
-      const target = name === 'context_input_budget' ? fields.get('context_input_budget_mode') : input;
+    if (restoreAllFocus) $('#save-app-settings').focus({ preventScroll: true });
+    else if (focusedSetting) {
+      const target = fields.get(focusedSetting === 'context_input_budget' ? 'context_input_budget_mode' : focusedSetting);
       target.focus({ preventScroll: true });
     }
   }
@@ -247,12 +253,8 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
         if (validation.isReviewing()) validate(false);
       });
     }
-    resetButtons.forEach(button => { button.onclick = () => restoreDefault(button.dataset.resetSetting); });
-    $('#restore-app-defaults').onclick = () => {
-      const restoreFocus = document.activeElement === $('#restore-app-defaults');
-      for (const name of fields.keys()) restoreDefault(name);
-      if (restoreFocus) $('#save-app-settings').focus({ preventScroll: true });
-    };
+    resetButtons.forEach(button => { button.onclick = () => restoreDefaults([button.dataset.resetSetting]); });
+    $('#restore-app-defaults').onclick = () => restoreDefaults(fields.keys());
     $('#discard-app-settings').onclick = () => {
       if (!state.saved || state.loading || state.saving || isProfileSaving()) return;
       fillSaved();

@@ -4,6 +4,10 @@ import { bindDialogBackdrop } from './dialogs.js';
 
 export const $ = (selector) => document.querySelector(selector);
 
+export function setText(element, text) {
+  if (element.textContent !== text) element.textContent = text;
+}
+
 export function escapeHtml(value) {
   const div = document.createElement('div');
   div.textContent = value;

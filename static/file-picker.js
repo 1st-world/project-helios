@@ -1,6 +1,6 @@
 /* Coordinate host file selection, preparation, cancellation, and reconnects for the attachment dialog. */
 
-import { $ } from './ui.js';
+import { $, setText } from './ui.js';
 
 export function createFilePicker({ getWorkspaceScope, isBusy, onSelected, onChange, onCloseRequested }) {
   const storageKey = 'helios.attachmentPicker';
@@ -9,7 +9,7 @@ export function createFilePicker({ getWorkspaceScope, isBusy, onSelected, onChan
 
   function setStatus(message, state = 'busy') {
     const status = $('#attachment-file-status');
-    if (status.textContent !== message) status.textContent = message;
+    setText(status, message);
     status.dataset.state = state;
     status.hidden = !message;
   }
@@ -17,6 +17,10 @@ export function createFilePicker({ getWorkspaceScope, isBusy, onSelected, onChan
   function clearNotice() {
     if (current || ['error', 'warning'].includes($('#attachment-file-status').dataset.state)) return;
     setStatus('', 'idle');
+  }
+
+  function clearStatus() {
+    if (!current) setStatus('', 'idle');
   }
 
   function savedSession() {
@@ -173,5 +177,5 @@ export function createFilePicker({ getWorkspaceScope, isBusy, onSelected, onChan
     if (savedSession()) begin({ recovering: true });
   }
 
-  return { init, update, cancel, clearNotice, isPicking: () => current !== null };
+  return { init, update, cancel, clearNotice, clearStatus, isPicking: () => current !== null };
 }

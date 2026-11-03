@@ -1,6 +1,6 @@
 /* Own connection profiles, model selection, and credential, context, and pricing editing. */
 
-import { $, closeMobileSidebar, escapeHtml, nameInText, refreshIcons, toast } from './ui.js';
+import { $, closeMobileSidebar, escapeHtml, nameInText, refreshIcons, setText, toast } from './ui.js';
 import { selectSettingsPanel } from './settings.js';
 import { createProfileContext } from './profile-context.js';
 import { describeRequestError } from './chat-feedback.js';
@@ -92,7 +92,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
   function updateEditorControls() {
     const dirty = hasUnsavedChanges();
     const status = $('#profile-settings-status');
-    status.textContent = state.feedback?.message || '';
+    setText(status, state.feedback?.message || '');
     status.dataset.state = state.feedback?.type || 'idle';
     $('#save-profile-btn').disabled = state.saving || state.defaultSaving || !dirty;
     $('#delete-profile-btn').disabled = state.saving || state.defaultSaving;
@@ -138,7 +138,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     ];
     const message = state === 'empty' ? 'Costs cannot be estimated without rates.' : notes.join(' ');
     const completeness = $('#pricing-completeness-status');
-    if (completeness.textContent !== message) completeness.textContent = message;
+    setText(completeness, message);
     completeness.parentElement.hidden = !message;
     statusEl.dataset.state = state;
     statusEl.classList.toggle('configured', state === 'configured');
@@ -394,7 +394,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     const status = $('#profile-catalog-status');
     const message = state.catalogError ? state.catalogLoaded
       ? 'Could not reload profiles. The last loaded list is shown.' : 'Could not load connection profiles.' : '';
-    if (status.textContent !== message) status.textContent = message;
+    setText(status, message);
     $('#reload-profile-catalog').disabled = state.catalogLoading || state.saving || state.defaultSaving;
     $('#reload-profile-catalog').setAttribute('aria-busy', String(state.catalogLoading));
     $('#reload-profile-catalog-label').textContent = state.catalogLoading ? 'Reloading…' : 'Reload profiles';

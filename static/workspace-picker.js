@@ -1,6 +1,6 @@
 /* Manage the native folder picker connection, cancellation, and browser session restoration. */
 
-import { $, toast } from './ui.js';
+import { $, setText, toast } from './ui.js';
 
 export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, getWorkspaceScope = () => ({}), isBusy = () => false, onStateChange = () => {}, onCloseRequested = () => $('#workspace-dialog').close() }) {
   const pickerStorageKey = 'helios.workspacePicker';
@@ -9,7 +9,7 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
 
   function setStatus(message, type = 'info') {
     const status = $('#workspace-path-status');
-    if (status.textContent !== message) status.textContent = message;
+    setText(status, message);
     status.dataset.state = type;
     status.hidden = !message;
   }

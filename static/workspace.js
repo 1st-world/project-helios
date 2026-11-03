@@ -1,6 +1,6 @@
 /* Coordinate workspace context and a single host-file attachment selection and restoration flow. */
 
-import { $, closeMobileSidebar, refreshIcons, toast } from './ui.js';
+import { $, closeMobileSidebar, refreshIcons, setText, toast } from './ui.js';
 import { createWorkspacePicker } from './workspace-picker.js';
 import { attachmentIcon, attachmentKey, attachmentSize, attachmentSourceLabel, attachmentSummary, attachmentWarnings } from './attachments.js';
 import { createFilePicker } from './file-picker.js';
@@ -386,11 +386,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     closeMobileSidebar();
     state.pendingFiles = [...state.attachments];
     state.visiblePending = selectionPageSize;
-    if (!filePicker.isPicking()) {
-      $('#attachment-file-status').textContent = '';
-      $('#attachment-file-status').hidden = true;
-      $('#attachment-file-status').dataset.state = 'idle';
-    }
+    filePicker.clearStatus();
     $('#attachment-selection-notice').hidden = true;
     $('#file-dialog').showModal();
     $('.attachment-body').scrollTop = 0;
@@ -492,7 +488,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
       : !state.generating && !picker.isPicking() && state.workspaceSessionId && workspaceFormChanged() && $('#workspace-path-input').value.trim()
         ? { message: 'Apply to use the selected folder and reading options.', type: 'info' } : null);
     const message = feedback?.message || '';
-    if (status.textContent !== message) status.textContent = message;
+    setText(status, message);
     status.dataset.state = feedback?.type || 'idle';
   }
 
@@ -536,7 +532,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
 
   function setContextStatus(message, type = 'info') {
     const status = $('#workspace-context-status');
-    if (status.textContent !== message) status.textContent = message;
+    setText(status, message);
     status.dataset.state = type;
   }
 
@@ -668,11 +664,11 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     if (state.inspectionFeedback) {
       const { message, details = [] } = state.inspectionFeedback;
       const text = [message, ...details].join('\n');
-      if (status.textContent !== text) status.textContent = text;
+      setText(status, text);
       return;
     }
     if (!state.inspection) {
-      if (status.textContent !== 'No check results yet.') status.textContent = 'No check results yet.';
+      setText(status, 'No check results yet.');
       return;
     }
     const { context_policy: policy } = state.inspection.data;
@@ -686,7 +682,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     if (Number.isSafeInteger(policy.declared_model_input_limit)) text.push(`Declared model input limit: ${policy.declared_model_input_limit.toLocaleString()} tokens.`);
     if (policy.mode === 'off') text.push('Context token estimation is off.');
     const message = text.join('\n');
-    if (status.textContent !== message) status.textContent = message;
+    setText(status, message);
   }
 
   function updateAttachmentMetadata(files) {
