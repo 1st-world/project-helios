@@ -9,7 +9,7 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
 
   function setStatus(message, type = 'info') {
     const status = $('#workspace-path-status');
-    status.textContent = message;
+    if (status.textContent !== message) status.textContent = message;
     status.dataset.state = type;
     status.hidden = !message;
   }
@@ -29,7 +29,7 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
     picker.restartAfterCancel = false;
     sessionStorage.setItem(pickerStorageKey + '.cancel', picker.token);
     finishWorkspacePicker(picker, { status: 'disconnected' });
-    toast('Connection lost. The picker could not be confirmed closed. Its status will be checked before the next Browse.', 'warning');
+    if (picker.closeOnCancel || !$('#workspace-dialog').open) toast('Connection lost. The picker could not be confirmed closed. Its status will be checked before the next Browse.', 'warning');
   }
 
   function waitForPickerConnection(picker) {
@@ -56,7 +56,7 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
     setStatus(picker.feedback.message, picker.feedback.type);
     if (!picker.closeOnCancel && result.status === 'selected' && $('#workspace-dialog').open) {
       $('#workspace-path-input').value = result.path;
-      setStatus('Folder selected. Apply to connect it to this conversation.');
+      setStatus('', 'idle');
     } else if (result.status === 'cancelled' || (result.status === 'missing' && picker.cancelRequested)) {
       setStatus('Folder selection cancelled. Your folder path is unchanged.');
     } else if (result.status === 'disconnected') {
@@ -64,7 +64,7 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
     } else if (!picker.closeOnCancel && (result.status === 'error' || result.status === 'missing')) {
       const message = result.detail || 'The previous folder picker has closed. Use Browse to choose a folder again.';
       setStatus(message, 'error');
-      toast(message, 'warning');
+      if (!$('#workspace-dialog').open) toast(message, 'warning');
     }
     onStateChange();
     update();
@@ -93,14 +93,12 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
       } else if (result.status === 'pending') {
         clearTimeout(picker.connectionTimer);
         picker.connectionTimer = null;
-        setStatus(picker.cancelRequested
-          ? 'Stopping folder selection…'
-          : 'Choose a folder on the computer running Helios, or use Stop to cancel selection.');
+        if (!picker.cancelFailed) setStatus(picker.cancelRequested ? 'Stopping folder selection…' : 'Waiting for folder selection…');
       } else if (result.status === 'cancel-error') {
         picker.cancelFailed = true;
         const message = result.detail || 'Could not stop folder selection. Try Stop again.';
         setStatus(message, 'error');
-        toast(message, 'warning');
+        if (!$('#workspace-dialog').open) toast(message, 'warning');
         update();
       } else if (picker.cancelRequested && !['cancelled', 'missing'].includes(result.status)) {
         // A selected result can race with cancellation. Wait for acknowledgement.

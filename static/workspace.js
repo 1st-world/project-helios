@@ -22,6 +22,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     workspaceAvailable: false,
     workspaceReadOptions: { ignore_hidden: false, use_gitignore: false },
     workspacePolicyStatus: null,
+    workspaceFeedback: null,
     workspaceReady: null,
     workspaceController: null,
     changingWorkspace: false,
@@ -45,7 +46,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
   });
   const picker = createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot: () => state.workspaceRoot, getWorkspaceScope: workspaceScope,
     isBusy: () => state.generating || state.changingWorkspace || !state.workspaceSessionId,
-    onStateChange: updateWorkspaceControls, onCloseRequested: requestWorkspaceDialogClose });
+    onStateChange() { state.workspaceFeedback = null; updateWorkspaceControls(); }, onCloseRequested: requestWorkspaceDialogClose });
 
   const filePicker = createFilePicker({
     async getWorkspaceScope() {
@@ -363,6 +364,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     $('#workspace-path-input').value = state.workspaceRoot || '';
     $('#workspace-ignore-hidden').checked = state.workspaceReadOptions.ignore_hidden;
     $('#workspace-use-gitignore').checked = state.workspaceReadOptions.use_gitignore;
+    state.workspaceFeedback = null;
     picker.clearStatus();
     updateWorkspaceControls();
     $('#workspace-dialog').showModal();
@@ -415,7 +417,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     state.contextController = null;
     $('#workspace-context-preview').hidden = true;
     $('#workspace-context-preview').textContent = '';
-    $('#workspace-context-status').textContent = '';
+    setContextStatus('');
     $('.workspace-context-preview-body').setAttribute('aria-busy', 'false');
   }
 
@@ -460,7 +462,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     const status = $('#workspace-ignore-status');
     status.dataset.state = 'idle';
     if (workspaceFormChanged()) {
-      setWorkspacePolicyStatus('Apply changes to check .heliosignore and use the selected exclusions.');
+      setWorkspacePolicyStatus('.heliosignore has not been checked for these changes.');
       return;
     }
     if (!state.workspaceRoot) {
@@ -481,6 +483,17 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     } else {
       setWorkspacePolicyStatus(custom?.status === 'unavailable' ? 'The connected folder is unavailable. Custom exclusions could not be checked.' : 'Checking .heliosignore…');
     }
+  }
+
+  function renderWorkspaceFeedback() {
+    const status = $('#workspace-status');
+    const feedback = state.workspaceFeedback || (state.changingWorkspace
+      ? { message: 'Applying workspace changes…', type: 'busy' }
+      : !state.generating && !picker.isPicking() && state.workspaceSessionId && workspaceFormChanged() && $('#workspace-path-input').value.trim()
+        ? { message: 'Apply to use the selected folder and reading options.', type: 'info' } : null);
+    const message = feedback?.message || '';
+    if (status.textContent !== message) status.textContent = message;
+    status.dataset.state = feedback?.type || 'idle';
   }
 
   function updateWorkspaceControls() {
@@ -518,6 +531,13 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
       ? state.workspaceAvailable ? 'Chat with a connected folder' : 'Folder unavailable · Choose another folder'
       : 'Chat without a folder · Optional';
     renderWorkspacePolicy();
+    renderWorkspaceFeedback();
+  }
+
+  function setContextStatus(message, type = 'info') {
+    const status = $('#workspace-context-status');
+    if (status.textContent !== message) status.textContent = message;
+    status.dataset.state = type;
   }
 
   async function previewProjectContext() {
@@ -530,7 +550,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     const sessionId = state.workspaceSessionId;
     const controller = new AbortController();
     state.contextController = controller;
-    $('#workspace-context-status').textContent = 'Preparing project context locally...';
+    setContextStatus('Preparing project context locally…', 'busy');
     updateWorkspaceControls();
     try {
       const response = await fetch('/api/workspace/context', {
@@ -545,9 +565,9 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
       if (state.contextController !== controller || revision !== state.workspaceRevision || sessionId !== state.workspaceSessionId) return;
       $('#workspace-context-preview').textContent = data.context;
       $('#workspace-context-preview').hidden = false;
-      $('#workspace-context-status').textContent = 'Local preview of the connected workspace. Refreshed when you send a message.';
+      setContextStatus('');
     } catch (error) {
-      if (error.name !== 'AbortError' && state.contextController === controller) $('#workspace-context-status').textContent = error.message;
+      if (error.name !== 'AbortError' && state.contextController === controller) setContextStatus(error.message || 'Could not preview project context.', 'error');
     } finally {
       if (state.contextController === controller) {
         state.contextController = null;
@@ -559,6 +579,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
   async function changeWorkspace(path) {
     if (state.generating || state.changingWorkspace || picker.isPicking()) return;
     state.changingWorkspace = true;
+    state.workspaceFeedback = null;
     const request = ++state.workspaceRequest;
     resetContextPreview();
     invalidateInspection();
@@ -579,7 +600,11 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
       $('#workspace-dialog').close();
       toast(path === null ? 'Workspace disconnected.' : 'Workspace updated.', 'success');
     } catch (error) {
-      toast(error.message || 'Could not change the workspace.', 'error');
+      if (request === state.workspaceRequest) {
+        const message = error.message || 'Could not change the workspace.';
+        if ($('#workspace-dialog').open) state.workspaceFeedback = { message, type: 'error' };
+        else toast(message, 'error');
+      }
     } finally {
       state.changingWorkspace = false;
       updateWorkspaceControls();
@@ -603,7 +628,6 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
 
   function beforeDialogClose() {
     if (state.changingWorkspace) {
-      toast('Wait for the Workspace change to finish before closing.', 'info');
       return false;
     }
     if (picker.isPicking()) {
@@ -643,12 +667,12 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     region.dataset.state = state.inspectionFeedback?.type || (state.inspection ? 'ready' : 'idle');
     if (state.inspectionFeedback) {
       const { message, details = [] } = state.inspectionFeedback;
-      status.textContent = [message, ...details].join('\n');
+      const text = [message, ...details].join('\n');
+      if (status.textContent !== text) status.textContent = text;
       return;
     }
     if (!state.inspection) {
-      status.textContent = state.pendingFiles.length ? 'Use Check files to review delivery details before attaching.'
-        : 'Add files to review their delivery and local preparation.';
+      if (status.textContent !== 'No check results yet.') status.textContent = 'No check results yet.';
       return;
     }
     const { context_policy: policy } = state.inspection.data;
@@ -661,7 +685,8 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     if (policy.legacy_input_policy) text.push('Previous input policy: review the budget in Settings.');
     if (Number.isSafeInteger(policy.declared_model_input_limit)) text.push(`Declared model input limit: ${policy.declared_model_input_limit.toLocaleString()} tokens.`);
     if (policy.mode === 'off') text.push('Context token estimation is off.');
-    status.textContent = text.join('\n');
+    const message = text.join('\n');
+    if (status.textContent !== message) status.textContent = message;
   }
 
   function updateAttachmentMetadata(files) {
@@ -785,10 +810,12 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     });
 
     $('#workspace-path-input').addEventListener('input', () => {
+      state.workspaceFeedback = null;
       picker.clearStatus();
       updateWorkspaceControls();
     });
     ['#workspace-ignore-hidden', '#workspace-use-gitignore'].forEach(selector => $(selector).addEventListener('change', () => {
+      state.workspaceFeedback = null;
       resetContextPreview();
       updateWorkspaceControls();
     }));

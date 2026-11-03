@@ -29,7 +29,7 @@ function readPrice(id) {
 }
 
 export function createProfiles({ isGenerating, onModelContextChange = () => {}, onSelectionChange = () => {} }) {
-  const state = { defaultProfileId: null, editingProfileId: null, profiles: [], formBaseline: null, saving: false, defaultSaving: false, feedback: null, catalogLoaded: false, catalogError: '', online: true };
+  const state = { defaultProfileId: null, editingProfileId: null, profiles: [], formBaseline: null, saving: false, defaultSaving: false, feedback: null, catalogLoaded: false, catalogLoading: false, catalogError: '', online: true };
   const form = $('#azure-settings-form');
   const validation = createFieldValidation(form);
   const profileContext = createProfileContext({ isSaving: () => state.saving });
@@ -103,6 +103,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     $('#save-profile-label').textContent = state.saving ? 'Saving...' : 'Save changes';
     $('#save-profile-btn').setAttribute('aria-busy', String(state.saving));
     $('#save-profile-btn').setAttribute('aria-label', state.saving ? 'Saving changes' : 'Save changes');
+    renderCatalogFeedback();
   }
 
   function setSaving(saving) {
@@ -125,26 +126,25 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     const missingStandard = rates.filter(rate => rate.standard.value === null).map(rate => rate.name);
     // A blank long rate inherits independently; an invalid draft must not appear configured.
     const missingLong = rates.filter(rate => (rate.long.invalid ? null : rate.long.value ?? rate.standard.value) === null).map(rate => rate.name);
-    const fallback = rates.filter(rate => !rate.long.invalid && rate.long.value === null && rate.standard.value !== null).map(rate => rate.name);
     const hasPricing = rates.some(rate => rate.standard.value !== null || rate.long.value !== null);
     const state = invalid.length ? 'invalid' : !hasPricing ? 'empty' : missingStandard.length || missingLong.length ? 'partial' : 'configured';
     const labels = { empty: 'Not configured', partial: 'Partial pricing', configured: 'Configured', invalid: 'Check rates' };
     const icons = { empty: 'circle-dashed', partial: 'triangle-alert', configured: 'check', invalid: 'triangle-alert' };
-    const standardText = missingStandard.length
-      ? `${rates.some(rate => rate.standard.invalid) ? 'Unavailable' : 'Missing'} standard rates: ${missingStandard.join(', ')}.`
-      : 'All standard rates are configured.';
-    const longText = [
-      ...(missingLong.length ? [`${invalid.length ? 'Unavailable' : 'Missing'} effective long-context rates: ${missingLong.join(', ')}.`] : []),
-      ...(fallback.length ? [`Long-context fallback to standard rates: ${fallback.join(', ')}.`] : []),
-    ].join(' ') || 'All long-context rates are configured.';
-    const invalidText = invalid.length ? `Invalid rates: ${invalid.join(', ')}.` : '';
-    $('#pricing-standard-status').textContent = standardText;
-    $('#pricing-long-status').textContent = longText;
+    const missingBoth = rates.filter(rate => !rate.standard.invalid && !rate.long.invalid && rate.standard.value === null && rate.long.value === null).map(rate => rate.name);
+    const missingStandardOnly = rates.filter(rate => !rate.standard.invalid && rate.standard.value === null && !missingBoth.includes(rate.name)).map(rate => rate.name);
+    const notes = [
+      ...(missingBoth.length ? [`Missing rates for both tiers: ${missingBoth.join(', ')}.`] : []),
+      ...(missingStandardOnly.length ? [`Missing standard rates: ${missingStandardOnly.join(', ')}.`] : []),
+    ];
+    const message = state === 'empty' ? 'Costs cannot be estimated without rates.' : notes.join(' ');
+    const completeness = $('#pricing-completeness-status');
+    if (completeness.textContent !== message) completeness.textContent = message;
+    completeness.parentElement.hidden = !message;
     statusEl.dataset.state = state;
     statusEl.classList.toggle('configured', state === 'configured');
     statusEl.classList.toggle('partial', state === 'partial' || state === 'invalid');
     statusEl.innerHTML = `<i data-lucide="${icons[state]}" aria-hidden="true"></i> ${labels[state]}`;
-    statusEl.title = [standardText, longText, invalidText].filter(Boolean).join(' ');
+    statusEl.title = [labels[state], message, invalid.length ? `Invalid rates: ${invalid.join(', ')}.` : ''].filter(Boolean).join(' ');
     refreshIcons();
   }
 
@@ -329,6 +329,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     state.profiles = data.profiles || [];
     state.catalogLoaded = true;
     state.catalogError = '';
+    renderCatalogFeedback();
     modelSelection.setDefault(state.defaultProfileId);
     const container = $('#profile-list-container');
     const emptyState = $('#profile-empty-state');
@@ -388,8 +389,21 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     return data;
   }
 
+  function renderCatalogFeedback() {
+    $('#profile-catalog-feedback').hidden = !state.catalogError;
+    const status = $('#profile-catalog-status');
+    const message = state.catalogError ? state.catalogLoaded
+      ? 'Could not reload profiles. The last loaded list is shown.' : 'Could not load connection profiles.' : '';
+    if (status.textContent !== message) status.textContent = message;
+    $('#reload-profile-catalog').disabled = state.catalogLoading || state.saving || state.defaultSaving;
+    $('#reload-profile-catalog').setAttribute('aria-busy', String(state.catalogLoading));
+    $('#reload-profile-catalog-label').textContent = state.catalogLoading ? 'Reloading…' : 'Reload profiles';
+  }
+
   async function loadProfiles() {
     if (catalogPromise) return catalogPromise;
+    state.catalogLoading = true;
+    renderCatalogFeedback();
     catalogPromise = (async () => {
       try {
         const data = await readProfileResponse(await fetch('/api/profiles', { cache: 'no-store', signal: AbortSignal.timeout(12000) }), 'Could not load connection profiles.');
@@ -397,11 +411,15 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
         health();
         return true;
       } catch {
-        state.catalogError = 'Could not load model profiles. Open the model picker to reload them.';
+        state.catalogError = 'Could not load model profiles.';
+        renderCatalogFeedback();
         renderModelSelection();
-        toast('Could not load connection profiles.', 'error');
         return false;
-      } finally { catalogPromise = null; }
+      } finally {
+        catalogPromise = null;
+        state.catalogLoading = false;
+        renderCatalogFeedback();
+      }
     })();
     return catalogPromise;
   }
@@ -540,6 +558,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
 
   function init() {
     profileContext.init();
+    $('#reload-profile-catalog').onclick = loadProfiles;
     for (const [, standardId, longId] of PRICE_CATEGORIES) {
       for (const id of [standardId, longId]) {
         $(`#${id}`).addEventListener('input', updatePricingStatus);

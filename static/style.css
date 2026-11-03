@@ -2521,7 +2521,7 @@ textarea::placeholder {
   max-height: 96px;
   margin: 0 0 10px;
   overflow-y: auto;
-  color: var(--danger-text);
+  color: var(--text-muted);
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
   white-space: pre-line;
@@ -3917,6 +3917,9 @@ textarea::placeholder {
   height: 28px;
   font-size: var(--font-size-control);
 }
+.preferences-dialog .quiet-btn > svg {
+  flex: none;
+}
 
 .preferences-dialog .profile-editor-fields {
   display: flex;
@@ -3929,6 +3932,29 @@ textarea::placeholder {
 }
 .preferences-dialog .profile-key-field > label {
   margin: 0;
+}
+.preferences-dialog .profile-catalog-feedback {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 12px var(--settings-content-spacing);
+  gap: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+.preferences-dialog .profile-catalog-feedback[hidden] {
+  display: none;
+}
+.preferences-dialog .profile-catalog-feedback p {
+  flex: 1 1 180px;
+  min-width: 0;
+  margin: 0;
+  color: var(--danger-text);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+  overflow-wrap: anywhere;
+}
+.preferences-dialog .profile-catalog-feedback button {
+  flex: none;
 }
 #azure-settings-form label {
   margin: 0;
@@ -4032,17 +4058,15 @@ textarea::placeholder {
   flex-direction: column;
   gap: 8px;
 }
+.pricing-accordion .pricing-overview[hidden] {
+  display: none;
+}
 .pricing-accordion .pricing-completeness {
-  margin-bottom: 10px;
+  margin: 0 0 10px;
   color: var(--text-sub);
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
   overflow-wrap: anywhere;
-}
-.pricing-accordion .pricing-completeness p {
-  margin: 0;
-  font-size: inherit;
-  line-height: inherit;
 }
 .pricing-tier-block {
   display: flex;
@@ -4259,6 +4283,22 @@ textarea::placeholder {
   flex-wrap: nowrap;
   margin-top: 0;
 }
+.workspace-manager #workspace-status {
+  max-height: 96px;
+  margin: 0 0 10px;
+  overflow-y: auto;
+  color: var(--text-muted);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.workspace-manager #workspace-status:empty {
+  display: none;
+}
+.workspace-manager #workspace-status[data-state="error"] {
+  color: var(--danger-text);
+}
 .workspace-manager .workspace-footer .dialog-actions button {
   flex: none;
   white-space: nowrap;
@@ -4387,7 +4427,7 @@ textarea::placeholder {
   opacity: 0.5;
 }
 .workspace-manager .workspace-policy-status[data-state="error"] {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 .workspace-manager .workspace-project-context p {
   margin: 0;
@@ -4463,6 +4503,9 @@ textarea::placeholder {
 }
 .workspace-manager .workspace-context-preview-body > p:empty {
   display: none;
+}
+.workspace-manager #workspace-context-status[data-state="error"] {
+  color: var(--danger-text);
 }
 .workspace-manager .workspace-project-context pre {
   max-height: 200px;

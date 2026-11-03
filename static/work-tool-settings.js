@@ -23,12 +23,13 @@ export function createWorkToolSettings({ getWorkspace, isGenerating }) {
     const busy = isGenerating();
     $('#work-tools-run-fields').disabled = busy;
     $('#apply-work-tools-settings').disabled = busy;
-    $('#work-tools-settings-busy').hidden = !busy;
+    const status = $('#work-tools-settings-status');
+    const message = busy ? 'Settings are read-only while a response is being generated.' : '';
+    if (status.textContent !== message) status.textContent = message;
     $('#work-tools-workspace').textContent = getWorkspace().root || 'No workspace connected. Choose one from the sidebar to use Explore project.';
   }
 
   function restoreDraft() {
-    $('#work-tools-settings-status').textContent = '';
     validation.reset();
     baseline = fields.map(([id, key]) => {
       const input = $(`#${id}`);
@@ -83,7 +84,6 @@ export function createWorkToolSettings({ getWorkspace, isGenerating }) {
     toast('Work tools settings applied.', 'success');
   };
   fields.forEach(([id]) => $(`#${id}`).addEventListener('input', () => {
-    $('#work-tools-settings-status').textContent = '';
     if (validation.isReviewing()) readDraft(false);
   }));
   document.addEventListener('workspace-change', updateState);

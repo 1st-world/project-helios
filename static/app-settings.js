@@ -80,11 +80,6 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
         ? `Draft legacy input budget: ${budget.toLocaleString()} tokens.`
         : 'Review the summary work budget and output limit to calculate the legacy input budget.';
     }
-    const trigger = valueOf(fields.get('summary_trigger_tokens'));
-    $('#summary-trigger-tokens-help').textContent = trigger === null
-      ? 'Blank uses 90% of the declared input allowance. Enter 0 to pause summaries.'
-      : trigger === 0 ? 'Summaries are disabled. Requests use original conversation history.'
-      : 'Summarizes above this input estimate when memory is ready. Enter 0 to pause summaries.';
     showAttachmentLimits();
   }
 

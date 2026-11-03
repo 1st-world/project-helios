@@ -148,7 +148,6 @@
           </div>
           <div class="work-tools-run-guidance">
             <p class="field-hint">Applies to Explore project. Repeated paid model calls are possible. Memory-summary calls use separate settings and are excluded from these limits and targets.</p>
-            <p id="work-tools-settings-busy" class="field-hint" role="status" hidden>Settings are read-only while a response is being generated.</p>
           </div>
         </section>
         <section class="work-tools-settings-group" aria-labelledby="work-tools-scope-title">
@@ -197,8 +196,8 @@
           </div>
           <div class="workspace-group-body">
             <label for="workspace-path-input">Folder path</label>
-            <input id="workspace-path-input" required placeholder="C:/Users/Projects/my-project" aria-describedby="workspace-path-help">
-            <span id="workspace-path-help" class="field-hint">Folder on the computer running Helios. Apply changes to connect it to this conversation.</span>
+            <input id="workspace-path-input" required placeholder="C:/Users/Projects/my-project" aria-describedby="workspace-path-help workspace-path-status">
+            <span id="workspace-path-help" class="field-hint">Folder on the computer running Helios.</span>
             <p id="workspace-path-status" class="field-hint" role="status" hidden></p>
           </div>
         </section>
@@ -228,6 +227,7 @@
         </section>
       </div>
       <div class="workspace-footer">
+        <p id="workspace-status" role="status"></p>
         <div class="dialog-actions">
           <button id="disconnect-workspace" class="danger-btn workspace-leading-action" type="button" title="Disconnect this conversation's workspace" aria-label="Disconnect workspace" disabled><i data-lucide="unplug" aria-hidden="true"></i><span class="workspace-action-label">Disconnect</span></button>
           <div class="dialog-actions-right">
@@ -278,7 +278,7 @@
       <section id="attachment-inspection" class="attachment-inspection" aria-labelledby="attachment-inspection-title">
         <div class="attachment-group-heading"><div class="dialog-section-title"><h3 id="attachment-inspection-title">Selection check</h3><button class="help-popover-trigger" type="button" popovertarget="attachment-help-check" aria-controls="attachment-help-check" aria-expanded="false" aria-label="About selection checks" title="About selection checks"><i data-lucide="info" aria-hidden="true"></i></button></div></div>
         <div class="attachment-group-body">
-          <p id="attachment-inspection-status" role="status">Add files to review their delivery and local preparation.</p>
+          <p id="attachment-inspection-status" role="status">No check results yet.</p>
         </div>
       </section>
     </div>
@@ -548,6 +548,10 @@
               </div>
               <div id="profile-list-container" class="profile-list-container"></div>
             </div>
+            <div id="profile-catalog-feedback" class="profile-catalog-feedback" hidden>
+              <p id="profile-catalog-status" role="status"></p>
+              <button id="reload-profile-catalog" class="quiet-btn" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i><span id="reload-profile-catalog-label">Reload profiles</span></button>
+            </div>
           </section>
 
           <section class="settings-group" aria-labelledby="profile-form-title">
@@ -657,7 +661,7 @@
                     <h5>Saved effective policy</h5>
                     <p>Saved settings for this profile, before request overrides. Unsaved edits are not included.</p>
                     <div id="profile-context-effective" class="settings-policy-values" role="status">Saved policy is not loaded.</div>
-                    <button id="profile-context-retry" class="quiet sm-btn" type="button" hidden>Retry loading policy</button>
+                    <button id="profile-context-retry" class="quiet-btn" type="button" hidden><i data-lucide="refresh-cw" aria-hidden="true"></i><span>Reload policy</span></button>
                   </div>
                 </div>
               </details>
@@ -668,11 +672,8 @@
                   <i data-lucide="chevron-down" class="settings-disclosure-chevron" aria-hidden="true"></i>
                 </summary>
                 <div class="pricing-accordion-body settings-disclosure-body">
-                  <div class="pricing-overview">
-                    <div class="pricing-completeness" role="status" aria-atomic="true">
-                      <p id="pricing-standard-status"></p>
-                      <p id="pricing-long-status"></p>
-                    </div>
+                  <div class="pricing-overview" hidden>
+                    <p id="pricing-completeness-status" class="pricing-completeness" role="status" aria-atomic="true"></p>
                   </div>
                   <div class="pricing-tier-block">
                     <div class="tier-header">
