@@ -2363,6 +2363,23 @@ textarea::placeholder {
 .settings-dialog input:focus {
   border-color: var(--border-focus);
 }
+.settings-dialog .field-control {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+  gap: 6px;
+}
+.settings-dialog .field-error {
+  margin: 0;
+  color: var(--danger-text);
+  font-weight: var(--font-weight-regular);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+  overflow-wrap: anywhere;
+}
+.settings-dialog .field-error[hidden] {
+  display: none;
+}
 
 .work-tools-settings {
   width: var(--dialog-width-standard);
@@ -2446,7 +2463,7 @@ textarea::placeholder {
   grid-template-columns: minmax(0, 1fr) 180px;
   align-items: center;
   padding: 12px 0;
-  gap: 12px;
+  gap: 0 12px;
 }
 .work-tools-settings .work-tools-setting:first-child {
   padding-top: 0;
@@ -2474,6 +2491,10 @@ textarea::placeholder {
 .work-tools-settings .work-tools-setting input {
   min-width: 0;
   line-height: var(--line-height-input);
+}
+.work-tools-settings .work-tools-setting > .field-error {
+  grid-column: 1 / -1;
+  margin-top: 6px;
 }
 .work-tools-settings .work-tools-workspace {
   margin: 0 0 12px;
@@ -2509,7 +2530,7 @@ textarea::placeholder {
 .work-tools-settings #work-tools-settings-status:empty {
   display: none;
 }
-.work-tools-settings [aria-invalid="true"] {
+.work-tools-settings [data-field-control] [aria-invalid="true"] {
   border-color: var(--danger);
   animation: settings-invalid-emphasis 0.5s ease-out;
 }
@@ -3152,7 +3173,7 @@ textarea::placeholder {
 .preferences-dialog .profile-context-settings button[hidden] {
   display: none;
 }
-.preferences-dialog .settings-editor-form [aria-invalid="true"] {
+.preferences-dialog .settings-editor-form [data-field-control] [aria-invalid="true"] {
   border-color: var(--danger);
   animation: settings-invalid-emphasis 0.5s ease-out;
 }
@@ -3187,9 +3208,6 @@ textarea::placeholder {
 }
 .preferences-dialog .app-settings-form button[hidden] {
   display: none;
-}
-.preferences-dialog .app-settings-form [aria-invalid="true"] {
-  border-color: var(--danger);
 }
 
 .preferences-dialog .font-settings {
@@ -3245,8 +3263,17 @@ textarea::placeholder {
   gap: 20px;
   border-bottom: 1px solid var(--border);
 }
+.preferences-dialog .settings-editor-form .settings-preference-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 0 20px;
+}
 .preferences-dialog .settings-editor-form .settings-preference-row[hidden] {
   display: none;
+}
+.preferences-dialog .settings-editor-form .settings-preference-row > .field-error {
+  grid-column: 1 / -1;
+  margin-top: 6px;
 }
 .preferences-dialog .settings-preference-copy {
   flex: 1;
@@ -4017,9 +4044,6 @@ textarea::placeholder {
   font-size: inherit;
   line-height: inherit;
 }
-.pricing-accordion #pricing-invalid-status {
-  color: var(--warning-text);
-}
 .pricing-tier-block {
   display: flex;
   flex-direction: column;
@@ -4056,11 +4080,15 @@ textarea::placeholder {
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
 }
+.preferences-dialog .pricing-threshold-field {
+  display: grid;
+  margin: 14px 0;
+  gap: 6px;
+}
 .tier-divider {
   display: flex;
   position: relative;
   align-items: center;
-  margin: 14px 0;
   gap: 10px;
 }
 .tier-divider-line {
@@ -4817,6 +4845,9 @@ button svg,
   .work-tools-settings .work-tools-setting {
     grid-template-columns: minmax(0, 1fr);
   }
+  .work-tools-settings .work-tools-setting > .field-control {
+    margin-top: 12px;
+  }
 
   .message-footer .message-usage-fields {
     grid-template-columns: minmax(0, 1fr);
@@ -4890,6 +4921,9 @@ button svg,
   .preferences-dialog .profile-context-settings .profile-context-reset {
     grid-row: 1;
     grid-column: 2;
+  }
+  .preferences-dialog .settings-editor-form .settings-preference-row > .field-error {
+    grid-row: 4;
   }
   .preferences-dialog .settings-usage-overview .settings-panel-heading {
     flex-wrap: wrap;
@@ -4992,8 +5026,8 @@ button svg,
 
 @media (prefers-reduced-motion: reduce) {
   .response-progress .response-progress-indicator,
-  .preferences-dialog .settings-editor-form [aria-invalid="true"],
-  .work-tools-settings [aria-invalid="true"],
+  .preferences-dialog .settings-editor-form [data-field-control] [aria-invalid="true"],
+  .work-tools-settings [data-field-control] [aria-invalid="true"],
   .action-dialog,
   .action-dialog::backdrop,
   .work-tools-settings,

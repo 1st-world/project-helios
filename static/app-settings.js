@@ -3,9 +3,11 @@
 import { $, toast } from './ui.js';
 import { PREFLIGHT_HELP, describeRequestError } from './chat-feedback.js';
 import { showActionDialog } from './dialogs.js';
+import { createFieldValidation } from './field-validation.js';
 
 export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving }) {
   const form = $('#app-settings-form');
+  const validation = createFieldValidation(form);
   const fields = new Map([...form.querySelectorAll('[data-app-setting]')].map(input => [input.dataset.appSetting, input]));
   const resetButtons = [...form.querySelectorAll('[data-reset-setting]')];
   const resetLabels = new Map(resetButtons.map(button => [button, button.getAttribute('aria-label')]));
@@ -86,16 +88,9 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     showAttachmentLimits();
   }
 
-  function clearValidation() {
-    for (const input of fields.values()) {
-      input.setCustomValidity('');
-      input.removeAttribute('aria-invalid');
-    }
-  }
-
   function fillSaved() {
     state.resets.clear();
-    clearValidation();
+    validation.reset();
     for (const [name, input] of fields) input.value = state.saved?.[name] ?? '';
     resetButtons.forEach(button => {
       const value = state.defaults?.[button.dataset.resetSetting];
@@ -160,6 +155,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
 
   function restoreDefault(name) {
     if (!state.saved || state.loading || state.saving || isProfileSaving()) return;
+    const reviewing = validation.isReviewing();
     const input = fields.get(name);
     const restoreFocus = document.activeElement?.dataset.resetSetting === name;
     input.value = state.defaults[name] ?? '';
@@ -171,22 +167,24 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     }
     if (valueOf(input) !== state.saved[name]) state.resets.add(name);
     else state.resets.delete(name);
-    clearValidation();
     setStatus('');
     updateControls();
+    if (reviewing) validate(false);
     if (restoreFocus) {
       const target = name === 'context_input_budget' ? fields.get('context_input_budget_mode') : input;
       target.focus({ preventScroll: true });
     }
   }
 
-  function validate() {
-    clearValidation();
+  function validate(focus = true) {
     for (const input of fields.values()) {
+      input.setCustomValidity('');
       if (input.disabled) continue;
       if (['context_output_reserve', 'summary_trigger_tokens'].includes(input.dataset.appSetting) && valueOf(input) === null) continue;
       if (input.tagName !== 'SELECT' && (!Number.isSafeInteger(input.valueAsNumber) || input.valueAsNumber < Number(input.min))) {
-        input.setCustomValidity(`Enter a whole number of at least ${input.min} that the browser can represent exactly.`);
+        input.setCustomValidity(input.valueAsNumber > Number.MAX_SAFE_INTEGER
+          ? `Enter a whole number no greater than ${Number.MAX_SAFE_INTEGER.toLocaleString()}.`
+          : `Enter a whole number of at least ${Number(input.min).toLocaleString()}.`);
       }
     }
     const budget = fields.get('context_token_budget');
@@ -194,19 +192,8 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     if (fields.get('context_input_budget_mode').value === 'legacy' && budget.valueAsNumber - (valueOf(reserve) ?? 0) < 1024) budget.setCustomValidity('The previous policy must leave at least 1,024 input tokens after output reservation. Review the input budget to use independent limits.');
     const trigger = fields.get('summary_trigger_tokens').valueAsNumber;
     const recent = fields.get('keep_recent_tokens');
-    if (trigger > 0 && recent.valueAsNumber >= trigger) recent.setCustomValidity('Keep recent tokens must be smaller than the enabled summary trigger.');
-    for (const input of fields.values()) {
-      if (!input.checkValidity()) input.setAttribute('aria-invalid', 'true');
-    }
-    const invalid = [...fields.values()].find(input => !input.checkValidity());
-    if (invalid) {
-      const disclosure = invalid.closest('details');
-      if (disclosure) disclosure.open = true;
-      invalid.focus();
-      setStatus('Review the highlighted settings before saving.', 'error');
-      return false;
-    }
-    return true;
+    if (trigger > 0 && recent.valueAsNumber >= trigger) recent.setCustomValidity('Enter fewer tokens than the summary trigger.');
+    return validation.showErrors({ focus });
   }
 
   async function save(event) {
@@ -251,9 +238,9 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     for (const [name, input] of fields) {
       input.addEventListener('input', () => {
         state.resets.delete(name);
-        clearValidation();
         setStatus('');
         updateControls();
+        if (validation.isReviewing()) validate(false);
       });
     }
     resetButtons.forEach(button => { button.onclick = () => restoreDefault(button.dataset.resetSetting); });

@@ -52,7 +52,6 @@ export function createProfileContext({ isSaving }) {
     for (const [name, input] of fields) {
       input.value = savedValue(name) ?? '';
       input.setCustomValidity('');
-      input.removeAttribute('aria-invalid');
     }
     updateControls();
     load();
@@ -150,15 +149,14 @@ export function createProfileContext({ isSaving }) {
   function validate() {
     for (const input of fields.values()) {
       input.setCustomValidity('');
-      input.removeAttribute('aria-invalid');
       if (input.disabled) continue;
       if (input.dataset.profileContext === 'context_input_budget' && fields.get('context_input_budget_mode').value === 'custom' && input.value === '') {
         input.setCustomValidity('Enter a positive token limit for the custom budget.');
-        input.setAttribute('aria-invalid', 'true');
       }
       if (input.tagName !== 'SELECT' && (input.validity.badInput || (input.value !== '' && (!Number.isSafeInteger(input.valueAsNumber) || input.valueAsNumber < 1)))) {
-        input.setCustomValidity('Enter a positive whole number the browser can represent exactly, or leave blank.');
-        input.setAttribute('aria-invalid', 'true');
+        input.setCustomValidity(input.valueAsNumber > Number.MAX_SAFE_INTEGER
+          ? `Enter a whole number no greater than ${Number.MAX_SAFE_INTEGER.toLocaleString()}.`
+          : 'Enter a positive whole number, or leave blank.');
       }
     }
   }
@@ -167,7 +165,6 @@ export function createProfileContext({ isSaving }) {
     for (const input of fields.values()) {
       input.addEventListener('input', () => {
         input.setCustomValidity('');
-        input.removeAttribute('aria-invalid');
         updateControls();
       });
     }

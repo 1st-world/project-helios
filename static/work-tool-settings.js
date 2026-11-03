@@ -3,6 +3,7 @@
 import { $, toast } from './ui.js';
 import { showActionDialog } from './dialogs.js';
 import { initializeHelpPopovers } from './help-popovers.js';
+import { createFieldValidation } from './field-validation.js';
 
 const fields = [
   ['work-tools-call-limit', 'max_model_calls'],
@@ -13,6 +14,7 @@ const fields = [
 export function createWorkToolSettings({ getWorkspace, isGenerating }) {
   const dialog = $('#work-tools-settings-dialog');
   const form = $('#work-tools-settings-form');
+  const validation = createFieldValidation(form);
   initializeHelpPopovers(dialog);
   let applied = {};
   let baseline = [];
@@ -27,33 +29,28 @@ export function createWorkToolSettings({ getWorkspace, isGenerating }) {
 
   function restoreDraft() {
     $('#work-tools-settings-status').textContent = '';
+    validation.reset();
     baseline = fields.map(([id, key]) => {
       const input = $(`#${id}`);
       input.value = applied[key] == null ? '' : String(applied[key]);
-      input.setCustomValidity('');
-      input.removeAttribute('aria-invalid');
       return input.value;
     });
   }
 
-  function readDraft() {
+  function readDraft(focus = true) {
     const limits = {};
     for (const [id, key] of fields) {
       const input = $(`#${id}`);
       input.setCustomValidity('');
       if (input.validity.badInput || (input.value !== '' && (!Number.isFinite(input.valueAsNumber) || input.valueAsNumber <= 0
           || (key === 'max_model_calls' && !Number.isSafeInteger(input.valueAsNumber))))) {
-        input.setCustomValidity(key === 'max_model_calls' ? 'Enter a positive whole number.' : 'Enter a number greater than zero.');
-      }
-      if (input.validity.customError) {
-        input.setAttribute('aria-invalid', 'true');
-        $('#work-tools-settings-status').textContent = 'Review the highlighted settings before applying.';
-        input.focus();
-        return null;
+        input.setCustomValidity(key === 'max_model_calls'
+          ? input.valueAsNumber > Number.MAX_SAFE_INTEGER ? `Enter a whole number no greater than ${Number.MAX_SAFE_INTEGER.toLocaleString()}.` : 'Enter a positive whole number.'
+          : 'Enter a number greater than zero.');
       }
       if (input.value !== '') limits[key] = input.valueAsNumber;
     }
-    return limits;
+    return validation.showErrors({ focus }) ? limits : null;
   }
 
   function beforeDialogClose() {
@@ -85,10 +82,9 @@ export function createWorkToolSettings({ getWorkspace, isGenerating }) {
     dialog.close();
     toast('Work tools settings applied.', 'success');
   };
-  fields.forEach(([id]) => $(`#${id}`).addEventListener('input', event => {
-    event.target.setCustomValidity('');
-    event.target.removeAttribute('aria-invalid');
+  fields.forEach(([id]) => $(`#${id}`).addEventListener('input', () => {
     $('#work-tools-settings-status').textContent = '';
+    if (validation.isReviewing()) readDraft(false);
   }));
   document.addEventListener('workspace-change', updateState);
   dialog.addEventListener('close', () => {

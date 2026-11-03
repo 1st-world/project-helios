@@ -6,6 +6,7 @@ import { createProfileContext } from './profile-context.js';
 import { describeRequestError } from './chat-feedback.js';
 import { showActionDialog } from './dialogs.js';
 import { createModelSelection } from './model-selection.js';
+import { createFieldValidation } from './field-validation.js';
 
 const CACHE_PRICE_FIELDS = [
   ['azure-cache-read-price', 'cache_read_price_per_million', 'clear_cache_read_price'],
@@ -29,6 +30,8 @@ function readPrice(id) {
 
 export function createProfiles({ isGenerating, onModelContextChange = () => {}, onSelectionChange = () => {} }) {
   const state = { defaultProfileId: null, editingProfileId: null, profiles: [], formBaseline: null, saving: false, defaultSaving: false, feedback: null, catalogLoaded: false, catalogError: '', online: true };
+  const form = $('#azure-settings-form');
+  const validation = createFieldValidation(form);
   const profileContext = createProfileContext({ isSaving: () => state.saving });
   const modelSelection = createModelSelection({ onChange: renderModelSelection });
   let catalogPromise = null;
@@ -47,11 +50,11 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     }
   }
 
-  function validateCachePrices() {
-    for (const [id] of CACHE_PRICE_FIELDS) {
+  function validatePrices() {
+    for (const id of PRICE_CATEGORIES.flatMap(([, standardId, longId]) => [standardId, longId])) {
       const input = $(`#${id}`);
       const invalid = input.validity.badInput || (input.value !== '' && (!Number.isFinite(input.valueAsNumber) || input.valueAsNumber < 0));
-      input.setCustomValidity(invalid ? 'Enter a finite price of 0 or greater, or leave this field blank.' : '');
+      input.setCustomValidity(invalid ? 'Enter a price of 0 or greater, or leave blank.' : '');
     }
   }
 
@@ -131,11 +134,9 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
       ...(missingLong.length ? [`${invalid.length ? 'Unavailable' : 'Missing'} effective long-context rates: ${missingLong.join(', ')}.`] : []),
       ...(fallback.length ? [`Long-context fallback to standard rates: ${fallback.join(', ')}.`] : []),
     ].join(' ') || 'All long-context rates are configured.';
-    const invalidText = invalid.length ? `Enter a finite price of 0 or greater, or leave blank: ${invalid.join(', ')}.` : '';
+    const invalidText = invalid.length ? `Invalid rates: ${invalid.join(', ')}.` : '';
     $('#pricing-standard-status').textContent = standardText;
     $('#pricing-long-status').textContent = longText;
-    $('#pricing-invalid-status').textContent = invalidText;
-    $('#pricing-invalid-status').hidden = !invalid.length;
     statusEl.dataset.state = state;
     statusEl.classList.toggle('configured', state === 'configured');
     statusEl.classList.toggle('partial', state === 'partial' || state === 'invalid');
@@ -156,7 +157,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
   function resetProfileForm() {
     if (state.saving) return;
     state.editingProfileId = null;
-    $('#azure-settings-form').querySelectorAll('[aria-invalid]').forEach(input => input.removeAttribute('aria-invalid'));
+    validation.reset();
     $('#editing-profile-id').value = '';
     $('#profile-form-title').textContent = 'Add new profile';
     $('#profile-name').value = '';
@@ -189,7 +190,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
 
   function selectProfileForEditing(profile) {
     if (state.saving) return;
-    $('#azure-settings-form').querySelectorAll('[aria-invalid]').forEach(input => input.removeAttribute('aria-invalid'));
+    validation.reset();
     state.editingProfileId = profile.id;
     $('#editing-profile-id').value = profile.id;
     $('#profile-form-title').textContent = `Edit profile: ${profile.name}`;
@@ -474,10 +475,32 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     return input.value === '' && !input.validity.badInput ? Number(input.placeholder) : input.valueAsNumber;
   }
 
+  function validate(focus = true) {
+    for (const input of form.querySelectorAll('input, select')) input.setCustomValidity('');
+    profileContext.validate();
+    validatePrices();
+    const thresholdInput = $('#azure-long-threshold');
+    const threshold = readThreshold();
+    thresholdInput.setCustomValidity(Number.isSafeInteger(threshold) && threshold > 0 ? ''
+      : threshold > Number.MAX_SAFE_INTEGER ? `Enter a whole number no greater than ${Number.MAX_SAFE_INTEGER.toLocaleString()}.`
+      : 'Enter a positive whole number, or leave blank for the default.');
+    for (const [id, message] of [
+      ['profile-name', 'Enter a profile name.'],
+      ['azure-deployment', 'Enter a deployment name.'],
+      ['azure-endpoint', 'Enter a Foundry endpoint URL.'],
+      ...(!$('#editing-profile-id').value ? [['azure-api-key', 'Enter an API key for the new profile.']] : [])
+    ]) {
+      const input = $(`#${id}`);
+      if (!input.value.trim()) input.setCustomValidity(message);
+    }
+    const endpoint = $('#azure-endpoint');
+    if (endpoint.validity.typeMismatch) endpoint.setCustomValidity('Enter a valid Foundry endpoint URL, including https://.');
+    return validation.showErrors({ focus });
+  }
+
   function updateThresholdLabels() {
     const inputEl = $('#azure-long-threshold');
     if (!inputEl) return;
-    inputEl.setCustomValidity('');
     const val = readThreshold();
     let display = '—';
     if (Number.isSafeInteger(val) && val > 0) {
@@ -514,9 +537,6 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
 
   function init() {
     profileContext.init();
-    for (const [id] of CACHE_PRICE_FIELDS) {
-      $(`#${id}`).addEventListener('input', validateCachePrices);
-    }
     for (const [, standardId, longId] of PRICE_CATEGORIES) {
       for (const id of [standardId, longId]) {
         $(`#${id}`).addEventListener('input', updatePricingStatus);
@@ -553,9 +573,9 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
       else resetProfileForm();
       $('#settings-connections-tab').focus({ preventScroll: true });
     };
-    $('#azure-settings-form').addEventListener('input', event => {
-      event.target.removeAttribute('aria-invalid');
+    form.addEventListener('input', () => {
       setStatus('');
+      if (validation.isReviewing()) validate(false);
     });
 
     const toggleKeyBtn = $('#toggle-api-key-btn');
@@ -569,37 +589,13 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     $('#azure-settings-form').onsubmit = async (event) => {
       event.preventDefault();
       if (state.saving || state.defaultSaving || !hasUnsavedChanges()) return;
-      profileContext.validate();
-      validateCachePrices();
-      const thresholdInput = $('#azure-long-threshold');
+      if (!validate()) return;
       const threshold = readThreshold();
-      thresholdInput.setCustomValidity(Number.isSafeInteger(threshold) && threshold > 0
-        ? '' : 'Enter a positive whole number the browser can represent exactly, or leave blank for the default breakpoint.');
-      const invalid = [...$('#azure-settings-form').querySelectorAll('input, select')].find(input => !input.checkValidity());
-      if (invalid) {
-        const disclosure = invalid.closest('details');
-        if (disclosure) disclosure.open = true;
-        invalid.setAttribute('aria-invalid', 'true');
-        invalid.focus();
-        setStatus('Review the highlighted settings before saving.', 'error');
-        return;
-      }
       const editingId = $('#editing-profile-id').value;
       const name = $('#profile-name').value.trim();
       const endpoint = $('#azure-endpoint').value.trim();
       const api_key = $('#azure-api-key').value.trim();
       const deployment = $('#azure-deployment').value.trim();
-      if (!name || !endpoint || !deployment) {
-        const input = !name ? $('#profile-name') : !deployment ? $('#azure-deployment') : $('#azure-endpoint');
-        input.setAttribute('aria-invalid', 'true');
-        input.focus();
-        return setStatus('Review the highlighted settings before saving.', 'error');
-      }
-      if (!editingId && !api_key) {
-        $('#azure-api-key').setAttribute('aria-invalid', 'true');
-        $('#azure-api-key').focus();
-        return setStatus('Review the highlighted settings before saving.', 'error');
-      }
       const payload = { name, endpoint, deployment, ...profileContext.changes(Boolean(editingId)), ...cachePriceChanges(Boolean(editingId)) };
       payload.reasoning_summary = $('#profile-reasoning-summary').value;
       if (api_key) payload.api_key = api_key;
