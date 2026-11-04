@@ -33,9 +33,9 @@ The project path is retained. The app appends `/openai/v1/` when needed, then ca
 
 ## During response generation
 
-From **Send**, a compact indicator shows the current phase and elapsed time. It distinguishes preparation, waiting for the model, receiving text, and finalization, and remains visible after text starts arriving until completion. Preparation can be stopped and duplicate sends are blocked. Cancelling preparation before submission restores the original question without overwriting another draft. **Stop** requests cancellation; exploration confirms its saved terminal state before showing the cancelled result.
+After you select **Send**, a compact indicator shows the current phase and elapsed time. It distinguishes preparation, waiting for the model, receiving text, and finalization, and remains visible until completion. Preparation can be stopped, and duplicate sends are blocked. Cancelling preparation before submission restores the original question without overwriting another draft. **Stop** requests cancellation; exploration confirms its saved terminal state before showing the cancelled result.
 
-Stopping while waiting for Workspace or attachment preparation leaves the send wait immediately while shared preparation continues independently. After submission, the UI confirms request cleanup and reloads the saved conversation before enabling input. Confirmation waits up to 10 seconds; a timeout or connection failure is disclosed while server-side duplicate-request protection remains active. A new chat stopped before its start event recovers its saved identity through the Workspace draft and restores the question. An answer saved before cancellation takes precedence.
+Stopping while waiting for Workspace or attachment preparation immediately cancels the pending send; shared preparation continues independently. After submission, the UI confirms request cleanup and reloads the saved conversation before enabling input. Confirmation waits up to 10 seconds; a timeout or connection failure is disclosed while server-side duplicate-request protection remains active. If a new chat is stopped before its start event, the app recovers the saved conversation through the Workspace draft and restores the question. An answer saved before cancellation takes precedence.
 
 For an ordinary response, received text and public summaries remain available as explicitly incomplete output in the current view. This temporary output is removed when reopening the conversation or sending the next question, and is excluded from saved answers and follow-up input. Cancelled regeneration preserves the previous answer. Cancellation does not subtract reported usage or costs; calls without final usage remain unknown rather than zero. The rightmost **Send** button becomes **Stop** in the same position during generation. Stop ends the request. Work tools runs also offer **Pause after current step** to its left.
 
@@ -114,7 +114,7 @@ Use **Workspace** to select or disconnect a folder on the computer running the a
 
 No default Workspace folder is created automatically. A saved folder that was moved, deleted, or cannot be accessed is shown as **Unavailable**. Choose an existing folder or disconnect it in Workspace. Plain chat without project input remains available.
 
-Connecting a folder checks its path and exclusion-policy status without creating files. Preparing a message in a connected conversation automatically includes a small overview of the project name and top-level files and folders. There is no separate structure-sharing toggle. Expand **Workspace → Preview context** to inspect the overview. It includes at most 32 direct entries and 8KiB in total; bounded listing work can also leave partial coverage. The **Automatic reading** options, `.heliosignore` and protected boundaries also apply to Work tools that read the Workspace.
+Connecting a folder checks its path and exclusion-policy status without creating files. Preparing a message in a connected conversation automatically includes a small overview of the project name and top-level files and folders. There is no separate structure-sharing toggle. Expand **Workspace → Preview context** to inspect the overview. It includes at most 32 direct entries and 8 KiB in total; bounded listing work can also leave partial coverage. The **Automatic reading** options, `.heliosignore` and protected boundaries also apply to Work tools that read the Workspace.
 
 The overview refreshes for each new message and regeneration request, then stays fixed across subsequent model calls within that request. It is included in input estimation and budget checks. One-time summary recovery reuses the failed request's overview. The overview does not recursively traverse subfolders or automatically send file contents or absolute host paths. Explicitly select supported **Work tools** or attach files for additional structure and contents. Disconnecting a folder does not remove project information already mentioned in conversation history or memory.
 
@@ -150,8 +150,8 @@ Adjust these in **Context & attachments → Attachment resource limits**. The pr
 | Files per selection | 50 |
 | Original bytes per file | 49,999,999 bytes |
 | Combined original bytes per selection | 49,999,999 bytes |
-| UTF-8 text read or extracted per file | 4,194,304 bytes (4MiB) |
-| Combined expanded ZIP bytes per Office file | 134,217,728 bytes (128MiB) |
+| UTF-8 text read or extracted per file | 4,194,304 bytes (4 MiB) |
+| Combined expanded ZIP bytes per Office file | 134,217,728 bytes (128 MiB) |
 | ZIP entries per Office file | 10,000 |
 | Decoded pixels per image | 50,000,000 pixels |
 | Inspected pages per PDF | 1,024 |

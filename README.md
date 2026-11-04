@@ -55,7 +55,7 @@ Create a chat or reopen one from the sidebar. Model choices are saved per conver
 
 ### Workspace and attachments
 
-Use **Workspace** to select a folder on the computer running Helios. Connections are saved per conversation, and a folder is optional. A connected folder's name and top-level overview are included automatically with messages. Inspect **Preview context** or disconnect the folder to stop supplying future automatic context.
+Use **Workspace** to select a folder on the computer running Helios. Folder connections are saved per conversation and are optional. A connected folder's name and top-level overview are included automatically with messages. Use **Preview context** to inspect that overview. Disconnect the folder to stop including it in future requests.
 
 Hidden paths and `.gitignore` matches are not excluded by default. Select filters under **Automatic reading** or create a root `.heliosignore`. An absent file means no custom exclusions; the app does not create it automatically.
 
