@@ -88,6 +88,8 @@ Initial app settings for memory are:
 
 If both a context window and maximum input are declared, memory uses the smaller input allowance. Summary output headroom is a planning allowance; it does not set an API output cap.
 
+Recent-history size includes the saved model and tool records replayed for completed Work tools runs. Automatic summary candidates are adopted only when they reduce the assembled input; candidates that keep or increase its size are discarded. Calls already made remain in usage totals.
+
 ### Token estimation
 
 Local estimation **does not select a model-specific tokenizer**. It uses a local `o200k_base` vocabulary file if the file passes its integrity check. Otherwise, it uses a UTF-8 byte heuristic. Request framing and image/PDF estimates are also approximate, so estimates can differ from the provider's actual token and billing usage.

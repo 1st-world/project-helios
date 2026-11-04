@@ -265,13 +265,25 @@ class ConversationMemoryService:
                 break
         return max(preferred or outside or lines, default=stop)
 
-    def _recent_cutoff(self, history: list[Message], start: int) -> int:
-        """Choose a complete-turn cutoff while retaining the newest turn and a token-target suffix."""
+    def _recent_cutoff(
+        self, history: list[Message], start: int,
+        *, conversation_id: str | None = None,
+    ) -> int:
+        """Retain complete recent turns using their actual model replay representation."""
+        builder = self._prompt_builder(conversation_id)
+        empty_size = None
         suffix = [0] * (len(history) + 1)
         for index in range(len(history) - 1, start - 1, -1):
-            suffix[index] = suffix[index + 1] + self.context_budget.message_tokens(
-                history[index].role, history[index].content,
-            )
+            message = history[index]
+            if message.run_id is None:
+                size = self.context_budget.message_tokens(message.role, message.content)
+            else:
+                if empty_size is None:
+                    empty_size = self.context_budget.estimate("", [])
+                size = self.context_budget.estimate(
+                    "", builder.history_items([message]),
+                ) - empty_size
+            suffix[index] = suffix[index + 1] + size
         if suffix[start] <= self.keep_recent_tokens:
             return start
         boundaries = self.turn_boundaries(history)
@@ -668,11 +680,13 @@ class ConversationMemoryService:
                 ]
                 if not candidates:
                     break
-                preferred = self._recent_cutoff(history, start)
+                preferred = self._recent_cutoff(
+                    history, start, conversation_id=conversation.id,
+                )
                 cutoff = preferred if preferred in candidates else candidates[0]
                 summary_limit = memory_policy["summary_input_limit"]
                 try:
-                    summary = await self._summarize_prefix(
+                    candidate_summary = await self._summarize_prefix(
                         conversation,
                         version,
                         history,
@@ -696,10 +710,14 @@ class ConversationMemoryService:
                     logger.error("Pre-flight conversation summary failed (error_type=%s)", type(exc).__name__)
                     self._check_version(conversation, version)
                     return admit(prepared)
-                start = cutoff
-                inputs = builder.build(
-                    history, user_prompt, workspace_context, summary, start, attachment_content=attachment_content,
+                candidate_inputs = builder.build(
+                    history, user_prompt, workspace_context, candidate_summary, cutoff,
+                    attachment_content=attachment_content,
                 )
+                if reply_estimate(candidate_inputs) >= estimate:
+                    logger.warning("Automatic conversation summary did not reduce input; retaining the last smaller context.")
+                    break
+                summary, start, inputs = candidate_summary, cutoff, candidate_inputs
             self._check_version(conversation, version)
             if not self.policy_is_current(snapshot):
                 return admit(prepared)
@@ -776,13 +794,18 @@ class ConversationMemoryService:
         if not trigger:
             return
         history = [replace(message) for message in conversation.messages]
-        instructions, inputs = self._prompt_builder(conversation.id).build(
+        builder = self._prompt_builder(conversation.id)
+        instructions, inputs = builder.build(
             history, "", memory_summary=previous_summary,
             summarized_message_count=conversation.summarized_message_count,
         )
-        if self.context_budget.estimate(instructions, inputs[:-1]) <= trigger:
+        original_estimate = self.context_budget.estimate(instructions, inputs[:-1])
+        if original_estimate <= trigger:
             return
-        cutoff = self._recent_cutoff(history, conversation.summarized_message_count)
+        cutoff = self._recent_cutoff(
+            history, conversation.summarized_message_count,
+            conversation_id=conversation.id,
+        )
         if cutoff <= conversation.summarized_message_count:
             return
         try:
@@ -799,6 +822,15 @@ class ConversationMemoryService:
                 snapshot,
             )
             if summary:
+                candidate_instructions, candidate_inputs = builder.build(
+                    history, "", memory_summary=summary,
+                    summarized_message_count=cutoff,
+                )
+                if self.context_budget.estimate(
+                    candidate_instructions, candidate_inputs[:-1],
+                ) >= original_estimate:
+                    logger.warning("Background conversation summary did not reduce input; retaining existing memory.")
+                    return
                 self._check_policy(snapshot)
                 applied = (
                     self.conversation_manager.update_memory_if_version_matches(
