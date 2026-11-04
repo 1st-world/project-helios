@@ -4,7 +4,7 @@ Language: ***English*** | [한국어](architecture.ko-kr.md)
 
 # Architecture and storage
 
-Technical reference for Helios `0.4.0-alpha`: implementation boundaries, local data, independent schema versions, and compatibility policy. These are current contracts, not a guarantee of future alpha compatibility.
+Technical reference for Helios `0.4.1-alpha`: implementation boundaries, local data, independent schema versions, and compatibility policy. These are current contracts, not a guarantee of future alpha compatibility.
 
 ## Request flow
 
@@ -95,7 +95,7 @@ App versions and storage schema versions are managed independently. During alpha
 
 | Component | Version | Source |
 | --- | --- | --- |
-| App | `0.4.0-alpha` | [app.py](../../app.py) |
+| App | `0.4.1-alpha` | [app.py](../../app.py) |
 | Settings / profiles JSON | `"0.1"` | [services/json_storage.py](../../services/json_storage.py) |
 | Workspace binding | `"0.1"` | [models/workspace.py](../../models/workspace.py) |
 | Attachment manifest | `"0.2"` | [services/attachment_store.py](../../services/attachment_store.py) |
@@ -128,13 +128,13 @@ App versions change for verified releases that group multiple commits, not for e
 | A release grouping new features, significant policy changes, or incompatible alpha changes | Increment MINOR and reset PATCH to 0. Example: `0.2.x → 0.3.0`. |
 | Stable release | Start at app version `1.0.0`. |
 
-This MINOR/PATCH distinction is Helios's alpha policy. Alpha releases use the `-alpha` suffix. A release-preparation commit checks `app.py`, both READMEs, and current version/schema descriptions in the references together. Tag the verified commit with a version such as `v0.4.0-alpha`. Storage schemas change separately when their storage contract changes, not simply because an app feature was added.
+This MINOR/PATCH distinction is Helios's alpha policy. Alpha releases use the `-alpha` suffix. A release-preparation commit checks `app.py`, both READMEs, and current version/schema descriptions in the references together. Tag the verified commit with a version such as `v0.4.1-alpha`. Storage schemas change separately when their storage contract changes, not simply because an app feature was added.
 
 ### Storage and the end of alpha
 
 The run database uses string schema `"0.3"`; optional message run references use the independent string schema `"0.1"`. New message references record `run_schema_version` and `run_id`. Existing conversations without run references remain readable; run support does not batch-rewrite them to backfill those references. Unsupported versions are preserved without overwriting their originals.
 
-- The current app version is **`0.4.0-alpha`**, and the settings/profile storage schema is **the string `"0.1"`**. It is not a JSON decimal: `"0.1"` and `"0.10"` are distinct identifiers.
+- The current app version is **`0.4.1-alpha`**, and the settings/profile storage schema is **the string `"0.1"`**. It is not a JSON decimal: `"0.1"` and `"0.10"` are distinct identifiers.
 - The attachment manifest uses string schema `"0.2"`; optional message attachment references remain `"0.1"`. Existing `"0.1"` manifests upgrade transactionally with a 24-hour cleanup grace for unused copies. Attachment-manifest migration does not batch-rewrite conversation JSON; new references record `attachment_schema_version` and `attachment_sources`. Unsupported versions are neither overwritten nor cleaned. Back up copies, the manifest, and conversation JSON together.
 - Existing formats without a version field are identified internally as `0`. Their original bytes are backed up before the first explicit save. The migration record's `from_schema_version: 0` and the backup name's `v0` identify that origin; new documents do not write a numeric `schema_version: 0`.
 - Invalid or unsupported settings/profile versions produce an error without overwriting the originals. Preserve the affected files and backups while investigating.

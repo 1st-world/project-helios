@@ -4,7 +4,7 @@ Language: ***English*** | [한국어](usage.ko-kr.md)
 
 # Detailed usage guide
 
-Detailed behavior for Helios `0.4.0-alpha`. Start with the root README for installation and basic workflows.
+Detailed behavior for Helios `0.4.1-alpha`. Start with the root README for installation and basic workflows.
 
 ## Your first connection
 

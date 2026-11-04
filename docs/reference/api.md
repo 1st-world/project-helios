@@ -4,7 +4,7 @@ Language: ***English*** | [한국어](api.ko-kr.md)
 
 # API reference
 
-Selected backend contracts for Helios `0.4.0-alpha`. Start the local server using the README. Request bodies and current route schemas are available at `/docs`; this document adds lifecycle and authority rules. The default server has no authentication or per-user separation.
+Selected backend contracts for Helios `0.4.1-alpha`. Start the local server using the README. Request bodies and current route schemas are available at `/docs`; this document adds lifecycle and authority rules. The default server has no authentication or per-user separation.
 
 ## API support
 

@@ -4,7 +4,7 @@ Language: ***English*** | [한국어](README.ko-kr.md)
 
 A local web app for using models deployed in Microsoft Foundry with your own API key. Save conversations, attach local files, or connect a Workspace to ask questions about a project.
 
-The current version is **`0.4.0-alpha`**. The app UI is in English.
+The current version is **`0.4.1-alpha`**. The app UI is in English.
 
 ## Features
 
