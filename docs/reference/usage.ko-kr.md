@@ -75,7 +75,17 @@ Work tools를 선택해도 실제 도구 호출 전에는 일반 응답과 같�
 
 1. 프로필의 **Deployment information**에 확인한 용량을 입력합니다. Declared maximum input 또는 Declared context window를 사용할 수 있습니다.
 2. Context window를 사용하는 경우 출력 계획 여유량이 필요합니다. **Summary output headroom → 적용 중인 Output limit → Declared maximum output** 순으로 값을 선택합니다. 최대 입력만으로 계획할 때는 입력·출력 공유 용량을 확인하지 못한 상태로 표시합니다.
-3. **Conversation memory → On**을 선택해 저장하고, **Saved effective policy**에서 준비 상태를 확인합니다. 정보가 부족하면 자동 요약 없이 원본 이력을 준비합니다.
+3. **Conversation memory → On**을 선택해 저장하고, **Saved effective policy**에서 생성 준비 상태를 확인합니다. 용량 정보가 부족하면 새 자동 요약을 만들지 않으며, 허용된 저장 메모리는 계속 사용할 수 있습니다.
+
+독립된 앱 선호값은 현재 [Settings API](api.ko-kr.md#메모리-정책-api)로 설정할 수 있습니다.
+
+| 선호값 | 기본값 | 의미 |
+| --- | --- | --- |
+| `memory_generation_enabled` | `true` | 새 자동 요약 생성 허용. Off여도 저장된 메모리와 원문은 유지합니다. |
+| `memory_use_saved_summaries` | `true` | 허용된 저장 요약 사용. Off면 원문을 보내고 자동 요약 호출을 억제하며 다른 선호값은 유지합니다. |
+| `memory_background_enabled` | `true` | 생성·저장 요약 사용이 활성화된 경우 성공한 답변 뒤의 자동 검사 허용. Off여도 사전 생성은 허용합니다. |
+
+프로필의 Conversation memory 권한은 여전히 필요합니다. 생성·백그라운드 스위치를 변경해도 이미 준비한 저장 메모리 입력의 사용 권한은 철회하지 않습니다. 저장 요약 사용을 끄면 전송 전 요청은 원문으로 다시 준비하고, 메모리를 이미 전송한 도구 실행은 추가 동작 전에 중단합니다. 이미 과금된 요약도 채택 전에 생성 권한이 철회되면 폐기하며 사용량은 기록에 남습니다. 명시적 일회성 복구는 요청에 묶인 별도 허용을 유지하고 자동 백그라운드 검사를 켜지 않습니다.
 
 앱의 초기 메모리 설정값은 다음과 같습니다.
 

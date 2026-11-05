@@ -3,9 +3,14 @@
 from dataclasses import replace
 from pathlib import Path
 
-from models.app_settings import AppSettings, DEFAULT_APP_SETTINGS
+from models.app_settings import (
+    APP_SETTINGS_V01_FIELDS, APP_SETTINGS_V02_FIELDS,
+    AppSettings, DEFAULT_APP_SETTINGS, MEMORY_POLICY_FIELDS,
+)
 from models.input_budget import normalize_input_budget_settings
 from services.json_storage import JsonDocumentStore, JsonStorageError
+
+SETTINGS_SCHEMA_VERSION = "0.2"
 
 
 class SettingsStorageError(JsonStorageError):
@@ -27,6 +32,7 @@ class SettingsService:
         try:
             self._document = JsonDocumentStore(
                 storage_path, "settings", max_bytes=65_536,
+                schema_version=SETTINGS_SCHEMA_VERSION, previous_versions=("0.1",),
             )
             if self._document.payload is None:
                 return
@@ -34,17 +40,28 @@ class SettingsService:
             values = self._document.payload
             if self._document.version == 0:
                 values = self._migrate_legacy(values)
+                values = self._migrate_memory(values)
                 self.current = self.prepare_update(values)
                 self.migration_origin = self.current
+            elif self._document.version == "0.1":
+                if set(values) != APP_SETTINGS_V01_FIELDS:
+                    raise ValueError("Stored settings fields do not match their version.")
+                if self._document.migration is not None:
+                    policy = self._document.migration["policy"]
+                    if set(policy) != {"settings"} or set(policy["settings"]) != set(values):
+                        raise ValueError("Invalid settings migration policy.")
+                    AppSettings(**self._migrate_memory(policy["settings"]))
+                self.current = AppSettings(**self._migrate_memory(values))
+                self.migration_origin = self.current
             else:
-                if set(values) != set(defaults.to_dict()):
+                if set(values) != APP_SETTINGS_V02_FIELDS:
                     raise ValueError("Stored settings fields do not match their version.")
                 self.current = AppSettings(**values)
                 if self._document.migration is not None:
                     policy = self._document.migration["policy"]
                     if (
                         set(policy) != {"settings"}
-                        or set(policy["settings"]) != set(defaults.to_dict())
+                        or set(policy["settings"]) != APP_SETTINGS_V02_FIELDS
                     ):
                         raise ValueError("Invalid settings migration policy.")
                     self.migration_origin = AppSettings(**policy["settings"])
@@ -52,6 +69,15 @@ class SettingsService:
             raise SettingsStorageError(str(exc), reason=exc.reason) from None
         except (ValueError, TypeError, KeyError, AttributeError):
             raise SettingsStorageError("Application settings are invalid; repair settings.json before starting.", reason="invalid_document") from None
+
+    def _migrate_memory(self, values: dict) -> dict:
+        """Preserve legacy zero as original-history mode without authorizing new calls."""
+        values = dict(values)
+        stopped = values.get("summary_trigger_tokens") == 0
+        values.setdefault("memory_generation_enabled", not stopped and self.defaults.memory_generation_enabled)
+        values.setdefault("memory_use_saved_summaries", not stopped and self.defaults.memory_use_saved_summaries)
+        values.setdefault("memory_background_enabled", self.defaults.memory_background_enabled)
+        return values
 
     @staticmethod
     def _migrate_legacy(values: dict) -> dict:
@@ -83,6 +109,17 @@ class SettingsService:
             name: getattr(self.defaults, name) if value is None else value
             for name, value in changes.items()
         }
+        if "summary_trigger_tokens" in changes and not set(changes) & set(MEMORY_POLICY_FIELDS):
+            if values["summary_trigger_tokens"] == 0:
+                values.update(memory_generation_enabled=False, memory_use_saved_summaries=False)
+            elif self.current.summary_trigger_tokens == 0:
+                values.update(memory_generation_enabled=True, memory_use_saved_summaries=True)
+        if (
+            values.get("memory_generation_enabled") is True
+            and "summary_trigger_tokens" not in values
+            and self.current.summary_trigger_tokens == 0
+        ):
+            values["summary_trigger_tokens"] = None
         return replace(self.current, **values)
 
     def save(self, candidate: AppSettings) -> None:

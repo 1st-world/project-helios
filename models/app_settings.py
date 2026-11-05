@@ -2,6 +2,26 @@
 
 from dataclasses import dataclass
 
+MEMORY_POLICY_FIELDS = (
+    "memory_generation_enabled", "memory_use_saved_summaries", "memory_background_enabled",
+)
+
+# Historical snapshots must not acquire fields added by later application versions.
+APP_SETTINGS_V01_FIELDS = frozenset({
+    "summary_trigger_tokens", "keep_recent_tokens", "context_token_budget",
+    "context_output_reserve", "max_summary_calls", "context_preflight_mode",
+    "context_input_budget_mode", "context_input_budget",
+    "attachment_max_files", "attachment_max_file_bytes",
+    "attachment_max_total_bytes", "attachment_max_text_bytes",
+    "attachment_max_zip_bytes", "attachment_max_zip_members",
+    "attachment_max_image_pixels", "attachment_max_pdf_pages",
+    "attachment_max_sheet_cells",
+})
+APP_SETTINGS_V02_FIELDS = APP_SETTINGS_V01_FIELDS | frozenset({
+    "memory_generation_enabled", "memory_use_saved_summaries",
+    "memory_background_enabled",
+})
+
 
 @dataclass(frozen=True)
 class AppSettings:
@@ -9,6 +29,9 @@ class AppSettings:
 
     # Null suggests an automatic threshold for enabled profiles; zero pauses memory.
     summary_trigger_tokens: int | None = None
+    memory_generation_enabled: bool = True
+    memory_use_saved_summaries: bool = True
+    memory_background_enabled: bool = True
     keep_recent_tokens: int = 65_536
     context_token_budget: int = 262_144
     # Omit the provider output cap unless the user explicitly chooses one.
@@ -47,6 +70,10 @@ class AppSettings:
         ):
             raise ValueError("Only a custom input budget requires a positive token limit.")
         for name in AppSettings.__dataclass_fields__:
+            if name in MEMORY_POLICY_FIELDS:
+                if type(getattr(self, name)) is not bool:
+                    raise ValueError(f"{name} must be a boolean.")
+                continue
             if name in {"context_preflight_mode", "context_input_budget_mode"}:
                 continue
             value = getattr(self, name)

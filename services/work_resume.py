@@ -11,6 +11,7 @@ import stat
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 
+from models.app_settings import MEMORY_POLICY_FIELDS
 from services.context_budget import ContextChangedError
 from services.local_work import check_local_cancelled
 from services.project_access import (
@@ -24,6 +25,7 @@ _EXCLUDED_PATH_REASONS = {"hidden_path", "ignored_path", "protected_path"}
 _MEMORY_PLANNING_FIELDS = {
     "configured_trigger_tokens", "trigger_adjusted", "effective_keep_recent_tokens",
     "summary_target_tokens", "compaction_target_tokens",
+    "use_saved_summaries", "generation_enabled", "background_enabled",
 }
 
 
@@ -63,6 +65,12 @@ def connection_fingerprint(
                 key: value for key, value in policy_data.items()
                 if key != "revision" and key not in _MEMORY_PLANNING_FIELDS
             }
+        if isinstance(context, dict) and isinstance(context.get("settings"), dict):
+            # Generation switches do not change prepared input; memory-use revocation has live guards.
+            context = {**context, "settings": {
+                key: value for key, value in context["settings"].items()
+                if key not in MEMORY_POLICY_FIELDS
+            }}
         return _digest({
             "profile": profile_data, "memory_policy": policy_data,
             "context": context,

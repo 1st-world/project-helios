@@ -204,6 +204,9 @@ memory_service = ConversationMemoryService(
     application_settings.summary_trigger_tokens,
     application_settings.keep_recent_tokens,
     context_budget,
+    memory_generation_enabled=application_settings.memory_generation_enabled,
+    memory_use_saved_summaries=application_settings.memory_use_saved_summaries,
+    memory_background_enabled=application_settings.memory_background_enabled,
 )
 
 
@@ -416,6 +419,9 @@ class UpdateSettingsRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     summary_trigger_tokens: int | None = Field(default=None, ge=0, strict=True)
+    memory_generation_enabled: bool | None = Field(default=None, strict=True)
+    memory_use_saved_summaries: bool | None = Field(default=None, strict=True)
+    memory_background_enabled: bool | None = Field(default=None, strict=True)
     keep_recent_tokens: int | None = Field(default=None, ge=1, strict=True)
     context_token_budget: int | None = Field(default=None, ge=1, strict=True)
     context_output_reserve: int | None = Field(default=None, ge=1, strict=True)
@@ -1171,6 +1177,17 @@ async def resume_work_run(run_id: str, payload: WorkRunResumeRequest, request: R
         if not active_saved:
             raise ContextChangedError("The current model's saved input is unavailable. Prepare a new request.")
         target_fingerprint = work_connection_fingerprint(profile_id)
+        memory_used = bool(saved.get("memory_used")) or PromptBuilder.has_memory_context(
+            saved["instructions"], saved["input_messages"],
+        )
+        if memory_used and (
+            not resume_memory_policy.policy["use_saved_summaries"]
+            or any(not snapshot.policy["use_saved_summaries"] for snapshot in source_memory_policies.values())
+        ):
+            raise HTTPException(status_code=409, detail={
+                "code": "handoff_memory_policy",
+                "message": "Saved work uses conversation memory that the current policy does not allow. The paused work is retained.",
+            })
         if switching:
             try:
                 material = work_run_store.handoff_material(run_id, conversation.id)
@@ -1180,14 +1197,6 @@ async def resume_work_run(run_id: str, payload: WorkRunResumeRequest, request: R
                     "code": getattr(exc, "code", "handoff_input_unavailable"),
                     "message": str(exc),
                 }) from None
-            memory_used = saved.get("memory_used")
-            if memory_used is None:
-                memory_used = "Conversation memory (a faithful summary of older messages):" in saved["instructions"]
-            if memory_used and resume_memory_policy.policy["state"] != "ready":
-                raise HTTPException(status_code=409, detail={
-                    "code": "handoff_memory_policy",
-                    "message": "Saved work uses conversation memory that the selected model does not currently allow. The paused work is retained.",
-                })
             policy = resolve_context_policy(profile_id, profile_data=profile)
             active_saved = {
                 **saved, "instructions": material["instructions"],
@@ -1217,14 +1226,14 @@ async def resume_work_run(run_id: str, payload: WorkRunResumeRequest, request: R
             require_resume_authority(run, conversation, workspace, saved)
             if conversation.messages is not request_messages:
                 raise ContextChangedError("Conversation changed during resumed work.")
-            if any(not request_memory.policy_is_current(snapshot)
+            if any(not request_memory.memory_use_is_current(snapshot)
                    for snapshot in source_memory_policies.values()):
                 raise ContextChangedError("The saved connection or memory policy changed during resumed work. Prepare a new request.")
             try:
                 target_current = work_connection_fingerprint(profile_id) == target_fingerprint
             except ContextChangedError:
                 target_current = False
-            if not request_memory.policy_is_current(resume_memory_policy) or not target_current:
+            if not request_memory.memory_use_is_current(resume_memory_policy) or not target_current:
                 raise ExplorationError(
                     "handoff_target_changed", "The selected model connection or policy changed. No further work was started.", stopped=True,
                 )
@@ -1991,7 +2000,14 @@ async def update_application_settings(payload: UpdateSettingsRequest):
         new_memory = memory_service.with_settings(
             new_ai, new_budget,
             candidate.summary_trigger_tokens, candidate.keep_recent_tokens,
+            memory_generation_enabled=candidate.memory_generation_enabled,
+            memory_use_saved_summaries=candidate.memory_use_saved_summaries,
+            memory_background_enabled=candidate.memory_background_enabled,
         )
+        changed = {
+            name for name, value in candidate.to_dict().items()
+            if value != getattr(settings_service.current, name)
+        }
         settings_service.save(candidate)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={
@@ -2007,7 +2023,10 @@ async def update_application_settings(payload: UpdateSettingsRequest):
             "message": str(exc),
         }) from exc
     # No await separates disk publication from the event-loop policy swap.
-    new_memory.invalidate_policy()
+    new_memory.invalidate_policy(
+        preserve_generation=changed <= {"memory_background_enabled"},
+        preserve_use=changed <= {"memory_generation_enabled", "memory_background_enabled"},
+    )
     attachment_service, ai_service, context_budget, memory_service = (
         new_attachments, new_ai, new_budget, new_memory,
     )
@@ -2678,7 +2697,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
             raise ContextChangedError("Conversation changed before the request was sent. Please retry.")
         if (
             not using_original_context
-            and not request_memory.policy_is_current(request_memory_policy)
+            and not request_memory.memory_use_is_current(request_memory_policy)
         ):
             if data:
                 raise ContextChangedError("The recovery permission changed before submission. No further request was sent.")
@@ -2723,7 +2742,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                     or live_workspace.session_id != request_workspace.session_id):
                 raise ContextChangedError("Workspace changed during exploration. Start a new request.")
             if ((memory_submitted or (run_id is not None and work_run_store.pause_requested(run_id)))
-                    and not request_memory.policy_is_current(request_memory_policy)):
+                    and not request_memory.memory_use_is_current(request_memory_policy)):
                 raise ContextChangedError("Conversation memory permission changed during exploration. Start a new request.")
 
         def exploration_input() -> tuple[str, list[dict]]:

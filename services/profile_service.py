@@ -6,7 +6,10 @@ from dataclasses import fields, replace
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from models.app_settings import AppSettings, DEFAULT_APP_SETTINGS
+from models.app_settings import (
+    APP_SETTINGS_V01_FIELDS, APP_SETTINGS_V02_FIELDS,
+    AppSettings, DEFAULT_APP_SETTINGS,
+)
 from models.input_budget import normalize_input_budget_settings
 from models.profile import (
     PROFILE_POLICY_FIELDS, DEFAULT_LONG_CONTEXT_THRESHOLD, ConnectionProfile,
@@ -202,7 +205,12 @@ class ProfileService:
             "saved_settings", "historical_defaults",
         }:
             raise ValueError("Invalid profile migration policy.")
-        if set(policy["app_settings"]) != set(DEFAULT_APP_SETTINGS.to_dict()):
+        if (
+            not isinstance(policy["app_settings"], dict)
+            or set(policy["app_settings"]) not in (
+                APP_SETTINGS_V01_FIELDS, APP_SETTINGS_V02_FIELDS,
+            )
+        ):
             raise ValueError("Invalid application policy evidence.")
         AppSettings(**policy["app_settings"])
         if (

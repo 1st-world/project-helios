@@ -36,6 +36,8 @@ class _MemoryPolicyRevision:
     """Share application and per-profile revocation across request settings snapshots."""
 
     value: int = 0
+    generation: int = 0
+    use_saved: int = 0
     profiles: dict[str, int] = field(default_factory=dict)
 
 
@@ -49,6 +51,10 @@ class MemoryPolicySnapshot:
     settings: tuple
     profile: ConnectionProfile | None = field(repr=False)
     ai_service: AIService = field(repr=False)
+    generation_revision: int = 0
+    use_revision: int = 0
+    use_settings: tuple = ()
+    background: bool = False
 
 
 class ConversationMemoryService:
@@ -61,6 +67,9 @@ class ConversationMemoryService:
         summary_trigger_tokens: int | None = DEFAULT_APP_SETTINGS.summary_trigger_tokens,
         keep_recent_tokens: int = DEFAULT_APP_SETTINGS.keep_recent_tokens,
         context_budget: ContextBudget | None = None,
+        *, memory_generation_enabled: bool = True,
+        memory_use_saved_summaries: bool | None = None,
+        memory_background_enabled: bool = True,
     ) -> None:
         """Bind services, validate token policy, and initialize summary coordination."""
         self.ai_service = ai_service
@@ -76,6 +85,15 @@ class ConversationMemoryService:
             raise ValueError("Summary token settings require a nonnegative trigger and a smaller positive retention target when enabled.")
         self.summary_trigger_tokens = summary_trigger_tokens
         self.keep_recent_tokens = keep_recent_tokens
+        self.memory_generation_enabled = memory_generation_enabled
+        self.memory_use_saved_summaries = (
+            summary_trigger_tokens != 0 if memory_use_saved_summaries is None
+            else memory_use_saved_summaries
+        )
+        self.memory_background_enabled = memory_background_enabled
+        for name in ("memory_generation_enabled", "memory_use_saved_summaries", "memory_background_enabled"):
+            if type(getattr(self, name)) is not bool:
+                raise ValueError(f"{name} must be a boolean.")
         self._running: set[str] = set()
         self._pending: dict[
             str, tuple[
@@ -87,9 +105,14 @@ class ConversationMemoryService:
         self._locks: dict[str, tuple[asyncio.Lock, int]] = {}
         self._revision = _MemoryPolicyRevision()
         self._settings_revision = 0
+        self._generation_settings_revision = 0
+        self._use_settings_revision = 0
 
-    def invalidate_policy(self, profile_id: str | None = None) -> None:
-        """Revoke one profile's work or all work after a durable policy publication."""
+    def invalidate_policy(
+        self, profile_id: str | None = None, *,
+        preserve_generation: bool = False, preserve_use: bool = False,
+    ) -> None:
+        """Publish revocation while preserving permissions unaffected by a settings change."""
         if profile_id is not None:
             self._revision.profiles[profile_id] = (
                 self._revision.profiles.get(profile_id, 0) + 1
@@ -97,12 +120,20 @@ class ConversationMemoryService:
         else:
             self._revision.value += 1
             self._settings_revision = self._revision.value
+            if not preserve_generation:
+                self._revision.generation += 1
+            if not preserve_use:
+                self._revision.use_saved += 1
+            self._generation_settings_revision = self._revision.generation
+            self._use_settings_revision = self._revision.use_saved
 
-    def _settings_signature(self) -> tuple:
+    def _settings_signature(self, *, use_only: bool = False) -> tuple:
         """Identify settings used for planning without including mutable runtime state."""
         return (
             self.context_budget, self.summary_trigger_tokens,
             self.keep_recent_tokens,
+            self.memory_use_saved_summaries,
+            *(() if use_only else (self.memory_generation_enabled,)),
         )
 
     def _profile(self, profile_id: str | None) -> ConnectionProfile | None:
@@ -115,16 +146,14 @@ class ConversationMemoryService:
             else profiles.get_active_profile()
         )
 
-    def policy_is_current(self, snapshot: MemoryPolicySnapshot) -> bool:
-        """Check revocation and the captured connection before using summarized input."""
+    def _profile_is_current(self, snapshot: MemoryPolicySnapshot) -> bool:
+        """Check the pinned profile and revocations shared by use and generation."""
         profile = (
             self._profile(snapshot.profile.id)
             if snapshot.profile is not None else None
         )
         return (
-            snapshot.revision == self._revision.value == self._settings_revision
-            and snapshot.settings == self._settings_signature()
-            and snapshot.profile is not None
+            snapshot.profile is not None
             and profile is not None
             and snapshot.profile_revision == self._revision.profiles.get(
                 profile.id, 0,
@@ -132,14 +161,41 @@ class ConversationMemoryService:
             and snapshot.profile.request_settings() == profile.request_settings()
         )
 
+    def policy_is_current(self, snapshot: MemoryPolicySnapshot) -> bool:
+        """Check generation policy, including background revocation for background work."""
+        return (
+            snapshot.generation_revision
+            == self._revision.generation == self._generation_settings_revision
+            and snapshot.settings == self._settings_signature()
+            and self._profile_is_current(snapshot)
+            and (
+                not (snapshot.background or snapshot.policy.get("one_shot"))
+                or snapshot.revision == self._revision.value == self._settings_revision
+            )
+        )
+
+    def memory_use_is_current(self, snapshot: MemoryPolicySnapshot) -> bool:
+        """Allow already prepared memory independently of generation and background switches."""
+        if snapshot.policy.get("one_shot"):
+            return self.policy_is_current(snapshot)
+        return (
+            snapshot.use_revision
+            == self._revision.use_saved == self._use_settings_revision
+            and snapshot.use_settings == self._settings_signature(use_only=True)
+            and self._profile_is_current(snapshot)
+        )
+
     def _check_policy(self, snapshot: MemoryPolicySnapshot) -> None:
         """Stop a summary before submission or adoption when its permission is stale."""
-        if not self.policy_is_current(snapshot):
-            raise MemoryPolicyChangedError("Memory policy changed; original history will be used.")
+        if not snapshot.policy["generation_enabled"] or not self.policy_is_current(snapshot):
+            raise MemoryPolicyChangedError("Memory generation policy changed; no further summary work is allowed.")
 
     def with_settings(
         self, ai_service: AIService, context_budget: ContextBudget,
         summary_trigger_tokens: int | None, keep_recent_tokens: int,
+        *, memory_generation_enabled: bool | None = None,
+        memory_use_saved_summaries: bool | None = None,
+        memory_background_enabled: bool | None = None,
     ) -> "ConversationMemoryService":
         """Snapshot work policy while sharing per-conversation summary coordination."""
         snapshot = copy(self)
@@ -147,6 +203,13 @@ class ConversationMemoryService:
         snapshot.context_budget = context_budget
         snapshot.summary_trigger_tokens = summary_trigger_tokens
         snapshot.keep_recent_tokens = keep_recent_tokens
+        for name, value in (
+            ("memory_generation_enabled", memory_generation_enabled),
+            ("memory_use_saved_summaries", memory_use_saved_summaries),
+            ("memory_background_enabled", memory_background_enabled),
+        ):
+            if value is not None:
+                setattr(snapshot, name, value)
         return snapshot
 
     def capture_policy(
@@ -181,7 +244,7 @@ class ConversationMemoryService:
         mode = "manual" if trigger is not None else "auto"
         if not enabled or trigger == 0:
             state, mode = "off", "disabled"
-        elif self._settings_revision != self._revision.value:
+        elif self._generation_settings_revision != self._revision.generation:
             state, mode = "stopped", "disabled"
         elif allowance is None:
             state, mode = "needs_info", "unavailable"
@@ -198,10 +261,15 @@ class ConversationMemoryService:
             reason = "threshold_disabled"
         elif state == "stopped":
             reason = "policy_changed"
+        use_saved = enabled and (one_shot or self.memory_use_saved_summaries)
+        generate = state == "ready" and use_saved and (one_shot or self.memory_generation_enabled)
         policy = {
             **estimation_metadata(enabled=state == "ready"),
             "enabled": enabled, "state": state,
             "review_required": profile is not None and profile.memory_enabled is None,
+            "use_saved_summaries": use_saved,
+            "generation_enabled": generate,
+            "background_enabled": generate and self.memory_background_enabled and not one_shot,
             "reason": reason,
             "mode": mode, "trigger_tokens": trigger,
             "keep_recent_tokens": self.keep_recent_tokens,
@@ -226,11 +294,18 @@ class ConversationMemoryService:
             ),
             settings=self._settings_signature(), profile=profile,
             ai_service=self.ai_service,
+            generation_revision=self._revision.generation,
+            use_revision=self._revision.use_saved,
+            use_settings=self._settings_signature(use_only=True),
         )
-        if profile is not None and isinstance(self.ai_service, AIService):
-            snapshot = replace(snapshot, ai_service=self.ai_service.with_profile(
-                profile, before_summary=lambda: self._check_policy(snapshot),
-                summary_target_tokens=plan.summary_target_tokens,
+        return self._pin_policy(snapshot)
+
+    def _pin_policy(self, snapshot: MemoryPolicySnapshot) -> MemoryPolicySnapshot:
+        """Bind summary authorization to the exact foreground or background snapshot."""
+        if snapshot.profile is not None and isinstance(snapshot.ai_service, AIService):
+            snapshot = replace(snapshot, ai_service=snapshot.ai_service.with_profile(
+                snapshot.profile, before_summary=lambda: self._check_policy(snapshot),
+                summary_target_tokens=snapshot.policy["summary_target_tokens"],
             ))
         return snapshot
 
@@ -635,7 +710,7 @@ class ConversationMemoryService:
         def admit(inputs: tuple[str, list[dict]]) -> tuple[str, list[dict]]:
             """Reject estimated input only when the selected policy explicitly blocks it."""
             self._check_version(conversation, version)
-            if not self.policy_is_current(snapshot):
+            if not self.memory_use_is_current(snapshot):
                 inputs = builder.build(
                     original_messages[:end], user_prompt, workspace_context,
                     attachment_content=attachment_content,
@@ -669,8 +744,8 @@ class ConversationMemoryService:
         snapshot = summary_policy or self.capture_policy(profile_id)
         memory_policy = snapshot.policy
         memory_disabled = (
-            memory_policy["state"] != "ready"
-            or not self.policy_is_current(snapshot)
+            not memory_policy["use_saved_summaries"]
+            or not self.memory_use_is_current(snapshot)
         )
         prepared = builder.build(
             original_messages[:end],
@@ -683,6 +758,8 @@ class ConversationMemoryService:
         trigger = memory_policy["trigger_tokens"]
         automatic = (
             not memory_disabled
+            and memory_policy["generation_enabled"]
+            and self.policy_is_current(snapshot)
             and bool(trigger)
             and len(self.turn_boundaries(original_messages[:end])) >= 2
         )
@@ -779,7 +856,10 @@ class ConversationMemoryService:
         if not self.conversation_manager.is_active(conversation):
             return
         snapshot = summary_policy or self.capture_policy(profile_id)
-        if snapshot.policy["state"] != "ready" or not self.policy_is_current(snapshot):
+        if not snapshot.policy["background_enabled"]:
+            return
+        snapshot = self._pin_policy(replace(snapshot, background=True))
+        if not self.policy_is_current(snapshot):
             return
         conversation_id = conversation.id
         self._pending[conversation_id] = (conversation, profile_id, self, snapshot)

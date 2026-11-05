@@ -55,11 +55,14 @@ class JsonDocumentStore:
 
     def __init__(
         self, path: Path, payload_key: str, *, max_bytes: int | None = None,
+        schema_version: str = SCHEMA_VERSION, previous_versions: tuple[str, ...] = (),
     ) -> None:
         """Read a document without creating, migrating, or replacing any file."""
         self.path = path
         self.payload_key = payload_key
         self.max_bytes = max_bytes
+        self.schema_version = schema_version
+        self.previous_versions = previous_versions
         self.original: bytes | None = None
         self.version: str | int | None = None
         self.payload: dict | None = None
@@ -81,7 +84,7 @@ class JsonDocumentStore:
                 version, payload, migration = 0, document, None
             else:
                 version = document["schema_version"]
-                if not isinstance(version, str) or version != SCHEMA_VERSION:
+                if not isinstance(version, str) or version not in (schema_version, *previous_versions):
                     raise JsonStorageError(
                         "The saved file uses an unsupported schema version.",
                         reason="unsupported_version",
@@ -121,18 +124,22 @@ class JsonDocumentStore:
             raise ValueError("Invalid migration record.")
         digest = migration["source_sha256"]
         if (
-            type(migration["from_schema_version"]) is not int
-            or migration["from_schema_version"] != 0
+            not (
+                type(migration["from_schema_version"]) is int
+                and migration["from_schema_version"] == 0
+                or type(migration["from_schema_version"]) is str
+                and migration["from_schema_version"] in self.previous_versions
+            )
             or not isinstance(digest, str) or len(digest) != 64
             or any(character not in "0123456789abcdef" for character in digest)
-            or migration["backup_file"] != self._backup_name(digest)
+            or migration["backup_file"] != self._backup_name(digest, migration["from_schema_version"])
             or not isinstance(migration["policy"], dict)
         ):
             raise ValueError("Invalid migration provenance.")
 
-    def _backup_name(self, digest: str) -> str:
+    def _backup_name(self, digest: str, version: str | int = 0) -> str:
         """Name an immutable original by its source format and exact byte digest."""
-        return f"{self.path.name}.v0-{digest}.bak"
+        return f"{self.path.name}.v{version}-{digest}.bak"
 
     @contextmanager
     def _exclusive(self):
@@ -206,14 +213,15 @@ class JsonDocumentStore:
         """Persist a candidate before publishing the new snapshot to its owning service."""
         temporary = None
         migration = self.migration
-        if self.version == 0:
+        upgrading = self.version is not None and self.version != self.schema_version
+        if upgrading:
             digest = hashlib.sha256(self.original).hexdigest()
             migration = {
-                "from_schema_version": 0, "source_sha256": digest,
-                "backup_file": self._backup_name(digest),
+                "from_schema_version": self.version, "source_sha256": digest,
+                "backup_file": self._backup_name(digest, self.version),
                 "policy": migration_policy or {},
             }
-        envelope = {"schema_version": SCHEMA_VERSION, self.payload_key: payload}
+        envelope = {"schema_version": self.schema_version, self.payload_key: payload}
         if migration is not None:
             envelope["migration"] = migration
         try:
@@ -226,7 +234,7 @@ class JsonDocumentStore:
             with self._exclusive():
                 if self._read_current() != self.original:
                     raise JsonStorageError("The saved file changed outside this app. Restart Helios to reload it before saving again.", reason="conflict")
-                if self.version == 0:
+                if upgrading:
                     self._preserve_original(
                         self.path.with_name(migration["backup_file"]),
                     )
@@ -241,7 +249,7 @@ class JsonDocumentStore:
                 if self._read_current() != self.original:
                     raise JsonStorageError("The saved file changed during this update. Restart Helios to reload it before saving again.", reason="conflict")
                 temporary.replace(self.path)
-                self.original, self.version = serialized, SCHEMA_VERSION
+                self.original, self.version = serialized, self.schema_version
                 self.payload, self.migration = payload, migration
         except (OSError, UnicodeError, ValueError, TypeError, RecursionError):
             raise JsonStorageError("Could not save the file. Existing preferences are unchanged.") from None

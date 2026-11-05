@@ -46,6 +46,16 @@ Older conversations without selection fields initialize once, during list/detail
 
 The API can update the next-response choice during active or paused work. Already started requests and one-use recovery keep their prepared profile without overwriting a newer choice. Resume keeps the current execution segment's model by default; only an explicit model-switch request uses another profile. Composer saves the conversation's choice, while the Connections default initializes new chats. The Composer can save a model choice while paused without starting work. Resume confirmation identifies the current and target models, the target host, shared context and cumulative costs. Selection is reread before and after confirmation; changed profile settings require fresh consent. Cancel keeps both the new selection and the original paused checkpoint. Connections can still change the new-chat default.
 
+## Memory policy API
+
+`GET /api/settings` returns the configured app preferences and defaults. `PUT /api/settings` accepts strict booleans `memory_generation_enabled`, `memory_use_saved_summaries`, and `memory_background_enabled`; `null` restores the corresponding default. These preferences do not enable a profile's Conversation memory permission. Original-history mode retains saved summaries and the other preferences without automatically generating unused summaries.
+
+`summary_policy.state` reports generation-planning readiness. Effective `use_saved_summaries`, `generation_enabled` and `background_enabled` are separate booleans: saved-memory use does not require new-generation capacity information. Background-only changes revoke background jobs without revoking foreground generation; generation-only changes stop new summary work without revoking already prepared saved-memory input. Saved-use changes revoke unsubmitted memory input and subsequent tool-run actions. Other app and pinned-profile policy changes retain existing guards. Saving must succeed before publishing new policy.
+
+For compatibility, updating `summary_trigger_tokens` to `0` without the new controls disables generation and saved-summary use. Changing that zero to an automatic or positive threshold without the new controls restores their old enabled behavior. With explicit controls, saved-summary use can be enabled while the zero trigger still prevents generation. Explicitly enabling generation clears a retained zero to automatic when the update omits the trigger. Existing stored zero settings migrate to generation/use Off without new calls.
+
+Prepared work retains its input across generation/background changes; memory-using resumes and model handoffs require saved-memory permission from the current app policy and involved profiles. One-time context recovery explicitly grants only that retry and cannot schedule automatic background compaction.
+
 ## Project exploration API
 
 ### Workspace scope and previews

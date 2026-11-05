@@ -75,7 +75,17 @@ Memory optionally summarizes older conversation text and uses the summary in lat
 
 1. Enter verified capacity information in the profile's **Deployment information**. You can use Declared maximum input or Declared context window.
 2. Planning from a context window requires output headroom. Values are selected in this order: **Summary output headroom → effective Output limit → Declared maximum output**. Planning from maximum input alone is shown as having unverified shared input/output capacity.
-3. Select **Conversation memory → On**, save, and check **Saved effective policy** for readiness. When information is missing, Helios prepares original history without automatic summaries.
+3. Select **Conversation memory → On**, save, and check **Saved effective policy** for generation readiness. Missing capacity information prevents new automatic summaries; permitted saved memory can still be used.
+
+Independent app preferences are currently available through the [Settings API](api.md#memory-policy-api):
+
+| Preference | Default | Meaning |
+| --- | --- | --- |
+| `memory_generation_enabled` | `true` | Allow new automatic summaries. Off retains saved memory and originals. |
+| `memory_use_saved_summaries` | `true` | Use permitted saved summaries. Off sends original history and suppresses automatic summary calls while retaining other preferences. |
+| `memory_background_enabled` | `true` | Allow automatic checks after successful replies when generation and saved-summary use are active. Off leaves foreground generation available. |
+
+Profile-level Conversation memory permission remains required. Generation and background switches do not revoke already prepared saved-memory input. Disabling saved-summary use rebuilds unsubmitted requests with originals and stops tool runs that already submitted memory before further actions. Already charged summary results are discarded if their generation permission is revoked before adoption; their usage remains recorded. Explicit one-time recovery retains its separate, request-bound grant and never enables automatic background checks.
 
 Initial app settings for memory are:
 

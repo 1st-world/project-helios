@@ -7,6 +7,9 @@ export const PREFLIGHT_HELP = {
 };
 
 export function describeMemoryState(policy) {
+  if (policy?.use_saved_summaries === false && policy?.enabled) return 'Original history · Automatic summaries inactive';
+  if (policy?.use_saved_summaries && policy?.generation_enabled === false) return 'Saved memory only · New summaries inactive';
+  if (policy?.generation_enabled && policy?.background_enabled === false) return 'Ready · Background checks off';
   const states = {
     ready: 'Ready · Enabled',
     needs_info: 'Needs deployment information · Original history will be sent',

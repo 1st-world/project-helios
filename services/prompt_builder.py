@@ -49,6 +49,26 @@ class PromptBuilder:
             raise WorkContextUnavailableError("Saved work context is unavailable.")
         return self.run_store.context(message.run_id, self.conversation_id)
 
+    @classmethod
+    def has_memory_context(cls, instructions: str, inputs: list[dict]) -> bool:
+        """Identify legacy prepared memory without relying on generation readiness."""
+        if "Conversation memory (a faithful summary of older messages):" in instructions:
+            return True
+        for item in inputs:
+            content = item.get("content")
+            if item.get("role") != "user" or not isinstance(content, str) or not content.startswith(cls.CONTEXT_LABEL):
+                continue
+            try:
+                context = json.loads(content[len(cls.CONTEXT_LABEL):])
+            except (ValueError, RecursionError):
+                return True
+            if not isinstance(context, dict):
+                return True
+            memory = context.get("conversation_memory", "")
+            if not isinstance(memory, str) or memory.strip():
+                return True
+        return False
+
     def history_items(self, messages: list[Message]) -> list[dict]:
         """Render stored messages and their complete work records for model replay."""
         items = []
