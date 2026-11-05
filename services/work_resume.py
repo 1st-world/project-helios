@@ -21,6 +21,10 @@ from services.workspace_service import WorkspaceAccessError
 WORKSPACE_MANIFEST_LIMIT = 100_000
 CONNECTION_FINGERPRINT_VERSION = 2
 _EXCLUDED_PATH_REASONS = {"hidden_path", "ignored_path", "protected_path"}
+_MEMORY_PLANNING_FIELDS = {
+    "configured_trigger_tokens", "trigger_adjusted", "effective_keep_recent_tokens",
+    "summary_target_tokens", "compaction_target_tokens",
+}
 
 
 def _digest(value: object) -> str:
@@ -54,10 +58,10 @@ def connection_fingerprint(
                 profile_data = {**profile_data, "name": legacy_name}
         policy_data = getattr(memory_policy, "policy", memory_policy)
         if isinstance(policy_data, dict):
-            # Live guards check process-local memory revocation separately.
+            # Live guards check revocation separately; planning metadata does not alter prepared checkpoint input.
             policy_data = {
                 key: value for key, value in policy_data.items()
-                if key != "revision"
+                if key != "revision" and key not in _MEMORY_PLANNING_FIELDS
             }
         return _digest({
             "profile": profile_data, "memory_policy": policy_data,

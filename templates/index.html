@@ -424,14 +424,14 @@
                 </div>
               </div>
               <div class="settings-preference-row" data-field-row>
-                <div class="settings-preference-copy"><span id="summary-trigger-tokens-label" class="settings-preference-label">Summary trigger (tokens)</span><small id="summary-trigger-tokens-help">Blank uses 90% of the declared input allowance. Enter 0 to pause summaries.</small></div>
+                <div class="settings-preference-copy"><span id="summary-trigger-tokens-label" class="settings-preference-label">Summary trigger (tokens)</span><small id="summary-trigger-tokens-help">Blank uses 90% of the declared input allowance. Custom values are bounded by that allowance. Enter 0 to pause summaries.</small></div>
                 <div class="settings-preference-control" data-field-control>
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="summary_trigger_tokens" data-reset-unit="tokens" aria-label="Restore initial summary token trigger" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="summary-trigger-tokens" type="number" min="0" step="1" placeholder="Automatic" data-app-setting="summary_trigger_tokens" aria-describedby="summary-trigger-tokens-help" disabled aria-labelledby="summary-trigger-tokens-label">
                 </div>
               </div>
               <div class="settings-preference-row" data-field-row>
-                <div class="settings-preference-copy"><span id="keep-recent-tokens-label" class="settings-preference-label">Recent history target (tokens)</span><small id="keep-recent-tokens-help">Original history to retain when summarizing. Complete turns stay intact, so the newest turn may exceed this target.</small></div>
+                <div class="settings-preference-copy"><span id="keep-recent-tokens-label" class="settings-preference-label">Recent history target (tokens)</span><small id="keep-recent-tokens-help">Preferred original history to retain. The effective target adapts to deployment capacity and preserves complete turns.</small></div>
                 <div class="settings-preference-control" data-field-control>
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="keep_recent_tokens" data-reset-unit="tokens" aria-label="Restore initial recent token target" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                   <input id="keep-recent-tokens" type="number" min="1" step="1" data-app-setting="keep_recent_tokens" aria-describedby="keep-recent-tokens-help" required disabled aria-labelledby="keep-recent-tokens-label">

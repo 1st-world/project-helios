@@ -77,6 +77,7 @@ class AIService:
             raise ValueError("The output token limit must be positive.")
         self.max_output_tokens = max_output_tokens
         self._before_summary: Callable[[], None] | None = None
+        self._summary_target_tokens: int | None = None
         self._prepare_reply: Callable[[], tuple[str, list[dict]]] | None = None
 
     def output_limit(self, profile: ConnectionProfile) -> int | None:
@@ -117,12 +118,14 @@ class AIService:
         self, profile: ConnectionProfile, *,
         before_summary: Callable[[], None] | None = None,
         prepare_reply: Callable[[], tuple[str, list[dict]]] | None = None,
+        summary_target_tokens: int | None = None,
     ) -> "AIService":
         """Pin connection data and recheck context immediately before a Provider call."""
         snapshot = copy(self)
         snapshot.profile_service = _ProfileSnapshot(profile)
         snapshot._before_summary = before_summary
         snapshot._prepare_reply = prepare_reply
+        snapshot._summary_target_tokens = summary_target_tokens
         return snapshot
 
     async def close(self) -> None:
@@ -637,6 +640,7 @@ class AIService:
             PromptBuilder(self.work_run_store, conversation_id).summary_messages(
                 messages,
             ),
+            target_tokens=self._summary_target_tokens,
         )
         started = time.perf_counter()
         call = self._begin_call(profile, "summary", conversation_id)

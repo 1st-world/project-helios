@@ -78,7 +78,7 @@ export function createProfileContext({ isSaving }) {
         missing_input_capacity: 'Add a declared maximum input or context window.',
         missing_output_headroom: 'Add summary output headroom, an explicit output limit, or declared maximum output.',
         invalid_capacity: 'The context window must exceed summary output headroom.',
-        capacity_too_small: 'Declared capacity is too small for a positive automatic threshold.'
+        capacity_too_small: 'The effective summary trigger is too small to plan memory.'
       };
       const headroomSources = { planning: 'Planning value', output_limit: 'Selected output limit', declared_output: 'Declared maximum output', unknown: 'Unverified' };
       if (!['warn', 'block', 'off'].includes(data.mode) || (data.input_budget !== null && (!Number.isSafeInteger(data.input_budget) || data.input_budget < (data.legacy_input_policy ? 0 : 1)))
@@ -101,6 +101,15 @@ export function createProfileContext({ isSaving }) {
         ['Summary input per call', `${memory.summary_input_limit.toLocaleString()} tokens`],
         ['Output planning headroom', memory.output_headroom === null ? 'Unverified' : `${memory.output_headroom.toLocaleString()} tokens (${headroomSources[memory.headroom_source] || 'Unverified'})`]
       );
+      if (memory?.state === 'ready') {
+        for (const [label, value] of [
+          ['Recent history target', memory.effective_keep_recent_tokens],
+          ['Summary text target', memory.summary_target_tokens],
+          ['Post-summary input target', memory.compaction_target_tokens],
+        ]) {
+          if (Number.isSafeInteger(value)) values.push([label, `${value.toLocaleString()} tokens`]);
+        }
+      }
       const container = $('#profile-context-effective');
       const list = document.createElement('dl');
       list.className = 'settings-policy-list';
@@ -118,6 +127,9 @@ export function createProfileContext({ isSaving }) {
         data.legacy_input_policy ? 'Review needed: previous input and model capacity limits are preserved. Choose an input budget policy to finish review.' : '',
         memory?.state === 'needs_info' ? planningHelp[memory.reason] || 'Check declared deployment capacity before using memory.' : '',
         memory?.input_only ? 'Shared context capacity is unverified; planning uses declared maximum input only.' : '',
+        memory?.state === 'ready' && memory.trigger_adjusted ? `The configured summary trigger is ${memory.configured_trigger_tokens.toLocaleString()} tokens. Its effective value is limited to this deployment's input allowance; the app preference is unchanged.` : '',
+        memory?.state === 'ready' && memory.effective_keep_recent_tokens < memory.keep_recent_tokens ? 'Recent-history and summary targets share 20% of the effective trigger. Complete turns and essential memory may exceed these targets.' : '',
+        memory?.state === 'ready' && Number.isSafeInteger(memory.summary_target_tokens) ? 'Missing a target does not request another summary pass. Long prefixes can still need multiple calls; API output caps are unchanged.' : '',
         describeEstimation(data) || (memory?.state === 'ready' ? describeEstimation(memory) : '')
       ];
       for (const note of notes.filter(Boolean)) {

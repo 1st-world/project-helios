@@ -51,3 +51,48 @@ class MemoryCapacity:
             headroom, headroom_source,
             reason,
         )
+
+
+@dataclass(frozen=True)
+class MemoryPlan:
+    """Pair a summary trigger with bounded retention and soft compaction targets."""
+
+    trigger_tokens: int | None = None
+    keep_recent_tokens: int | None = None
+    summary_target_tokens: int | None = None
+    compaction_target_tokens: int | None = None
+    trigger_adjusted: bool = False
+
+    @classmethod
+    def resolve(
+        cls, capacity: MemoryCapacity, trigger_tokens: int | None,
+        keep_recent_tokens: int, summary_input_limit: int | None,
+        *, output_limit: int | None = None, declared_max_output: int | None = None,
+    ) -> "MemoryPlan":
+        """Preserve preferences while fitting effective targets to declared capacity.
+
+        A fifth of the trigger is shared by recent originals and summary text.
+        Whole turns and essential memory may exceed these advisory targets.
+        These are local planning heuristics, not model or Provider limits.
+        """
+        allowance = capacity.input_limit
+        if allowance is None or summary_input_limit is None or summary_input_limit < 4 or trigger_tokens == 0:
+            return cls()
+        trigger = allowance * 9 // 10 if trigger_tokens is None else min(trigger_tokens, allowance)
+        if trigger < 10:
+            return cls()
+        target = trigger // 5
+        recent_target = min(keep_recent_tokens, target // 2)
+        summary_target = min(
+            value for value in (
+                target // 2, summary_input_limit // 4,
+                capacity.headroom, output_limit, declared_max_output,
+            ) if value is not None
+        )
+        return cls(
+            trigger_tokens=trigger,
+            keep_recent_tokens=recent_target,
+            summary_target_tokens=summary_target,
+            compaction_target_tokens=target,
+            trigger_adjusted=trigger_tokens is not None and trigger_tokens != trigger,
+        )

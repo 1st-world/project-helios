@@ -82,11 +82,17 @@ Initial app settings for memory are:
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | Summary work budget | 262,144 tokens | Estimated input budget per summary call, also bounded by declared deployment capacity. |
-| Summary trigger | Automatic | Uses 90% of the declared input allowance. `0` pauses summaries. |
-| Recent history target | 65,536 tokens | Target amount of recent original text to retain. Complete turns are preserved, so this target can be exceeded. |
+| Summary trigger | Automatic | Uses 90% of the declared input allowance. If a custom trigger exceeds that allowance, the effective trigger is limited to the allowance while Settings retains the saved value. `0` pauses summaries. |
+| Recent history target | 65,536 tokens | Preferred amount of recent original text to retain, bounded by half the post-summary input target. Complete turns are preserved, so this target can be exceeded. |
 | Summary call limit | 8 | Maximum API calls allowed in one summary operation. |
 
 If both a context window and maximum input are declared, memory uses the smaller input allowance. Summary output headroom is a planning allowance; it does not set an API output cap.
+
+Once input exceeds the trigger, foreground and background preparation plan one older prefix using a soft input target of 20% of that trigger: 18% of the declared input allowance in automatic mode. Half of this target is allocated to recent originals and half to summary text. Fixed instructions, the current question, Workspace, attachments and tool definitions can reduce the recent-history target further. The newest complete turn remains intact even when this makes the target unattainable. The selected input check still decides whether the resulting request can proceed.
+
+The summary-text target is also bounded by one quarter of the per-call summary input allowance, available output headroom, explicit output limits and declared maximum output. Length guidance prefers the shortest summary that preserves required information, exact identifiers and source limits. The token budget is not a quota to fill; a longer summary is allowed when required to avoid information loss. Complete beneficial summaries are not locally truncated. These ratios are Helios planning heuristics awaiting real-model quality validation, not Provider limits or universal defaults. **Saved effective policy** shows deployment-specific targets; the existing API output cap is unchanged.
+
+Missing a soft target does not start another summary pass. A planned prefix can still require multiple calls to transport long history or recover from a summary context-limit rejection, within Summary call limit. When valid memory is already saved and input still fits the declared allowance and any blocking input limit, a refresh waits until newly eligible original history reaches the summary-text target. This prevents rewriting large memory for a small new prefix. Initial compaction and requests exceeding those input limits do not wait for that amount of new history; crossing the summary trigger remains required.
 
 Recent-history size includes the saved model and tool records replayed for completed Work tools runs. Automatic summary candidates are adopted only when they reduce the assembled input; candidates that keep or increase its size are discarded. Calls already made remain in usage totals.
 

@@ -79,7 +79,8 @@ class PromptBuilder:
 
     @classmethod
     def build_memory(
-        cls, previous_summary: str, messages: list[Message]
+        cls, previous_summary: str, messages: list[Message],
+        *, target_tokens: int | None = None,
     ) -> tuple[str, str]:
         """Combine existing memory and role-labelled messages into a summary request."""
         transcript = "\n".join(
@@ -92,7 +93,13 @@ class PromptBuilder:
             + "\n\nNew transcript to incorporate:\n"
             + transcript
         )
-        return cls.MEMORY_INSTRUCTIONS, request
+        instructions = cls.MEMORY_INSTRUCTIONS
+        if target_tokens is not None:
+            instructions += (
+                " Use the shortest summary that preserves all required information, exact identifiers and source limits. "
+                f"Treat {target_tokens} tokens as a soft budget, not a quota to fill; exceed it only to avoid losing required information."
+            )
+        return instructions, request
 
     def build(
         self,
