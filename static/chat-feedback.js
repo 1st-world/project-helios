@@ -8,12 +8,16 @@ export const PREFLIGHT_HELP = {
 
 export function describeMemoryState(policy) {
   if (policy?.use_saved_summaries === false && policy?.enabled) return 'Original history · Automatic summaries inactive';
-  if (policy?.use_saved_summaries && policy?.generation_enabled === false) return 'Saved memory only · New summaries inactive';
-  if (policy?.generation_enabled && policy?.background_enabled === false) return 'Ready · Background checks off';
+  if (policy?.use_saved_summaries) {
+    if (policy.state === 'needs_info') return 'Saved summaries allowed · New summaries need setup';
+    if (policy.reason === 'threshold_disabled') return 'Saved summaries allowed · Summary trigger is 0';
+    if (policy.generation_enabled === false) return 'Saved summaries allowed · New summaries inactive';
+  }
+  if (policy?.generation_enabled && policy?.background_enabled === false) return 'Generation allowed · Background checks off';
   const states = {
-    ready: 'Ready · Enabled',
-    needs_info: 'Needs deployment information · Original history will be sent',
-    stopped: 'Stopped · Original history will be sent'
+    ready: 'Ready · Automatic summaries allowed',
+    needs_info: 'New summaries need deployment information',
+    stopped: 'Stopped · New summaries unavailable'
   };
   const status = states[policy?.state] || (policy?.reason === 'threshold_disabled'
     ? 'Paused · Summary trigger is 0' : 'Off · Original history will be sent');

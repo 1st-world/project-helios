@@ -74,6 +74,7 @@ export function createProfileContext({ isSaving }) {
       }
       const declaredOutput = data.declared_model_max_output_tokens ?? null;
       const memory = data.summary_policy;
+      const generationReady = memory?.state === 'ready' && memory.generation_enabled !== false;
       const planningHelp = {
         missing_input_capacity: 'Add a declared maximum input or context window.',
         missing_output_headroom: 'Add summary output headroom, an explicit output limit, or declared maximum output.',
@@ -95,13 +96,13 @@ export function createProfileContext({ isSaving }) {
         ['Declared input ceiling', data.declared_model_input_limit === null ? 'Unknown' : `${data.declared_model_input_limit.toLocaleString()} tokens`],
         ['Declared maximum output', declaredOutput === null ? 'Unknown' : `${declaredOutput.toLocaleString()} tokens`],
         ['Memory', describeMemoryState(memory)],
-        ['Summary trigger', memory?.state === 'ready' && Number.isSafeInteger(memory.trigger_tokens) ? `${memory.trigger_tokens.toLocaleString()} tokens (${memory.mode === 'auto' ? 'Automatic' : 'Custom'})` : 'Inactive'],
+        ['Summary trigger', generationReady && Number.isSafeInteger(memory.trigger_tokens) ? `${memory.trigger_tokens.toLocaleString()} tokens (${memory.mode === 'auto' ? 'Automatic' : 'Custom'})` : 'Inactive'],
       ];
-      if (memory?.state === 'ready') values.push(
+      if (generationReady) values.push(
         ['Summary input per call', `${memory.summary_input_limit.toLocaleString()} tokens`],
         ['Output planning headroom', memory.output_headroom === null ? 'Unverified' : `${memory.output_headroom.toLocaleString()} tokens (${headroomSources[memory.headroom_source] || 'Unverified'})`]
       );
-      if (memory?.state === 'ready') {
+      if (generationReady) {
         for (const [label, value] of [
           ['Recent history target', memory.effective_keep_recent_tokens],
           ['Summary text target', memory.summary_target_tokens],
@@ -125,12 +126,12 @@ export function createProfileContext({ isSaving }) {
       container.replaceChildren(list);
       const notes = [
         data.legacy_input_policy ? 'Review needed: previous input and model capacity limits are preserved. Choose an input budget policy to finish review.' : '',
-        memory?.state === 'needs_info' ? planningHelp[memory.reason] || 'Check declared deployment capacity before using memory.' : '',
-        memory?.input_only ? 'Shared context capacity is unverified; planning uses declared maximum input only.' : '',
-        memory?.state === 'ready' && memory.trigger_adjusted ? `The configured summary trigger is ${memory.configured_trigger_tokens.toLocaleString()} tokens. Its effective value is limited to this deployment's input allowance; the app preference is unchanged.` : '',
-        memory?.state === 'ready' && memory.effective_keep_recent_tokens < memory.keep_recent_tokens ? 'Recent-history and summary targets share 20% of the effective trigger. Complete turns and essential memory may exceed these targets.' : '',
-        memory?.state === 'ready' && Number.isSafeInteger(memory.summary_target_tokens) ? 'Missing a target does not request another summary pass. Long prefixes can still need multiple calls; API output caps are unchanged.' : '',
-        describeEstimation(data) || (memory?.state === 'ready' ? describeEstimation(memory) : '')
+        memory?.state === 'needs_info' ? planningHelp[memory.reason] || 'Check declared deployment capacity before creating new summaries.' : '',
+        generationReady && memory.input_only ? 'Shared context capacity is unverified; planning uses declared maximum input only.' : '',
+        generationReady && memory.trigger_adjusted ? `The configured summary trigger is ${memory.configured_trigger_tokens.toLocaleString()} tokens. Its effective value is limited to this deployment's input allowance; the app preference is unchanged.` : '',
+        generationReady && memory.effective_keep_recent_tokens < memory.keep_recent_tokens ? 'Recent-history and summary targets share 20% of the effective trigger. Complete turns and essential memory may exceed these targets.' : '',
+        generationReady && Number.isSafeInteger(memory.summary_target_tokens) ? 'Missing a target does not request another summary pass. Long prefixes can still need multiple calls; API output caps are unchanged.' : '',
+        describeEstimation(data) || (generationReady ? describeEstimation(memory) : '')
       ];
       for (const note of notes.filter(Boolean)) {
         const paragraph = document.createElement('p');

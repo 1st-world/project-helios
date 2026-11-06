@@ -3195,7 +3195,15 @@ textarea::placeholder {
 .preferences-dialog .app-settings-form .settings-preference-control input {
   grid-row: 1;
   grid-column: 2;
+}
+.preferences-dialog .app-settings-form .settings-preference-control select,
+.preferences-dialog .app-settings-form .settings-preference-control input:not([type="checkbox"]) {
   width: 100%;
+}
+.preferences-dialog .app-settings-form .settings-switch-control {
+  grid-template-columns: 32px 40px;
+  justify-self: end;
+  width: auto;
 }
 .preferences-dialog .app-settings-form .settings-default-reset {
   grid-row: 1;
@@ -3266,6 +3274,11 @@ textarea::placeholder {
 .preferences-dialog .settings-editor-form .settings-preference-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 0 20px;
+}
+.preferences-dialog .settings-preference-row.settings-switch-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 0 20px;
 }
 .preferences-dialog .settings-editor-form .settings-preference-row[hidden] {
@@ -4921,12 +4934,6 @@ button svg,
   .preferences-dialog .settings-preference-copy {
     flex-basis: calc(100% - 32px);
   }
-  .preferences-dialog .settings-preference-row:has(> .settings-switch) {
-    flex-wrap: nowrap;
-  }
-  .preferences-dialog .settings-preference-row:has(> .settings-switch) .settings-preference-copy {
-    flex-basis: 0;
-  }
   .preferences-dialog .settings-preference-row select,
   .preferences-dialog .settings-preference-row input[type="number"] {
     width: 100%;
@@ -4937,22 +4944,30 @@ button svg,
     grid-template-columns: minmax(0, 1fr) 32px;
     gap: 0 12px;
   }
+  .preferences-dialog .settings-preference-row.settings-switch-row {
+    grid-template-rows: minmax(32px, auto) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 12px;
+  }
   .preferences-dialog .settings-editor-form .settings-preference-copy,
-  .preferences-dialog .app-settings-form .settings-preference-control,
+  .preferences-dialog .settings-switch-row .settings-preference-copy,
+  .preferences-dialog .app-settings-form .settings-preference-control:not(.settings-switch-control),
   .preferences-dialog .profile-context-settings .profile-context-control {
     display: contents;
   }
-  .preferences-dialog .settings-editor-form .settings-preference-copy .settings-preference-label {
+  .preferences-dialog .settings-editor-form .settings-preference-copy .settings-preference-label,
+  .preferences-dialog .settings-switch-row .settings-preference-copy .settings-preference-label {
     grid-row: 1;
     grid-column: 1;
     align-self: center;
   }
-  .preferences-dialog .settings-editor-form .settings-preference-copy small {
+  .preferences-dialog .settings-editor-form .settings-preference-copy small,
+  .preferences-dialog .settings-switch-row .settings-preference-copy small {
     grid-row: 2;
     grid-column: 1 / -1;
     margin-top: 5px;
   }
-  .preferences-dialog .app-settings-form .settings-preference-control input,
+  .preferences-dialog .app-settings-form .settings-preference-control input:not([type="checkbox"]),
   .preferences-dialog .app-settings-form .settings-preference-control select,
   .preferences-dialog .profile-context-settings .profile-context-control input,
   .preferences-dialog .profile-context-settings .profile-context-control select {
@@ -4960,8 +4975,13 @@ button svg,
     grid-column: 1 / -1;
     margin-top: 12px;
   }
-  .preferences-dialog .app-settings-form .settings-default-reset,
+  .preferences-dialog .app-settings-form .settings-preference-control:not(.settings-switch-control) .settings-default-reset,
   .preferences-dialog .profile-context-settings .profile-context-reset {
+    grid-row: 1;
+    grid-column: 2;
+  }
+  .preferences-dialog .app-settings-form .settings-switch-control,
+  .preferences-dialog .settings-switch-row > .settings-switch {
     grid-row: 1;
     grid-column: 2;
   }

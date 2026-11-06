@@ -12,7 +12,8 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   const resetButtons = [...form.querySelectorAll('[data-reset-setting]')];
   const resetLabels = new Map(resetButtons.map(button => [button, button.getAttribute('aria-label')]));
   const effectiveLabels = [...form.querySelectorAll('[data-effective-setting]')];
-  const state = { saved: null, defaults: null, localLimits: null, resets: new Set(), loading: false, saving: false, controller: null, feedback: null };
+  const memorySwitches = ['memory_use_saved_summaries', 'memory_generation_enabled', 'memory_background_enabled'];
+  const state = { saved: null, defaults: null, localLimits: null, resets: new Set(), loading: false, saving: false, controller: null, feedback: null, legacyTriggerRetained: false };
 
   function setStatus(message, type = 'info') {
     state.feedback = message ? { message, type } : null;
@@ -26,9 +27,23 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   }
 
   function valueOf(input) {
+    if (input.type === 'checkbox') return input.checked;
     if (input.dataset.appSetting === 'context_input_budget' && fields.get('context_input_budget_mode').value !== 'custom') return null;
     if (['context_output_reserve', 'summary_trigger_tokens', 'context_input_budget'].includes(input.dataset.appSetting) && input.value === '' && !input.validity.badInput) return null;
     return input.tagName === 'SELECT' ? input.value : input.valueAsNumber;
+  }
+
+  function setValue(input, value) {
+    if (input.type === 'checkbox') input.checked = value === true;
+    else input.value = value ?? '';
+  }
+
+  function resumeLegacyTrigger() {
+    const trigger = fields.get('summary_trigger_tokens');
+    if (trigger.valueAsNumber !== 0) return;
+    state.legacyTriggerRetained = false;
+    trigger.value = '';
+    state.resets.delete('summary_trigger_tokens');
   }
 
   function hasUnsavedChanges() {
@@ -57,12 +72,25 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     fields.get('context_input_budget').disabled ||= inputMode !== 'custom';
     fields.get('context_input_budget').closest('.settings-preference-row').hidden = inputMode !== 'custom';
     fields.get('context_input_budget_mode').querySelector('[value="legacy"]').hidden = state.saved?.context_input_budget_mode !== 'legacy';
+    const useMemory = fields.get('memory_use_saved_summaries').checked;
+    const generateMemory = fields.get('memory_generation_enabled').checked;
+    fields.get('memory_generation_enabled').disabled ||= !useMemory;
+    fields.get('memory_background_enabled').disabled ||= !useMemory || !generateMemory;
+    setText($('#memory-generation-enabled-help'), useMemory
+      ? 'Create summaries as input grows. Off keeps saved summaries available.'
+      : 'Available when Use saved summaries is On.');
+    setText($('#memory-background-enabled-help'), useMemory && generateMemory
+      ? 'Check after completed replies. Off still allows summaries before a reply.'
+      : 'Available when saved-summary use and generation are On.');
+    const trigger = fields.get('summary_trigger_tokens');
+    trigger.min = state.legacyTriggerRetained && trigger.valueAsNumber === 0 ? '0' : '1';
     resetButtons.forEach(button => {
       const name = button.dataset.resetSetting;
-      const differs = Boolean(state.defaults && valueOf(fields.get(name)) !== state.defaults[name]);
+      const input = fields.get(name);
+      const differs = Boolean(state.defaults && valueOf(input) !== state.defaults[name]);
       defaultsDiffer ||= differs;
       button.hidden = !differs;
-      button.disabled = busy || !state.saved || !differs;
+      button.disabled = busy || !state.saved || !differs || input.type === 'checkbox' && input.disabled;
     });
     $('#restore-app-defaults').disabled = busy || !state.saved || !defaultsDiffer;
     $('#discard-app-settings').disabled = busy || !hasUnsavedChanges();
@@ -88,6 +116,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     const value = state.defaults?.[name];
     if (value === undefined) return '';
     const input = fields.get(name);
+    if (input.type === 'checkbox') return value ? 'On' : 'Off';
     if (input.tagName === 'SELECT') return [...input.options].find(option => option.value === value)?.textContent.trim() || value;
     if (value === null) return input.placeholder || fields.get('context_input_budget_mode').querySelector('[value="unlimited"]').textContent.trim();
     return `${value.toLocaleString()}${button.dataset.resetUnit ? ` ${button.dataset.resetUnit}` : ''}`;
@@ -96,7 +125,8 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   function fillSaved() {
     state.resets.clear();
     validation.reset();
-    for (const [name, input] of fields) input.value = state.saved?.[name] ?? '';
+    state.legacyTriggerRetained = state.saved?.summary_trigger_tokens === 0;
+    for (const [name, input] of fields) setValue(input, state.saved?.[name]);
     resetButtons.forEach(button => {
       const label = resetLabels.get(button);
       const formatted = describeDefault(button);
@@ -107,11 +137,11 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   }
 
   function acceptResponse(data) {
-    for (const name of fields.keys()) {
+    for (const [name, input] of fields) {
       for (const values of [data?.settings, data?.defaults]) {
         const value = values?.[name];
         if (['context_output_reserve', 'summary_trigger_tokens', 'context_input_budget'].includes(name) && value === null) continue;
-        if (name === 'context_preflight_mode' ? !Object.hasOwn(PREFLIGHT_HELP, value) : name === 'context_input_budget_mode' ? !['unlimited', 'custom', 'legacy'].includes(value) : !Number.isSafeInteger(value) || value < (name === 'summary_trigger_tokens' ? 0 : 1)) {
+        if (input.type === 'checkbox' ? typeof value !== 'boolean' : name === 'context_preflight_mode' ? !Object.hasOwn(PREFLIGHT_HELP, value) : name === 'context_input_budget_mode' ? !['unlimited', 'custom', 'legacy'].includes(value) : !Number.isSafeInteger(value) || value < (name === 'summary_trigger_tokens' ? 0 : 1)) {
           throw new Error('Could not read the saved settings. Reload Settings before editing.');
         }
       }
@@ -159,7 +189,9 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
 
   function restoreDefaultValue(name) {
     const input = fields.get(name);
-    input.value = state.defaults[name] ?? '';
+    setValue(input, state.defaults[name]);
+    if (name === 'summary_trigger_tokens') state.legacyTriggerRetained = false;
+    if (name === 'memory_generation_enabled' && input.checked) resumeLegacyTrigger();
     if (['context_input_budget_mode', 'context_input_budget'].includes(name)) {
       fields.get('context_input_budget_mode').value = 'unlimited';
       fields.get('context_input_budget').value = '';
@@ -190,9 +222,12 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     for (const input of fields.values()) {
       input.setCustomValidity('');
       if (input.disabled) continue;
+      if (input.type === 'checkbox') continue;
       if (['context_output_reserve', 'summary_trigger_tokens'].includes(input.dataset.appSetting) && valueOf(input) === null) continue;
       if (input.tagName !== 'SELECT' && (!Number.isSafeInteger(input.valueAsNumber) || input.valueAsNumber < Number(input.min))) {
-        input.setCustomValidity(input.valueAsNumber > Number.MAX_SAFE_INTEGER
+        input.setCustomValidity(input.dataset.appSetting === 'summary_trigger_tokens' && input.valueAsNumber === 0
+          ? 'Use Generate summaries to pause new summaries. Enter a positive trigger or leave it blank for Automatic.'
+          : input.valueAsNumber > Number.MAX_SAFE_INTEGER
           ? `Enter a whole number no greater than ${Number.MAX_SAFE_INTEGER.toLocaleString()}.`
           : `Enter a whole number of at least ${Number(input.min).toLocaleString()}.`);
       }
@@ -214,6 +249,9 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
       const value = valueOf(input);
       if (value !== state.saved[name]) changes[name] = state.resets.has(name) ? null : value;
     }
+    // Explicit choices prevent numeric edits from invoking the legacy zero-trigger shortcut.
+    for (const name of memorySwitches) changes[name] = state.resets.has(name) ? null : valueOf(fields.get(name));
+    if (state.legacyTriggerRetained && fields.get('summary_trigger_tokens').valueAsNumber === 0) changes.summary_trigger_tokens = 0;
     state.saving = true;
     setStatus('');
     updateControls();
@@ -248,6 +286,8 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     for (const [name, input] of fields) {
       input.addEventListener('input', () => {
         state.resets.delete(name);
+        if (name === 'summary_trigger_tokens') state.legacyTriggerRetained = false;
+        if (name === 'memory_generation_enabled' && input.checked) resumeLegacyTrigger();
         setStatus('');
         updateControls();
         if (validation.isReviewing()) validate(false);

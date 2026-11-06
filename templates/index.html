@@ -355,15 +355,15 @@
       <section id="settings-notifications" class="settings-group" aria-labelledby="settings-notifications-title">
         <div class="settings-panel-heading"><h3 id="settings-notifications-title">Notifications</h3></div>
         <div class="settings-group-body">
-          <div class="settings-preference-row">
+          <div class="settings-preference-row settings-switch-row">
             <div class="settings-preference-copy"><span id="notify-response-label" class="settings-preference-label">Response completion</span><small id="notify-response-help">Alerts when an assistant response finishes.</small></div>
             <input id="notify-response" type="checkbox" disabled aria-labelledby="notify-response-label" class="settings-switch" role="switch" aria-describedby="notify-response-help">
           </div>
-          <div class="settings-preference-row">
+          <div class="settings-preference-row settings-switch-row">
             <div class="settings-preference-copy"><span id="notify-sound-label" class="settings-preference-label">Notification sound</span><small id="notify-sound-help">Sound accompanying notifications.</small></div>
             <input id="notify-sound" type="checkbox" disabled aria-labelledby="notify-sound-label" class="settings-switch" role="switch" aria-describedby="notify-sound-help">
           </div>
-          <div class="settings-preference-row">
+          <div class="settings-preference-row settings-switch-row">
             <div class="settings-preference-copy"><span id="notify-desktop-label" class="settings-preference-label">Desktop notifications</span><small id="notify-desktop-help">System notifications; browser permission required.</small></div>
             <input id="notify-desktop" type="checkbox" disabled aria-labelledby="notify-desktop-label" class="settings-switch" role="switch" aria-describedby="notify-desktop-help">
           </div>
@@ -374,7 +374,7 @@
     <section id="settings-context" class="settings-panel settings-editor-panel" role="tabpanel" aria-labelledby="settings-context-tab" tabindex="0" hidden>
       <form id="app-settings-form" class="app-settings-form settings-editor-form" novalidate>
         <div class="settings-editor-body">
-          <div class="info-callout"><i data-lucide="info"></i><p>App-wide settings. Saved changes apply to new requests; running requests keep their settings.</p></div>
+          <div class="info-callout"><i data-lucide="info"></i><p>App-wide settings. Saved changes apply to new requests; memory permissions also affect work in progress.</p></div>
           <section class="settings-group" aria-labelledby="context-input-title">
             <div class="settings-panel-heading"><h3 id="context-input-title">Input & output</h3></div>
             <div class="settings-group-body">
@@ -415,7 +415,28 @@
           <section class="settings-group" aria-labelledby="context-summary-title">
             <div class="settings-panel-heading"><div class="dialog-section-title"><h3 id="context-summary-title">Memory summaries</h3><button class="help-popover-trigger" type="button" popovertarget="settings-help-memory" aria-controls="settings-help-memory" aria-expanded="false" aria-label="About memory summaries" title="About memory summaries"><i data-lucide="info" aria-hidden="true"></i></button></div></div>
             <div class="settings-group-body">
-              <p class="field-hint">Memory is enabled per profile. Summaries make additional paid calls; saved messages stay intact.</p>
+              <p class="field-hint">Enable Conversation memory in the profile to use automatic memory. Creating summaries makes additional paid calls.</p>
+              <div class="settings-preference-row settings-switch-row" data-field-row>
+                <div class="settings-preference-copy"><span id="memory-use-saved-summaries-label" class="settings-preference-label">Use saved summaries</span><small id="memory-use-saved-summaries-help">Use saved memory with recent messages. Off sends the complete original history.</small></div>
+                <div class="settings-preference-control settings-switch-control" data-field-control>
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="memory_use_saved_summaries" aria-label="Restore initial saved-summary use" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <input id="memory-use-saved-summaries" class="settings-switch" type="checkbox" role="switch" data-app-setting="memory_use_saved_summaries" aria-labelledby="memory-use-saved-summaries-label" aria-describedby="memory-use-saved-summaries-help" disabled>
+                </div>
+              </div>
+              <div class="settings-preference-row settings-switch-row" data-field-row>
+                <div class="settings-preference-copy"><span id="memory-generation-enabled-label" class="settings-preference-label">Generate summaries</span><small id="memory-generation-enabled-help">Create summaries as input grows. Off keeps saved summaries available.</small></div>
+                <div class="settings-preference-control settings-switch-control" data-field-control>
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="memory_generation_enabled" aria-label="Restore initial summary generation" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <input id="memory-generation-enabled" class="settings-switch" type="checkbox" role="switch" data-app-setting="memory_generation_enabled" aria-labelledby="memory-generation-enabled-label" aria-describedby="memory-generation-enabled-help" disabled>
+                </div>
+              </div>
+              <div class="settings-preference-row settings-switch-row" data-field-row>
+                <div class="settings-preference-copy"><span id="memory-background-enabled-label" class="settings-preference-label">Background checks</span><small id="memory-background-enabled-help">Check after completed replies. Off still allows summaries before a reply.</small></div>
+                <div class="settings-preference-control settings-switch-control" data-field-control>
+                  <button class="quiet settings-default-reset" type="button" data-reset-setting="memory_background_enabled" aria-label="Restore initial background checks" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
+                  <input id="memory-background-enabled" class="settings-switch" type="checkbox" role="switch" data-app-setting="memory_background_enabled" aria-labelledby="memory-background-enabled-label" aria-describedby="memory-background-enabled-help" disabled>
+                </div>
+              </div>
               <div class="settings-preference-row" data-field-row>
                 <div class="settings-preference-copy"><span id="context-token-budget-label" class="settings-preference-label">Summary work budget (tokens)</span><small id="context-token-budget-help">Maximum estimated input per summary call, within the declared deployment capacity. Separate from the chat input budget.</small></div>
                 <div class="settings-preference-control" data-field-control>
@@ -424,10 +445,10 @@
                 </div>
               </div>
               <div class="settings-preference-row" data-field-row>
-                <div class="settings-preference-copy"><span id="summary-trigger-tokens-label" class="settings-preference-label">Summary trigger (tokens)</span><small id="summary-trigger-tokens-help">Blank uses 90% of the declared input allowance. Custom values are bounded by that allowance. Enter 0 to pause summaries.</small></div>
+                <div class="settings-preference-copy"><span id="summary-trigger-tokens-label" class="settings-preference-label">Summary trigger (tokens)</span><small id="summary-trigger-tokens-help">Blank uses 90% of the declared input allowance. Custom values are bounded by that allowance.</small></div>
                 <div class="settings-preference-control" data-field-control>
                   <button class="quiet settings-default-reset" type="button" data-reset-setting="summary_trigger_tokens" data-reset-unit="tokens" aria-label="Restore initial summary token trigger" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
-                  <input id="summary-trigger-tokens" type="number" min="0" step="1" placeholder="Automatic" data-app-setting="summary_trigger_tokens" aria-describedby="summary-trigger-tokens-help" disabled aria-labelledby="summary-trigger-tokens-label">
+                  <input id="summary-trigger-tokens" type="number" min="1" step="1" placeholder="Automatic" data-app-setting="summary_trigger_tokens" aria-describedby="summary-trigger-tokens-help" disabled aria-labelledby="summary-trigger-tokens-label">
                 </div>
               </div>
               <div class="settings-preference-row" data-field-row>
@@ -750,11 +771,11 @@
             <div class="settings-preference-copy"><span id="conversion-rate-label" class="settings-preference-label">Conversion rate (1 USD)</span><small>Value of 1 USD in the display currency.</small></div>
             <input id="conversion-rate" type="number" step="any" min="0" placeholder="Not configured" disabled aria-labelledby="conversion-rate-label">
           </div>
-          <div class="settings-preference-row">
+          <div class="settings-preference-row settings-switch-row">
             <div class="settings-preference-copy"><span id="show-response-usage-label" class="settings-preference-label">Per-response usage</span><small id="show-response-usage-help">Recorded tokens, timing, and estimated costs for replies and exploration calls.</small></div>
             <input id="show-response-usage" type="checkbox" checked aria-labelledby="show-response-usage-label" class="settings-switch" role="switch" aria-describedby="show-response-usage-help">
           </div>
-          <div class="settings-preference-row">
+          <div class="settings-preference-row settings-switch-row">
             <div class="settings-preference-copy"><span id="show-conversation-usage-label" class="settings-preference-label">Conversation usage footer</span><small id="show-conversation-usage-help">Recorded usage below the last message in each conversation.</small></div>
             <input id="show-conversation-usage" type="checkbox" checked aria-labelledby="show-conversation-usage-label" class="settings-switch" role="switch" aria-describedby="show-conversation-usage-help">
           </div>
@@ -843,7 +864,8 @@
     </section>
     <div id="settings-help-memory" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="settings-help-memory-title" hidden>
       <h4 id="settings-help-memory-title">Memory summaries</h4>
-      <p>These app settings control how memory-enabled profiles summarize older request text. Summary work has its own input budget. Recent history is a target; complete conversation turns may exceed it.</p>
+      <p>Memory carries forward a compact record of earlier goals, decisions and constraints. Original messages stay intact.</p>
+      <p>Generation and background checks are separate permissions. The work budget and call limit also apply to explicitly requested one-time summaries.</p>
     </div>
     <div id="settings-help-attachments" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="settings-help-attachments-title" hidden>
       <h4 id="settings-help-attachments-title">Attachment resource limits</h4>
