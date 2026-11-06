@@ -19,9 +19,8 @@ export function describeMemoryState(policy) {
     needs_info: 'New summaries need deployment information',
     stopped: 'Stopped · New summaries unavailable'
   };
-  const status = states[policy?.state] || (policy?.reason === 'threshold_disabled'
+  return states[policy?.state] || (policy?.reason === 'threshold_disabled'
     ? 'Paused · Summary trigger is 0' : 'Off · Original history will be sent');
-  return `${status}${policy?.review_required ? ' · Review needed' : ''}`;
 }
 
 function cleanText(value) {

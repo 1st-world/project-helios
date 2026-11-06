@@ -67,7 +67,7 @@ Each request pins its selected connection, model, pricing and policy at the star
 
 An output limit applies to replies and summaries, including reasoning tokens. **Declared maximum output** records capacity information and is separate from a user output limit. Entering deployment information alone does not activate a chat input budget or output limit.
 
-Policies imported from older versions may show **Review needed**. Their previous input rules remain in effect until reviewed. To use the new policy, explicitly select and save the Input budget for the relevant app or profile settings.
+Policies imported from older versions may show **Previous policy** under **Input budget**. The previous rules apply until you select and save a current budget policy. If a profile inherits the previous app policy, review the app's **Input budget** or choose a policy for that profile.
 
 ### Conversation memory
 
@@ -89,7 +89,7 @@ Turning Use saved summaries Off disables the dependent generation and background
 
 Profile-level Conversation memory permission remains required. Generation and background switches do not revoke already prepared saved-memory input. Disabling saved-summary use rebuilds unsubmitted requests with originals and stops tool runs that already submitted memory before further actions. Already charged summary results are discarded if their generation permission is revoked before adoption; their usage remains recorded. Explicit one-time recovery retains its separate, request-bound grant and never enables automatic background checks.
 
-Initial app settings for memory are:
+**Summary tuning** section contains the thresholds and limits for summary generation. The table lists their initial values.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
@@ -163,7 +163,7 @@ Office attachments omit embedded images, charts, and formatting. Provide a PDF o
 
 ### Local file limits
 
-Adjust these in **Context & attachments → Attachment resource limits**. The provisional defaults below manage local reading and extraction; they are not model input capacities or universal provider file limits. They do not guarantee total memory use or processing time. Runtime and decoder protections may impose lower limits.
+Adjust these in **Context & attachments → Attachment resource limits**. **File selection** covers file count and original bytes. **Local processing** covers reading and extraction. The provisional defaults apply locally, independently of model capacity and provider limits. Runtime and decoder protections may impose lower limits. Actual memory use and processing time vary by file.
 
 | Item | Default |
 | --- | --- |
@@ -203,6 +203,6 @@ Failed, cancelled, interrupted, and replaced runs remain available. Completed ru
 
 Use **Settings → Usage & costs** to inspect call records and date-based totals. Per-message and per-conversation displays are optional. Usage is based on provider-reported tokens and distinguishes missing values from `0`. Reasoning tokens are not added to output a second time.
 
-Enter prices under **Connections → profile → Token pricing** in USD / 1M tokens. You can configure standard, cache read/write, and long-context rates, plus an input-token breakpoint. A blank standard rate is unknown; `0` means free. A blank long-context rate uses its corresponding standard rate. The default breakpoint is 272,000 tokens; adjust it to the model's actual pricing conditions.
+Enter prices under **Connections → profile → Token pricing** in USD / 1M tokens. You can configure standard, cache read/write, and long-context rates, plus an input-token breakpoint. A blank standard rate is unknown; `0` means free. A blank long-context rate uses its corresponding standard rate. The default breakpoint is 272,000 tokens; adjust it to the model's actual pricing conditions. The badge reflects the current form, and expanded feedback identifies missing standard rates or invalid entries.
 
 Costs are estimates using the prices saved at call time and the reported usage. Missing required values produce partial or unavailable estimates. The app does not retrieve Azure invoices or remaining account credits. The independent usage ledger remains after a conversation is deleted.

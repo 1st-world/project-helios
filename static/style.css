@@ -2369,15 +2369,20 @@ textarea::placeholder {
   min-width: 0;
   gap: 6px;
 }
-.settings-dialog .field-error {
+.settings-dialog :is(.field-error, .field-review) {
   margin: 0;
-  color: var(--danger-text);
   font-weight: var(--font-weight-regular);
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
   overflow-wrap: anywhere;
 }
-.settings-dialog .field-error[hidden] {
+.settings-dialog .field-error {
+  color: var(--danger-text);
+}
+.settings-dialog .field-review {
+  color: var(--warning-text);
+}
+.settings-dialog :is(.field-error, .field-review)[hidden] {
   display: none;
 }
 
@@ -2868,7 +2873,6 @@ textarea::placeholder {
   padding-top: 0;
 }
 .preferences-dialog .settings-group-body > .settings-preference-row:last-child,
-.preferences-dialog .settings-group-body > .settings-preference-row:has(+ .settings-policy-summary[hidden]),
 .preferences-dialog .settings-field-group > .settings-preference-row:last-child {
   padding-bottom: 0;
   border-bottom: 0;
@@ -2877,12 +2881,13 @@ textarea::placeholder {
 .preferences-dialog .settings-policy-summary {
   margin-top: var(--settings-content-spacing);
   padding: 12px;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   background: var(--bg-app);
 }
 .preferences-dialog .settings-policy-summary > h5 {
   margin: 0;
-  color: var(--text-sub);
+  color: var(--text-main);
   font-weight: var(--font-weight-heading);
   font-size: var(--font-size-title-group);
   line-height: var(--line-height-heading);
@@ -2891,9 +2896,6 @@ textarea::placeholder {
   margin: 8px 0 0;
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
-}
-.preferences-dialog .settings-policy-summary > :first-child {
-  margin-top: 0;
 }
 .preferences-dialog .settings-policy-summary .settings-policy-values {
   font-size: var(--font-size-description);
@@ -2920,14 +2922,23 @@ textarea::placeholder {
 .preferences-dialog .settings-policy-list dd {
   min-width: 0;
   margin: 0;
-  color: var(--text-sub);
   overflow-wrap: anywhere;
 }
 .preferences-dialog .settings-policy-list dt {
+  color: var(--text-muted);
   font-weight: var(--font-weight-label);
 }
-.preferences-dialog .settings-policy-values > p {
-  margin: 8px 0 0;
+.preferences-dialog .settings-policy-list dd {
+  color: var(--text-main);
+}
+.preferences-dialog .settings-policy-notes {
+  display: grid;
+  margin-top: 12px;
+  gap: 6px;
+  color: var(--text-muted);
+}
+.preferences-dialog .settings-policy-notes > p {
+  margin: 0;
 }
 .preferences-dialog .settings-policy-summary > button {
   margin-top: 8px;
@@ -2939,9 +2950,8 @@ textarea::placeholder {
   padding: 0;
   border: 0;
 }
-.preferences-dialog .settings-field-group:has(+ .settings-policy-summary) {
-  padding-bottom: var(--settings-content-spacing);
-  border-bottom: 1px solid var(--border);
+.preferences-dialog .settings-group-body > .field-hint:first-child + .settings-field-group {
+  margin-top: var(--settings-content-spacing);
 }
 .preferences-dialog .settings-field-group + .settings-field-group {
   margin-top: calc(var(--settings-content-spacing) + 8px);
@@ -3284,7 +3294,7 @@ textarea::placeholder {
 .preferences-dialog .settings-editor-form .settings-preference-row[hidden] {
   display: none;
 }
-.preferences-dialog .settings-editor-form .settings-preference-row > .field-error {
+.preferences-dialog .settings-editor-form .settings-preference-row > :is(.field-error, .field-review) {
   grid-column: 1 / -1;
   margin-top: 6px;
 }
@@ -4031,9 +4041,10 @@ textarea::placeholder {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--bg-element);
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   font-weight: var(--font-weight-label);
   font-size: var(--font-size-badge);
+  line-height: var(--line-height-control);
   transition:
     border-color var(--motion-duration-fast) var(--motion-easing-default),
     background-color var(--motion-duration-fast) var(--motion-easing-default),
@@ -4045,41 +4056,44 @@ textarea::placeholder {
   height: 11px;
   color: var(--text-muted);
 }
-.pricing-accordion-status.configured {
+.pricing-accordion-status[data-state="configured"] {
   border-color: var(--success-border);
   background: var(--success-subtle);
   color: var(--success-text);
 }
-.pricing-accordion-status.configured svg {
+.pricing-accordion-status[data-state="configured"] svg {
   color: var(--success);
 }
-.pricing-accordion .pricing-accordion-status.partial {
+.pricing-accordion-status[data-state="partial"] {
   border-color: var(--warning-border);
   background: var(--warning-subtle);
   color: var(--warning-text);
 }
-.pricing-accordion .pricing-accordion-status.partial svg {
+.pricing-accordion-status[data-state="partial"] svg {
   color: var(--warning);
+}
+.pricing-accordion-status[data-state="invalid"] {
+  border-color: var(--danger-border);
+  background: var(--danger-subtle);
+  color: var(--danger-text);
+}
+.pricing-accordion-status[data-state="invalid"] svg {
+  color: var(--danger);
 }
 .pricing-accordion-body {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.pricing-accordion .pricing-overview {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.pricing-accordion .pricing-overview[hidden] {
-  display: none;
-}
 .pricing-accordion .pricing-completeness {
   margin: 0 0 10px;
-  color: var(--text-sub);
-  font-size: var(--font-size-description);
-  line-height: var(--line-height-description);
   overflow-wrap: anywhere;
+}
+.pricing-accordion .pricing-completeness[data-state="partial"] {
+  color: var(--warning-text);
+}
+.pricing-accordion .pricing-completeness[data-state="invalid"] {
+  color: var(--danger-text);
 }
 .pricing-tier-block {
   display: flex;
@@ -4092,27 +4106,23 @@ textarea::placeholder {
   justify-content: space-between;
   margin-bottom: 2px;
 }
-.tier-pill {
+.tier-title {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  color: var(--text-main);
   font-weight: var(--font-weight-heading);
   font-size: var(--font-size-title-group);
   line-height: var(--line-height-heading);
 }
-.tier-pill svg {
+.tier-title svg {
   flex-shrink: 0;
   width: 14px;
   height: 14px;
-}
-.tier-pill.standard {
-  color: var(--success);
-}
-.tier-pill.long {
-  color: var(--warning);
+  color: var(--text-muted);
 }
 .tier-range {
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   font-size: var(--font-size-meta);
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
@@ -4121,6 +4131,9 @@ textarea::placeholder {
   display: grid;
   margin: 14px 0;
   gap: 6px;
+}
+.preferences-dialog .pricing-threshold-field > .field-error {
+  text-align: center;
 }
 .tier-divider {
   display: flex;
@@ -4985,8 +4998,11 @@ button svg,
     grid-row: 1;
     grid-column: 2;
   }
-  .preferences-dialog .settings-editor-form .settings-preference-row > .field-error {
+  .preferences-dialog .settings-editor-form .settings-preference-row > .field-review {
     grid-row: 4;
+  }
+  .preferences-dialog .settings-editor-form .settings-preference-row > .field-error {
+    grid-row: 5;
   }
   .preferences-dialog .settings-usage-overview .settings-panel-heading {
     flex-wrap: wrap;
@@ -5112,6 +5128,7 @@ button svg,
   .workspace-manager .workspace-exclusion-switch::before,
   .preferences-dialog .settings-disclosure-header,
   .preferences-dialog .settings-disclosure-chevron,
+  .preferences-dialog .pricing-accordion-status,
   .workspace-manager .workspace-disclosure-header,
   .workspace-manager .workspace-disclosure-chevron,
   .exploration-evidence .evidence-details > summary svg,

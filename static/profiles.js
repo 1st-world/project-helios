@@ -21,11 +21,15 @@ const PRICE_CATEGORIES = [
   ['cache read', 'azure-cache-read-price', 'azure-long-cache-read-price'],
   ['cache write', 'azure-cache-write-price', 'azure-long-cache-write-price'],
 ];
+const pricingFieldList = new Intl.ListFormat('en');
 
-function readPrice(id) {
-  const input = $(`#${id}`);
+function readPrice(input) {
   const invalid = input.validity.badInput || (input.value !== '' && (!Number.isFinite(input.valueAsNumber) || input.valueAsNumber < 0));
   return { value: input.value === '' || invalid ? null : input.valueAsNumber, invalid };
+}
+
+function isValidThreshold(value) {
+  return Number.isSafeInteger(value) && value > 0;
 }
 
 export function createProfiles({ isGenerating, onModelContextChange = () => {}, onSelectionChange = () => {} }) {
@@ -53,8 +57,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
   function validatePrices() {
     for (const id of PRICE_CATEGORIES.flatMap(([, standardId, longId]) => [standardId, longId])) {
       const input = $(`#${id}`);
-      const invalid = input.validity.badInput || (input.value !== '' && (!Number.isFinite(input.valueAsNumber) || input.valueAsNumber < 0));
-      input.setCustomValidity(invalid ? 'Enter a price of 0 or greater, or leave blank.' : '');
+      input.setCustomValidity(readPrice(input).invalid ? 'Enter a price of 0 or greater, or leave blank.' : '');
     }
   }
 
@@ -117,35 +120,35 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
 
   function updatePricingStatus() {
     const statusEl = $('#pricing-accordion-status');
-    if (!statusEl) return;
-    const rates = PRICE_CATEGORIES.map(([name, standardId, longId]) => ({ name, standard: readPrice(standardId), long: readPrice(longId) }));
+    const rates = PRICE_CATEGORIES.map(([name, standardId, longId]) => ({
+      name, standard: readPrice($(`#${standardId}`)), long: readPrice($(`#${longId}`)),
+    }));
     const invalid = rates.flatMap(rate => [
-      ...(rate.standard.invalid ? [`standard ${rate.name}`] : []),
-      ...(rate.long.invalid ? [`long-context ${rate.name}`] : []),
+      ...(rate.standard.invalid ? [`the standard ${rate.name} rate`] : []),
+      ...(rate.long.invalid ? [`the long-context ${rate.name} rate`] : []),
     ]);
+    if (!isValidThreshold(readThreshold())) invalid.push('the threshold breakpoint');
     const missingStandard = rates.filter(rate => rate.standard.value === null).map(rate => rate.name);
-    // A blank long rate inherits independently; an invalid draft must not appear configured.
-    const missingLong = rates.filter(rate => (rate.long.invalid ? null : rate.long.value ?? rate.standard.value) === null).map(rate => rate.name);
     const hasPricing = rates.some(rate => rate.standard.value !== null || rate.long.value !== null);
-    const state = invalid.length ? 'invalid' : !hasPricing ? 'empty' : missingStandard.length || missingLong.length ? 'partial' : 'configured';
-    const labels = { empty: 'Not configured', partial: 'Partial pricing', configured: 'Configured', invalid: 'Check rates' };
-    const icons = { empty: 'circle-dashed', partial: 'triangle-alert', configured: 'check', invalid: 'triangle-alert' };
-    const missingBoth = rates.filter(rate => !rate.standard.invalid && !rate.long.invalid && rate.standard.value === null && rate.long.value === null).map(rate => rate.name);
-    const missingStandardOnly = rates.filter(rate => !rate.standard.invalid && rate.standard.value === null && !missingBoth.includes(rate.name)).map(rate => rate.name);
-    const notes = [
-      ...(missingBoth.length ? [`Missing rates for both tiers: ${missingBoth.join(', ')}.`] : []),
-      ...(missingStandardOnly.length ? [`Missing standard rates: ${missingStandardOnly.join(', ')}.`] : []),
-    ];
-    const message = state === 'empty' ? 'Costs cannot be estimated without rates.' : notes.join(' ');
+    // Valid blank long rates use the corresponding standard rates.
+    const pricingState = invalid.length ? 'invalid' : !hasPricing ? 'empty' : missingStandard.length ? 'partial' : 'configured';
+    let message = '';
+    if (pricingState === 'partial') {
+      message = `Missing standard rates for ${pricingFieldList.format(missingStandard)}.`;
+    } else if (pricingState === 'invalid' && !validation.isReviewing()) {
+      message = `Check ${pricingFieldList.format(invalid)}.`;
+    }
     const completeness = $('#pricing-completeness-status');
     setText(completeness, message);
-    completeness.parentElement.hidden = !message;
-    statusEl.dataset.state = state;
-    statusEl.classList.toggle('configured', state === 'configured');
-    statusEl.classList.toggle('partial', state === 'partial' || state === 'invalid');
-    statusEl.innerHTML = `<i data-lucide="${icons[state]}" aria-hidden="true"></i> ${labels[state]}`;
-    statusEl.title = [labels[state], message, invalid.length ? `Invalid rates: ${invalid.join(', ')}.` : ''].filter(Boolean).join(' ');
-    refreshIcons();
+    completeness.hidden = !message;
+    completeness.dataset.state = pricingState;
+    if (statusEl.dataset.state !== pricingState) {
+      const labels = { empty: 'Not configured', partial: 'Partial pricing', configured: 'Configured', invalid: 'Check pricing' };
+      const icons = { empty: 'circle-dashed', partial: 'triangle-alert', configured: 'check', invalid: 'circle-alert' };
+      statusEl.dataset.state = pricingState;
+      statusEl.innerHTML = `<i data-lucide="${icons[pricingState]}" aria-hidden="true"></i> ${labels[pricingState]}`;
+      refreshIcons();
+    }
   }
 
   function setKeyVisibility(visible) {
@@ -502,7 +505,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     validatePrices();
     const thresholdInput = $('#azure-long-threshold');
     const threshold = readThreshold();
-    thresholdInput.setCustomValidity(Number.isSafeInteger(threshold) && threshold > 0 ? ''
+    thresholdInput.setCustomValidity(isValidThreshold(threshold) ? ''
       : threshold > Number.MAX_SAFE_INTEGER ? `Enter a whole number no greater than ${Number.MAX_SAFE_INTEGER.toLocaleString()}.`
       : 'Enter a positive whole number, or leave blank for the default.');
     for (const [id, message] of [
@@ -516,21 +519,23 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     }
     const endpoint = $('#azure-endpoint');
     if (endpoint.validity.typeMismatch) endpoint.setCustomValidity('Enter a valid Foundry endpoint URL, including https://.');
-    return validation.showErrors({ focus });
+    const valid = validation.showErrors({ focus });
+    updatePricingStatus();
+    return valid;
   }
 
   function updateThresholdLabels() {
-    const inputEl = $('#azure-long-threshold');
-    if (!inputEl) return;
-    const val = readThreshold();
-    let display = '—';
-    if (Number.isSafeInteger(val) && val > 0) {
-      display = (val >= 1000 && val % 1000 === 0) ? `${val / 1000}K` : val.toLocaleString();
-    }
+    const threshold = readThreshold();
     const stdLabel = $('#standard-range-label');
     const longLabel = $('#long-range-label');
-    if (stdLabel) stdLabel.textContent = `≤ ${display} tokens`;
-    if (longLabel) longLabel.textContent = `> ${display} tokens`;
+    const valid = isValidThreshold(threshold);
+    stdLabel.hidden = !valid;
+    longLabel.hidden = !valid;
+    if (valid) {
+      const display = threshold >= 1000 && threshold % 1000 === 0 ? `${threshold / 1000}K` : threshold.toLocaleString();
+      setText(stdLabel, `≤ ${display} tokens`);
+      setText(longLabel, `> ${display} tokens`);
+    }
   }
 
   function setGenerating(value) {
@@ -559,11 +564,6 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
   function init() {
     profileContext.init();
     $('#reload-profile-catalog').onclick = loadProfiles;
-    for (const [, standardId, longId] of PRICE_CATEGORIES) {
-      for (const id of [standardId, longId]) {
-        $(`#${id}`).addEventListener('input', updatePricingStatus);
-      }
-    }
     const modelPicker = $('#model-picker');
     if (modelPicker) {
       document.addEventListener('click', (event) => {
@@ -595,9 +595,10 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
       else resetProfileForm();
       $('#settings-connections-tab').focus({ preventScroll: true });
     };
-    form.addEventListener('input', () => {
+    form.addEventListener('input', event => {
       setStatus('');
       if (validation.isReviewing()) validate(false);
+      else if (event.target.closest('#profile-pricing-accordion')) updatePricingStatus();
     });
 
     const toggleKeyBtn = $('#toggle-api-key-btn');

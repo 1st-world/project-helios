@@ -1,4 +1,13 @@
-/* Present constraint errors beside form controls while preserving their existing descriptions and disclosure structure. */
+/* Present field feedback while preserving control descriptions and disclosure structure. */
+
+export function setFieldFeedback(input, feedback, visible) {
+  feedback.hidden = !visible;
+  const descriptions = new Set((input.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean));
+  if (visible) descriptions.add(feedback.id);
+  else descriptions.delete(feedback.id);
+  if (descriptions.size) input.setAttribute('aria-describedby', [...descriptions].join(' '));
+  else input.removeAttribute('aria-describedby');
+}
 
 export function createFieldValidation(form) {
   const fields = [...form.querySelectorAll('input, select')];
@@ -17,11 +26,7 @@ export function createFieldValidation(form) {
     }
     if (!error) return;
     if (error.textContent !== message) error.textContent = message;
-    error.hidden = !message;
-    const descriptions = (input.getAttribute('aria-describedby') || '').split(/\s+/).filter(id => id && id !== error.id);
-    if (message) descriptions.push(error.id);
-    if (descriptions.length) input.setAttribute('aria-describedby', descriptions.join(' '));
-    else input.removeAttribute('aria-describedby');
+    setFieldFeedback(input, error, Boolean(message));
   }
 
   function reset() {

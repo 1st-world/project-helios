@@ -3,7 +3,7 @@
 import { $, setText, toast } from './ui.js';
 import { PREFLIGHT_HELP, describeRequestError } from './chat-feedback.js';
 import { showActionDialog } from './dialogs.js';
-import { createFieldValidation } from './field-validation.js';
+import { createFieldValidation, setFieldFeedback } from './field-validation.js';
 
 export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving }) {
   const form = $('#app-settings-form');
@@ -68,22 +68,25 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     const busy = state.loading || state.saving || isProfileSaving();
     let defaultsDiffer = false;
     for (const input of fields.values()) input.disabled = busy || !state.saved;
-    const inputMode = fields.get('context_input_budget_mode').value;
+    const budgetMode = fields.get('context_input_budget_mode');
+    const inputMode = budgetMode.value;
     fields.get('context_input_budget').disabled ||= inputMode !== 'custom';
     fields.get('context_input_budget').closest('.settings-preference-row').hidden = inputMode !== 'custom';
-    fields.get('context_input_budget_mode').querySelector('[value="legacy"]').hidden = state.saved?.context_input_budget_mode !== 'legacy';
+    budgetMode.querySelector('[value="legacy"]').hidden = state.saved?.context_input_budget_mode !== 'legacy';
     const useMemory = fields.get('memory_use_saved_summaries').checked;
     const generateMemory = fields.get('memory_generation_enabled').checked;
     fields.get('memory_generation_enabled').disabled ||= !useMemory;
     fields.get('memory_background_enabled').disabled ||= !useMemory || !generateMemory;
     setText($('#memory-generation-enabled-help'), useMemory
-      ? 'Create summaries as input grows. Off keeps saved summaries available.'
+      ? 'Make additional paid calls to summarize older messages. Off keeps saved summaries available.'
       : 'Available when Use saved summaries is On.');
     setText($('#memory-background-enabled-help'), useMemory && generateMemory
       ? 'Check after completed replies. Off still allows summaries before a reply.'
       : 'Available when saved-summary use and generation are On.');
     const trigger = fields.get('summary_trigger_tokens');
-    trigger.min = state.legacyTriggerRetained && trigger.valueAsNumber === 0 ? '0' : '1';
+    const retainedZero = state.legacyTriggerRetained && trigger.valueAsNumber === 0;
+    trigger.min = retainedZero ? '0' : '1';
+    setFieldFeedback(trigger, $('#summary-trigger-review'), retainedZero);
     resetButtons.forEach(button => {
       const name = button.dataset.resetSetting;
       const input = fields.get(name);
@@ -100,12 +103,12 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     $('#save-app-settings').setAttribute('aria-label', state.saving ? 'Saving changes' : 'Save changes');
     renderStatus();
     $('#context-preflight-help').textContent = PREFLIGHT_HELP[fields.get('context_preflight_mode').value] || 'How to handle estimates above the selected input limits.';
-    $('#app-input-policy-review').hidden = inputMode !== 'legacy';
+    setFieldFeedback(budgetMode, $('#app-input-policy-review'), inputMode === 'legacy');
     if (inputMode === 'legacy') {
       const output = valueOf(fields.get('context_output_reserve'));
       const budget = fields.get('context_token_budget').valueAsNumber - (output ?? 0);
       $('#app-input-budget').textContent = Number.isSafeInteger(budget) && budget >= 0
-        ? `Draft legacy input budget: ${budget.toLocaleString()} tokens.`
+        ? `Draft budget before profile limits is ${budget.toLocaleString()} tokens.`
         : 'Review the summary work budget and output limit to calculate the legacy input budget.';
     }
     showAttachmentLimits();
