@@ -50,6 +50,14 @@ def _reject_constant(value: str) -> None:
     raise ValueError("Unsupported JSON number.")
 
 
+def decode_storage_json(source: str | bytes) -> object:
+    """Decode saved JSON while rejecting duplicate keys and non-finite values."""
+    return json.loads(
+        source, object_pairs_hook=_unique_members,
+        parse_float=_finite_float, parse_constant=_reject_constant,
+    )
+
+
 class JsonDocumentStore:
     """Own a disk snapshot, preserve its first legacy version, and detect stale writers."""
 
@@ -74,10 +82,7 @@ class JsonDocumentStore:
         if original is None:
             return
         try:
-            document = json.loads(
-                original, object_pairs_hook=_unique_members,
-                parse_float=_finite_float, parse_constant=_reject_constant,
-            )
+            document = decode_storage_json(original)
             if not isinstance(document, dict):
                 raise ValueError("Document must be an object.")
             if "schema_version" not in document:

@@ -104,6 +104,7 @@ See the [detailed usage guide](docs/reference/usage.md) for settings precedence,
 - The app runs locally, but questions, history, selected context, and attachment content are sent to the external Provider to generate replies.
 - The default setup is a **local single-user app** without login or separate user permissions. Run one server process.
 - Alpha features and storage formats can change. Back up related data together as described in [storage and compatibility](docs/reference/architecture.md#versions-and-compatibility).
+- If Helios cannot start or a saved item is missing, run the [read-only storage diagnostic](docs/reference/architecture.md#read-only-storage-diagnostics).
 
 ## Documentation and development
 
