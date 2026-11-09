@@ -159,4 +159,4 @@ Entra ID나 모델 조회는 일반 채팅의 선행 조건으로 두지 않습�
 
 ## 문서 범위
 
-유지보수하는 두 언어의 참조 문서는 `docs/reference/`에 둡니다. 영문은 기본 `.md` 파일명, 한글 번역은 `.ko-kr.md`를 사용합니다. 정제된 재사용용 실제 Provider 근거는 [SHARED-provider-records](../SHARED-provider-records/README.md)로 분리합니다. 로컬 계획·검사 보고서·화면 자료는 이 참조 문서에 포함하지 않으며, 과거 통신 기록이 모든 모델의 지원을 보장하지는 않습니다.
+유지보수하는 두 언어의 참조 문서는 `docs/reference/`에 둡니다. 영문은 기본 `.md` 파일명, 한글 번역은 `.ko-kr.md`를 사용합니다. 정제된 재사용용 실제 Provider 근거는 [SHARED-provider-records](../SHARED-provider-records/README.ko-kr.md)로 분리합니다. 로컬 계획·검사 보고서·화면 자료는 이 참조 문서에 포함하지 않으며, 과거 통신 기록이 모든 모델의 지원을 보장하지는 않습니다.

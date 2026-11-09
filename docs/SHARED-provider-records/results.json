@@ -131,6 +131,26 @@
     }
   ],
   "new_live_provider_calls": 49,
+  "follow_up_batches": [
+    {
+      "display_date": "2026-11-09",
+      "id": "memory-compaction-flash",
+      "calls": 2,
+      "models": {
+        "flash": 2
+      },
+      "provider_reported_total_tokens": 1459,
+      "runs": [
+        {
+          "id": "M01",
+          "path": "runs/2026-11-09/M01-01.json",
+          "evidence_kind": "live_wire_capture",
+          "calls": 2,
+          "outcome": "pass_with_replay"
+        }
+      ]
+    }
+  ],
   "reuse_evidence": [
     {
       "id": "legacy-2026-09-30-to-10-01",
