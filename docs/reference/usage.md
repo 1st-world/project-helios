@@ -51,6 +51,8 @@ When a public summary arrives, **Reasoning summary** opens by default above the 
 
 **Settings → Context & attachments** contains app-wide settings. **Connections → profile → Context & memory** contains profile settings. A profile can replace the app's input budget and Input check mode. For output, the smaller explicit app or profile limit applies. Saved changes apply to new requests.
 
+**Saved effective policy** shows the current profile policy. When you edit its context settings or start a new profile, **Draft effective policy** shows what would apply using the last saved app settings. The card identifies the source of the input budget, Input check, and output limit.
+
 Each request pins its selected connection, model, pricing and policy at the start. Changing the active selection, adding/editing/deleting another profile, renaming a profile, or saving identical values does not revoke that request's memory summary or resumed work. Changes to the pinned profile's actual request settings, or its deletion, revoke only that profile's authorization. Restoring values or turning memory back on does not revive previously revoked work. Shared app policy changes retain validation that revokes existing requests across profiles.
 
 ### Input and output
@@ -75,7 +77,7 @@ Memory optionally summarizes older conversation text and uses the summary in lat
 
 1. Enter verified capacity information in the profile's **Deployment information**. You can use Declared maximum input or Declared context window.
 2. Planning from a context window requires output headroom. Values are selected in this order: **Summary output headroom → effective Output limit → Declared maximum output**. Planning from maximum input alone is shown as having unverified shared input/output capacity.
-3. Select **Conversation memory → On**, save, and check **Saved effective policy** for generation readiness. Missing capacity information prevents new automatic summaries; permitted saved memory can still be used.
+3. Select **Conversation memory → On**, check generation readiness in **Draft effective policy**, and save. Missing capacity information prevents new automatic summaries. Permitted saved memory can still be used.
 
 Choose app-wide behavior under **Settings → Context & attachments → Memory summaries**.
 

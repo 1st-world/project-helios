@@ -1,4 +1,4 @@
-/* Edit independent profile context limits and model capacity declarations, and fetch their saved policy without provider calls. */
+/* Edit profile context settings and preview their effective policy without provider calls. */
 
 import { $, setText } from './ui.js';
 import { PREFLIGHT_HELP, describeMemoryState, describeRequestError } from './chat-feedback.js';
@@ -6,10 +6,15 @@ import { describeEstimation } from './estimation.js';
 import { setFieldFeedback } from './field-validation.js';
 
 export function createProfileContext({ isSaving }) {
+  const dialog = $('#settings-dialog');
   const disclosure = $('#profile-context-settings');
+  const policyTitle = $('#profile-context-effective-title');
+  const policyStatus = $('#profile-context-effective-status');
+  const policyValues = $('#profile-context-effective');
+  const retry = $('#profile-context-retry');
   const fields = new Map([...disclosure.querySelectorAll('[data-profile-context]')].map(input => [input.dataset.profileContext, input]));
   const resets = [...disclosure.querySelectorAll('[data-clear-profile-context]')];
-  const state = { profile: null, controller: null, loaded: false, usesLegacyAppBudget: false };
+  const state = { profile: null, timer: null, controller: null, loadedKey: null, usesLegacyAppBudget: false };
 
   function savedValue(name) {
     if (name === 'memory_enabled') return state.profile ? state.profile[name] ?? null : false;
@@ -53,19 +58,21 @@ export function createProfileContext({ isSaving }) {
       || 'Uses the input check selected in Context & attachments.';
   }
 
-  function invalidate() {
+  function cancelPreview() {
+    clearTimeout(state.timer);
+    state.timer = null;
     state.controller?.abort();
     state.controller = null;
-    state.loaded = false;
+  }
+
+  function invalidate() {
+    cancelPreview();
+    state.loadedKey = null;
     state.usesLegacyAppBudget = false;
-    updateBudgetReview();
-    $('#profile-context-retry').hidden = true;
-    $('#profile-context-effective').textContent = state.profile
-      ? 'Saved policy is not loaded.'
-      : 'No saved policy for this new profile.';
   }
 
   function select(profile) {
+    if (!profile || state.profile?.id !== profile.id) policyValues.replaceChildren();
     state.profile = profile;
     invalidate();
     for (const [name, input] of fields) {
@@ -73,106 +80,161 @@ export function createProfileContext({ isSaving }) {
       input.setCustomValidity('');
     }
     updateControls();
-    load();
+    schedulePreview();
   }
 
-  async function load() {
-    if (!state.profile || state.loaded || state.controller || !disclosure.open
-      || !$('#settings-dialog').open || $('#settings-connections').hidden) return;
+  function setPreviewFeedback(message = '') {
+    const stale = Boolean(message) && policyValues.hasChildNodes();
+    policyValues.toggleAttribute('data-stale', stale);
+    const separator = message.includes('\n') ? '\n' : ' ';
+    setText(policyStatus, stale ? `${message}${separator}Showing previous values.` : message);
+  }
+
+  function schedulePreview(delay = 0) {
+    cancelPreview();
+    if (!disclosure.open || !dialog.open || $('#settings-connections').hidden) return;
+
+    const profileId = state.profile?.id ?? null;
+    const edits = changes(Boolean(profileId));
+    const invalid = [...fields.values()].some(input => fieldError(input));
+    const draft = invalid || !profileId || Object.keys(edits).length > 0;
+    const key = JSON.stringify([profileId, draft ? edits : null]);
+    setText(policyTitle, draft ? 'Draft effective policy' : 'Saved effective policy');
+    retry.hidden = true;
+    if (invalid) {
+      setPreviewFeedback('Check the context fields.');
+      return;
+    }
+    if (key === state.loadedKey) {
+      setPreviewFeedback();
+      return;
+    }
+
+    setPreviewFeedback('Updating preview.');
+    const payload = draft ? { profile_id: profileId, ...edits } : null;
+    if (delay) {
+      state.timer = setTimeout(() => {
+        state.timer = null;
+        loadPreview(profileId, payload, key);
+      }, delay);
+    } else {
+      loadPreview(profileId, payload, key);
+    }
+  }
+
+  async function loadPreview(profileId, payload, key) {
     const controller = new AbortController();
     state.controller = controller;
-    $('#profile-context-retry').hidden = true;
-    $('#profile-context-effective').textContent = 'Loading saved effective policy...';
     try {
-      const response = await fetch(`/api/context-policy?profile_id=${encodeURIComponent(state.profile.id)}`, { signal: controller.signal });
+      const response = payload
+        ? await fetch('/api/context-policy/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        })
+        : await fetch(`/api/context-policy?profile_id=${encodeURIComponent(profileId)}`, { signal: controller.signal });
       const data = await response.json();
       if (state.controller !== controller) return;
       if (!response.ok) {
-        const feedback = describeRequestError(data, 'Could not load the saved policy.', `HTTP ${response.status}`);
+        const feedback = describeRequestError(data, 'Could not load the effective policy.', `HTTP ${response.status}`);
         throw new Error([feedback.message, ...feedback.details].join('\n'));
       }
-      const declaredOutput = data.declared_model_max_output_tokens ?? null;
-      const memory = data.summary_policy;
-      const generationReady = memory?.state === 'ready' && memory.generation_enabled !== false;
-      const planningHelp = {
-        missing_input_capacity: 'Add a declared maximum input or context window.',
-        missing_output_headroom: 'Add summary output headroom, an explicit output limit, or declared maximum output.',
-        invalid_capacity: 'The context window must exceed summary output headroom.',
-        capacity_too_small: 'The effective summary trigger is too small to plan memory.'
-      };
-      const headroomSources = { planning: 'Planning value', output_limit: 'Selected output limit', declared_output: 'Declared maximum output', unknown: 'Unverified' };
-      if (!['warn', 'block', 'off'].includes(data.mode) || (data.input_budget !== null && (!Number.isSafeInteger(data.input_budget) || data.input_budget < (data.legacy_input_policy ? 0 : 1)))
-        || (data.max_output_tokens !== null && (!Number.isSafeInteger(data.max_output_tokens) || data.max_output_tokens < 1))
-        || (declaredOutput !== null && (!Number.isSafeInteger(declaredOutput) || declaredOutput < 1))
-        || (data.declared_model_input_limit !== null && (!Number.isSafeInteger(data.declared_model_input_limit) || data.declared_model_input_limit < 0))) {
-        throw new Error('Could not read the saved effective policy.');
-      }
-      const budget = data.input_budget === null ? 'No input limit' : `${data.input_budget.toLocaleString()} tokens`;
-      const budgetSource = { app: 'App setting', profile: 'Profile setting', legacy: 'Previous policy' }[data.input_budget_source];
-      const values = [
-        ['Input budget', budgetSource ? `${budget} · ${budgetSource}` : budget],
-        ['Input check', data.mode.charAt(0).toUpperCase() + data.mode.slice(1)],
-        ['Output limit', data.max_output_tokens === null ? 'Provider default' : `${data.max_output_tokens.toLocaleString()} tokens`],
-        ['Declared input ceiling', data.declared_model_input_limit === null ? 'Unknown' : `${data.declared_model_input_limit.toLocaleString()} tokens`],
-        ['Declared maximum output', declaredOutput === null ? 'Unknown' : `${declaredOutput.toLocaleString()} tokens`],
-        ['Memory', describeMemoryState(memory)],
-        ['Summary trigger', generationReady && Number.isSafeInteger(memory.trigger_tokens) ? `${memory.trigger_tokens.toLocaleString()} tokens (${memory.mode === 'auto' ? 'Automatic' : 'Custom'})` : 'Inactive'],
-      ];
-      if (generationReady) values.push(
-        ['Summary input per call', `${memory.summary_input_limit.toLocaleString()} tokens`],
-        ['Output planning headroom', memory.output_headroom === null ? 'Unverified' : `${memory.output_headroom.toLocaleString()} tokens (${headroomSources[memory.headroom_source] || 'Unverified'})`]
-      );
-      if (generationReady) {
-        for (const [label, value] of [
-          ['Recent history target', memory.effective_keep_recent_tokens],
-          ['Summary text target', memory.summary_target_tokens],
-          ['Post-summary input target', memory.compaction_target_tokens],
-        ]) {
-          if (Number.isSafeInteger(value)) values.push([label, `${value.toLocaleString()} tokens`]);
-        }
-      }
-      const container = $('#profile-context-effective');
-      const list = document.createElement('dl');
-      list.className = 'settings-policy-list';
-      for (const [label, value] of values) {
-        const row = document.createElement('div');
-        const term = document.createElement('dt');
-        const description = document.createElement('dd');
-        term.textContent = label;
-        description.textContent = value;
-        row.append(term, description);
-        list.append(row);
-      }
-      container.replaceChildren(list);
-      const notes = [
-        memory?.state === 'needs_info' ? planningHelp[memory.reason] || 'Check declared deployment capacity before creating new summaries.' : '',
-        generationReady && memory.input_only ? 'Shared context capacity is unverified; planning uses declared maximum input only.' : '',
-        generationReady && memory.trigger_adjusted ? `The configured summary trigger is ${memory.configured_trigger_tokens.toLocaleString()} tokens. Its effective value is limited to this deployment's input allowance; the app preference is unchanged.` : '',
-        generationReady && memory.effective_keep_recent_tokens < memory.keep_recent_tokens ? 'Recent-history and summary targets share 20% of the effective trigger. Complete turns and essential memory may exceed these targets.' : '',
-        generationReady && Number.isSafeInteger(memory.summary_target_tokens) ? 'Missing a target does not request another summary pass. Long prefixes can still need multiple calls; API output caps are unchanged.' : '',
-        describeEstimation(data) || (generationReady ? describeEstimation(memory) : '')
-      ].filter(Boolean);
-      if (notes.length) {
-        const noteGroup = document.createElement('div');
-        noteGroup.className = 'settings-policy-notes';
-        for (const note of notes) {
-          const paragraph = document.createElement('p');
-          paragraph.textContent = note;
-          noteGroup.append(paragraph);
-        }
-        container.append(noteGroup);
-      }
-      state.usesLegacyAppBudget = data.legacy_input_policy === true && savedValue('context_input_budget_mode') === 'inherit';
-      updateBudgetReview();
-      state.loaded = true;
+      renderPolicy(data);
+      state.loadedKey = key;
+      setPreviewFeedback();
     } catch (error) {
       if (error.name !== 'AbortError' && state.controller === controller) {
-        $('#profile-context-effective').textContent = error.message || 'Could not load the saved effective policy.';
-        $('#profile-context-retry').hidden = false;
+        setPreviewFeedback(error.message || 'Could not load the effective policy.');
+        retry.hidden = false;
       }
     } finally {
       if (state.controller === controller) state.controller = null;
     }
+  }
+
+  function renderPolicy(data) {
+    const declaredOutput = data.declared_model_max_output_tokens ?? null;
+    const memory = data.summary_policy;
+    const generationReady = memory?.state === 'ready' && memory.generation_enabled !== false;
+    const planningHelp = {
+      missing_input_capacity: 'Add a declared maximum input or context window.',
+      missing_output_headroom: 'Add summary output headroom, an explicit output limit, or declared maximum output.',
+      invalid_capacity: 'The context window must exceed summary output headroom.',
+      capacity_too_small: 'The effective summary trigger is too small to plan memory.'
+    };
+    const headroomSources = { planning: 'Planning value', output_limit: 'Selected output limit', declared_output: 'Declared maximum output', unknown: 'Unverified' };
+    if (!['warn', 'block', 'off'].includes(data.mode) || (data.input_budget !== null && (!Number.isSafeInteger(data.input_budget) || data.input_budget < (data.legacy_input_policy ? 0 : 1)))
+      || (data.max_output_tokens !== null && (!Number.isSafeInteger(data.max_output_tokens) || data.max_output_tokens < 1))
+      || (declaredOutput !== null && (!Number.isSafeInteger(declaredOutput) || declaredOutput < 1))
+      || (data.declared_model_input_limit !== null && (!Number.isSafeInteger(data.declared_model_input_limit) || data.declared_model_input_limit < 0))) {
+      throw new Error('Could not read the effective policy.');
+    }
+    const budget = data.input_budget === null ? 'No input limit' : `${data.input_budget.toLocaleString()} tokens`;
+    const sources = { app: 'App setting', profile: 'Profile setting', app_and_profile: 'App and profile settings' };
+    const budgetSource = data.legacy_input_policy
+      ? (data.input_budget_inherited ? 'Previous app policy' : 'Previous profile policy')
+      : (sources[data.input_budget_source] || (data.input_budget_inherited ? sources.app : null));
+    const inputCheck = data.mode.charAt(0).toUpperCase() + data.mode.slice(1);
+    const values = [
+      ['Input budget', withSource(budget, budgetSource)],
+      ['Input check', withSource(inputCheck, sources[data.input_check_source])],
+      ['Output limit', data.max_output_tokens === null ? 'Provider default' : withSource(`${data.max_output_tokens.toLocaleString()} tokens`, sources[data.output_limit_source])],
+      ['Declared input ceiling', data.declared_model_input_limit === null ? 'Unknown' : `${data.declared_model_input_limit.toLocaleString()} tokens`],
+      ['Declared maximum output', declaredOutput === null ? 'Unknown' : `${declaredOutput.toLocaleString()} tokens`],
+      ['Memory', describeMemoryState(memory)],
+      ['Summary trigger', generationReady && Number.isSafeInteger(memory.trigger_tokens) ? `${memory.trigger_tokens.toLocaleString()} tokens (${memory.mode === 'auto' ? 'Automatic' : 'Custom'})` : 'Inactive'],
+    ];
+    if (generationReady) values.push(
+      ['Summary input per call', `${memory.summary_input_limit.toLocaleString()} tokens`],
+      ['Output planning headroom', memory.output_headroom === null ? 'Unverified' : `${memory.output_headroom.toLocaleString()} tokens (${headroomSources[memory.headroom_source] || 'Unverified'})`]
+    );
+    if (generationReady) {
+      for (const [label, value] of [
+        ['Recent history target', memory.effective_keep_recent_tokens],
+        ['Summary text target', memory.summary_target_tokens],
+        ['Post-summary input target', memory.compaction_target_tokens],
+      ]) {
+        if (Number.isSafeInteger(value)) values.push([label, `${value.toLocaleString()} tokens`]);
+      }
+    }
+    const list = document.createElement('dl');
+    list.className = 'settings-policy-list';
+    for (const [label, value] of values) {
+      const row = document.createElement('div');
+      const term = document.createElement('dt');
+      const description = document.createElement('dd');
+      term.textContent = label;
+      description.textContent = value;
+      row.append(term, description);
+      list.append(row);
+    }
+    const notes = [
+      memory?.state === 'needs_info' ? planningHelp[memory.reason] || 'Check declared deployment capacity before creating new summaries.' : '',
+      generationReady && memory.input_only ? 'Shared context capacity is unverified; planning uses declared maximum input only.' : '',
+      generationReady && memory.trigger_adjusted ? `The configured summary trigger is ${memory.configured_trigger_tokens.toLocaleString()} tokens. Its effective value is limited to this deployment's input allowance; the app preference is unchanged.` : '',
+      generationReady && memory.effective_keep_recent_tokens < memory.keep_recent_tokens ? 'Recent-history and summary targets share 20% of the effective trigger. Complete turns and essential memory may exceed these targets.' : '',
+      generationReady && Number.isSafeInteger(memory.summary_target_tokens) ? 'Missing a target does not request another summary pass. Long prefixes can still need multiple calls; API output caps are unchanged.' : '',
+      describeEstimation(data) || (generationReady ? describeEstimation(memory) : '')
+    ].filter(Boolean);
+    const content = [list];
+    if (notes.length) {
+      const noteGroup = document.createElement('div');
+      noteGroup.className = 'settings-policy-notes';
+      for (const note of notes) {
+        const paragraph = document.createElement('p');
+        paragraph.textContent = note;
+        noteGroup.append(paragraph);
+      }
+      content.push(noteGroup);
+    }
+    policyValues.replaceChildren(...content);
+    state.usesLegacyAppBudget = data.app_input_budget_mode === 'legacy';
+    updateBudgetReview();
+  }
+
+  function withSource(value, source) {
+    return source ? `${value} · ${source}` : value;
   }
 
   function changes(editing) {
@@ -185,19 +247,21 @@ export function createProfileContext({ isSaving }) {
     return result;
   }
 
-  function validate() {
-    for (const input of fields.values()) {
-      input.setCustomValidity('');
-      if (input.disabled) continue;
-      if (input.dataset.profileContext === 'context_input_budget' && fields.get('context_input_budget_mode').value === 'custom' && input.value === '') {
-        input.setCustomValidity('Enter a positive token limit for the custom budget.');
-      }
-      if (input.tagName !== 'SELECT' && (input.validity.badInput || (input.value !== '' && (!Number.isSafeInteger(input.valueAsNumber) || input.valueAsNumber < 1)))) {
-        input.setCustomValidity(input.valueAsNumber > Number.MAX_SAFE_INTEGER
-          ? `Enter a whole number no greater than ${Number.MAX_SAFE_INTEGER.toLocaleString()}.`
-          : 'Enter a positive whole number, or leave blank.');
-      }
+  function fieldError(input) {
+    if (input.disabled) return '';
+    if (input.tagName !== 'SELECT' && (input.validity.badInput || (input.value !== '' && (!Number.isSafeInteger(input.valueAsNumber) || input.valueAsNumber < 1)))) {
+      return input.valueAsNumber > Number.MAX_SAFE_INTEGER
+        ? `Enter a whole number no greater than ${Number.MAX_SAFE_INTEGER.toLocaleString()}.`
+        : 'Enter a positive whole number, or leave blank.';
     }
+    if (input.dataset.profileContext === 'context_input_budget' && input.value === '') {
+      return 'Enter a positive token limit for the custom budget.';
+    }
+    return '';
+  }
+
+  function validate() {
+    for (const input of fields.values()) input.setCustomValidity(fieldError(input));
   }
 
   function init() {
@@ -205,6 +269,7 @@ export function createProfileContext({ isSaving }) {
       input.addEventListener('input', () => {
         input.setCustomValidity('');
         updateControls();
+        schedulePreview(250);
       });
     }
     resets.forEach(button => {
@@ -221,10 +286,14 @@ export function createProfileContext({ isSaving }) {
         target.focus({ preventScroll: true });
       };
     });
-    disclosure.addEventListener('toggle', load);
-    $('#profile-context-retry').onclick = load;
-    $('#settings-dialog').addEventListener('settings-panel-change', event => { if (event.detail.name === 'connections') load(); });
-    $('#settings-dialog').addEventListener('app-settings-saved', () => { invalidate(); load(); });
+    disclosure.addEventListener('toggle', () => schedulePreview());
+    retry.onclick = () => schedulePreview();
+    dialog.addEventListener('settings-panel-change', () => schedulePreview());
+    dialog.addEventListener('app-settings-saved', () => {
+      invalidate();
+      updateBudgetReview();
+      schedulePreview();
+    });
     updateControls();
   }
 

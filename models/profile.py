@@ -4,6 +4,8 @@ import math
 from dataclasses import asdict, dataclass, field
 from uuid import uuid4
 
+from models.input_budget import normalize_input_budget_settings
+
 
 # GPT-6 long-context pricing starts above this input-token breakpoint.
 DEFAULT_LONG_CONTEXT_THRESHOLD = 272_000
@@ -83,6 +85,14 @@ def normalize_output_limit_settings(settings: dict) -> dict:
         raise ValueError("Output token limit and its deprecated alias must match.")
     normalized.setdefault("output_token_limit", legacy_limit)
     return normalized
+
+
+def normalize_profile_context_settings(settings: dict) -> dict:
+    """Normalize partial profile policy changes and reject unrelated fields."""
+    changes = normalize_input_budget_settings(normalize_output_limit_settings(settings))
+    if set(changes) - set(PROFILE_POLICY_FIELDS):
+        raise ValueError("Unknown context setting.")
+    return changes
 
 
 @dataclass

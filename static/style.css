@@ -2892,18 +2892,30 @@ textarea::placeholder {
   font-size: var(--font-size-title-group);
   line-height: var(--line-height-heading);
 }
-.preferences-dialog .settings-policy-summary > p {
-  margin: 8px 0 0;
+.preferences-dialog .settings-policy-summary .settings-policy-description {
+  display: grid;
+  margin-top: 8px;
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
 }
-.preferences-dialog .settings-policy-summary .settings-policy-values {
-  font-size: var(--font-size-description);
-  line-height: var(--line-height-description);
+.preferences-dialog .settings-policy-summary .settings-policy-description > p {
+  grid-area: 1 / 1;
+  margin: 0;
+}
+.preferences-dialog .settings-policy-summary .settings-policy-description > [role="status"] {
   white-space: pre-line;
 }
-.preferences-dialog .settings-policy-summary > p + .settings-policy-values {
+.preferences-dialog .settings-policy-summary .settings-policy-description:has(> [role="status"]:not(:empty)) > .field-hint {
+  /* Keep the normal hint's wrapped height while showing feedback. */
+  visibility: hidden;
+}
+.preferences-dialog .settings-policy-summary .settings-policy-values {
   margin-top: 8px;
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+}
+.preferences-dialog .settings-policy-summary .settings-policy-values:empty {
+  display: none;
 }
 .preferences-dialog .settings-policy-summary .settings-policy-list {
   margin: 0;
@@ -2930,6 +2942,9 @@ textarea::placeholder {
 }
 .preferences-dialog .settings-policy-list dd {
   color: var(--text-main);
+}
+.preferences-dialog .settings-policy-summary .settings-policy-values[data-stale] .settings-policy-list dd {
+  color: var(--text-muted);
 }
 .preferences-dialog .settings-policy-notes {
   display: grid;

@@ -51,6 +51,8 @@ Work tools를 선택해도 실제 도구 호출 전에는 일반 응답과 같�
 
 **Settings → Context & attachments**는 앱 공통 설정, **Connections → 프로필 → Context & memory**는 프로필별 설정입니다. 프로필의 입력 예산과 Input check는 앱 설정을 상속하거나 별도로 지정할 수 있습니다. 출력 제한은 앱과 프로필에 명시한 값 중 작은 값이 적용됩니다. 저장한 변경은 새 요청에 적용됩니다.
 
+**Saved effective policy**는 현재 저장된 프로필의 적용 정책을 보여 줍니다. 컨텍스트 설정을 편집하거나 새 프로필을 작성하면 **Draft effective policy**에 마지막으로 저장한 앱 설정을 기준으로 적용될 값이 표시됩니다. 여기서 입력 예산, Input check, 출력 제한의 출처를 확인할 수 있습니다.
+
 각 요청은 시작할 때 선택한 연결·모델·가격·정책을 고정합니다. 활성 프로필 선택 변경, 다른 프로필의 추가·수정·삭제, 표시 이름만 변경하거나 같은 값을 다시 저장하는 행위는 해당 요청의 메모리 요약이나 재개 실행을 무효화하지 않습니다. 사용 중인 프로필의 실제 요청 설정 변경·삭제는 그 프로필의 권한을 무효화하며, 값을 되돌리거나 메모리를 다시 켜도 이미 철회된 실행 권한이 되살아나지 않습니다. 앱의 공통 정책 변경은 기존 요청 전체에 적용되는 무효화 검증을 유지합니다.
 
 ### 입력과 출력
@@ -75,7 +77,7 @@ Work tools를 선택해도 실제 도구 호출 전에는 일반 응답과 같�
 
 1. 프로필의 **Deployment information**에 확인한 용량을 입력합니다. Declared maximum input 또는 Declared context window를 사용할 수 있습니다.
 2. Context window를 사용하는 경우 출력 계획 여유량이 필요합니다. **Summary output headroom → 적용 중인 Output limit → Declared maximum output** 순으로 값을 선택합니다. 최대 입력만으로 계획할 때는 입력·출력 공유 용량을 확인하지 못한 상태로 표시합니다.
-3. **Conversation memory → On**을 선택해 저장하고, **Saved effective policy**에서 생성 준비 상태를 확인합니다. 용량 정보가 부족하면 새 자동 요약을 만들지 않으며, 허용된 저장 메모리는 계속 사용할 수 있습니다.
+3. **Conversation memory → On**을 선택하고 **Draft effective policy**에서 생성 준비 상태를 확인한 뒤 저장합니다. 용량 정보가 부족하면 새 자동 요약을 만들지 않습니다. 허용된 저장 메모리는 계속 사용할 수 있습니다.
 
 앱 전체의 동작은 **Settings → Context & attachments → Memory summaries**에서 선택합니다.
 

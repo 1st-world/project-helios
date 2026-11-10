@@ -48,6 +48,8 @@ The API can update the next-response choice during active or paused work. Alread
 
 ## Memory policy API
 
+`GET /api/context-policy` describes the saved effective policy for the optional `profile_id`. `POST /api/context-policy/preview` accepts the same context and memory fields as profile updates. Omitted fields retain their values from the supplied `profile_id` or use new-profile defaults when no ID is supplied. Both responses use saved app settings and include input/output limit sources and memory generation readiness. Previewing leaves settings unchanged.
+
 `GET /api/settings` returns the configured app preferences and defaults. `PUT /api/settings` accepts strict booleans `memory_generation_enabled`, `memory_use_saved_summaries`, and `memory_background_enabled`; `null` restores the corresponding default. These preferences do not enable a profile's Conversation memory permission. Original-history mode retains saved summaries and the other preferences without automatically generating unused summaries.
 
 `summary_policy.state` reports generation-planning readiness. Effective `use_saved_summaries`, `generation_enabled` and `background_enabled` are separate booleans: saved-memory use does not require new-generation capacity information. Background-only changes revoke background jobs without revoking foreground generation; generation-only changes stop new summary work without revoking already prepared saved-memory input. Saved-use changes revoke unsubmitted memory input and subsequent tool-run actions. Other app and pinned-profile policy changes retain existing guards. Saving must succeed before publishing new policy.

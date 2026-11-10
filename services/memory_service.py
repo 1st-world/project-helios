@@ -218,6 +218,25 @@ class ConversationMemoryService:
         """Capture automatic permission or a request-only grant with a feasible summary plan."""
         current_profile = self._profile(profile_id)
         profile = replace(current_profile) if current_profile is not None else None
+        snapshot = MemoryPolicySnapshot(
+            policy=self.describe_summary_policy(profile, one_shot=one_shot),
+            revision=self._revision.value,
+            profile_revision=(
+                self._revision.profiles.get(profile.id, 0)
+                if profile is not None else 0
+            ),
+            settings=self._settings_signature(), profile=profile,
+            ai_service=self.ai_service,
+            generation_revision=self._revision.generation,
+            use_revision=self._revision.use_saved,
+            use_settings=self._settings_signature(use_only=True),
+        )
+        return self._pin_policy(snapshot)
+
+    def describe_summary_policy(
+        self, profile: ConnectionProfile | None, *, one_shot: bool = False,
+    ) -> dict:
+        """Resolve summary readiness and limits without creating an execution snapshot."""
         output_limit = (
             self.ai_service.output_limit(profile)
             if profile is not None and isinstance(self.ai_service, AIService)
@@ -263,7 +282,7 @@ class ConversationMemoryService:
             reason = "policy_changed"
         use_saved = enabled and (one_shot or self.memory_use_saved_summaries)
         generate = state == "ready" and use_saved and (one_shot or self.memory_generation_enabled)
-        policy = {
+        return {
             **estimation_metadata(enabled=state == "ready"),
             "enabled": enabled, "state": state,
             "review_required": profile is not None and profile.memory_enabled is None,
@@ -286,19 +305,6 @@ class ConversationMemoryService:
             "input_only": capacity.reason == "input_only",
             "revision": self._revision.value, "one_shot": one_shot,
         }
-        snapshot = MemoryPolicySnapshot(
-            policy=policy, revision=self._revision.value,
-            profile_revision=(
-                self._revision.profiles.get(profile.id, 0)
-                if profile is not None else 0
-            ),
-            settings=self._settings_signature(), profile=profile,
-            ai_service=self.ai_service,
-            generation_revision=self._revision.generation,
-            use_revision=self._revision.use_saved,
-            use_settings=self._settings_signature(use_only=True),
-        )
-        return self._pin_policy(snapshot)
 
     def _pin_policy(self, snapshot: MemoryPolicySnapshot) -> MemoryPolicySnapshot:
         """Bind summary authorization to the exact foreground or background snapshot."""
@@ -311,7 +317,7 @@ class ConversationMemoryService:
 
     def summary_policy(self, profile_id: str | None = None) -> dict:
         """Expose activation and planning information without private connection data."""
-        return self.capture_policy(profile_id).policy
+        return self.describe_summary_policy(self._profile(profile_id))
 
     def _prompt_builder(self, conversation_id: str | None) -> PromptBuilder:
         """Resolve durable work context through the request's shared run store."""

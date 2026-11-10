@@ -10,10 +10,9 @@ from models.app_settings import (
     APP_SETTINGS_V01_FIELDS, APP_SETTINGS_V02_FIELDS,
     AppSettings, DEFAULT_APP_SETTINGS,
 )
-from models.input_budget import normalize_input_budget_settings
 from models.profile import (
-    PROFILE_POLICY_FIELDS, DEFAULT_LONG_CONTEXT_THRESHOLD, ConnectionProfile,
-    LegacyInputBoundary, normalize_output_limit_settings,
+    DEFAULT_LONG_CONTEXT_THRESHOLD, ConnectionProfile, LegacyInputBoundary,
+    normalize_output_limit_settings, normalize_profile_context_settings,
 )
 from services.context_budget import ContextBudget
 from services.context_policy import ContextPolicy
@@ -378,11 +377,7 @@ class ProfileService:
         original = self.get_profile(profile_id)
         if not original:
             raise ProfileNotFoundError("Profile not found.")
-        changes = normalize_input_budget_settings(
-            normalize_output_limit_settings(context_settings or {})
-        )
-        if set(changes) - set(PROFILE_POLICY_FIELDS):
-            raise ValueError("Unknown context setting.")
+        changes = normalize_profile_context_settings(context_settings or {})
         if reasoning_summary is not None:
             changes["reasoning_summary"] = reasoning_summary
         profile = replace(original, **changes)

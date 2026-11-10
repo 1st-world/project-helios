@@ -40,7 +40,7 @@ from models.attachment import (
 from models.input_budget import normalize_input_budget_settings
 from models.profile import (
     PROFILE_POLICY_FIELDS, DEFAULT_LONG_CONTEXT_THRESHOLD, ConnectionProfile,
-    normalize_output_limit_settings,
+    normalize_output_limit_settings, normalize_profile_context_settings,
 )
 from models.workspace import WorkspaceReadOptions
 from services.ai_service import AIService
@@ -636,6 +636,13 @@ class ProfileContextSettings(ContextRequestOptions):
                 "input": values.get("output_token_limit"),
                 "ctx": {"error": exc},
             }]) from exc
+
+
+class ProfileContextPreviewRequest(ProfileContextSettings):
+    """Accept only draft policy fields and the optional profile they extend."""
+
+    model_config = ConfigDict(extra="forbid")
+    profile_id: str | None = Field(default=None, min_length=1)
 
 
 class CreateProfileRequest(ProfileContextSettings):
@@ -2075,26 +2082,70 @@ def resolve_context_policy(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-@app.get("/api/context-policy")
-async def context_policy_settings(profile_id: str | None = None):
-    """Expose effective estimate and local resource settings for future GUI integration."""
-    policy = resolve_context_policy(profile_id)
+def context_policy_response(profile: ConnectionProfile | None) -> dict:
+    """Describe the effective policy and its sources against saved app settings."""
+    candidate = profile or ConnectionProfile()
+    current = settings_service.current
+    policy = resolve_context_policy(app_settings=current, profile_data=candidate)
+    output_source = "provider_default"
+    if policy.max_output_tokens is not None:
+        if policy.max_output_tokens == candidate.output_token_limit:
+            output_source = (
+                "app_and_profile" if policy.max_output_tokens == current.context_output_reserve
+                else "profile"
+            )
+        else:
+            output_source = "app"
     return {
         **estimation_metadata(
             enabled=policy.mode != "off" and policy.input_budget is not None,
         ),
         "mode": policy.mode, "input_budget": policy.input_budget,
+        "input_check_source": "profile" if candidate.context_preflight_mode else "app",
         "input_budget_source": policy.input_budget_source,
+        "input_budget_inherited": candidate.context_input_budget_mode == "inherit",
+        "app_input_budget_mode": current.context_input_budget_mode,
         "legacy_input_policy": policy.legacy_input_policy,
         "declared_model_input_limit": policy.declared_model_input_limit,
         "max_output_tokens": policy.max_output_tokens,
+        "output_limit_source": output_source,
         "declared_model_max_output_tokens": policy.declared_model_max_output_tokens,
-        "summary_policy": memory_service.summary_policy(profile_id),
+        "summary_policy": memory_service.describe_summary_policy(profile),
         "local_attachment_limits": {
             name: getattr(attachment_service, name)
             for name in vars(AttachmentService) if name.startswith("MAX_")
         },
     }
+
+
+def context_policy_profile(profile_id: str | None) -> ConnectionProfile | None:
+    """Look up an explicitly named profile without substituting the default."""
+    if not profile_id:
+        return profile_service.get_active_profile()
+    profile = profile_service.get_profile(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found.")
+    return profile
+
+
+@app.get("/api/context-policy")
+async def context_policy_settings(profile_id: str | None = None):
+    """Expose the selected profile's saved policy and local resource limits."""
+    return context_policy_response(context_policy_profile(profile_id))
+
+
+@app.post("/api/context-policy/preview")
+async def preview_context_policy(payload: ProfileContextPreviewRequest):
+    """Resolve a draft profile without saving settings or accessing a provider."""
+    base = context_policy_profile(payload.profile_id) if payload.profile_id else None
+    try:
+        changes = normalize_profile_context_settings(
+            payload.model_dump(exclude={"profile_id"}, exclude_unset=True)
+        )
+        candidate = replace(base or ConnectionProfile(), **changes)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return context_policy_response(candidate)
 
 
 @app.exception_handler(AttachmentError)

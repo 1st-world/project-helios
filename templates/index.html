@@ -691,9 +691,12 @@
                   </div>
                   <section class="settings-policy-summary" aria-labelledby="profile-context-effective-title">
                     <h5 id="profile-context-effective-title">Saved effective policy</h5>
-                    <p class="field-hint">Uses saved profile and app settings before request overrides.</p>
-                    <div id="profile-context-effective" class="settings-policy-values" role="status">Saved policy is not loaded.</div>
+                    <div class="settings-policy-description">
+                      <p class="field-hint">Uses saved app settings before request overrides.</p>
+                      <p id="profile-context-effective-status" role="status"></p>
+                    </div>
                     <button id="profile-context-retry" class="quiet-btn" type="button" hidden><i data-lucide="refresh-cw" aria-hidden="true"></i><span>Reload policy</span></button>
+                    <div id="profile-context-effective" class="settings-policy-values"></div>
                   </section>
                 </div>
               </details>

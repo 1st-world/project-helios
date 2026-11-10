@@ -48,6 +48,8 @@ Microsoft의 [Foundry REST 참조](https://learn.microsoft.com/en-us/rest/api/mi
 
 ## 메모리 정책 API
 
+`GET /api/context-policy`는 선택적으로 전달한 `profile_id`에 대해 저장된 적용 정책을 반환합니다. `POST /api/context-policy/preview`는 프로필 수정과 같은 컨텍스트 및 메모리 필드를 받습니다. 생략한 필드는 전달한 `profile_id`의 저장값을 유지하며, ID가 없으면 새 프로필의 기본값을 사용합니다. 두 응답 모두 저장한 앱 설정을 기준으로 입력·출력 제한의 출처와 메모리 생성 준비 상태를 알려 줍니다. 미리보기는 설정을 변경하지 않습니다.
+
 `GET /api/settings`는 저장한 앱 선호값과 기본값을 반환합니다. `PUT /api/settings`는 엄격한 boolean인 `memory_generation_enabled`, `memory_use_saved_summaries`, `memory_background_enabled`를 받으며, `null`은 해당 기본값을 복원합니다. 이 선호값만으로 프로필의 Conversation memory 권한을 켜지는 않습니다. 원문 사용 모드는 저장된 요약과 다른 선호값을 보존하며 사용하지 않을 요약을 자동 생성하지 않습니다.
 
 `summary_policy.state`는 생성 계획의 준비 상태입니다. 실제 적용되는 `use_saved_summaries`, `generation_enabled`, `background_enabled`는 별도 boolean이며 저장 메모리를 사용하는 데 새 생성용 용량 정보가 필요하지 않습니다. 백그라운드만 변경하면 백그라운드 작업을 철회하고 사전 생성은 허용합니다. 생성만 변경하면 새 요약 작업을 멈추고 이미 준비한 저장 메모리 입력은 허용합니다. 저장 요약 사용을 변경하면 아직 전송하지 않은 메모리 입력과 이후 도구 실행 동작의 권한을 철회합니다. 그 외 앱·고정 프로필 정책은 기존 검증을 유지하며, 저장에 성공한 뒤 새 정책을 공개합니다.
