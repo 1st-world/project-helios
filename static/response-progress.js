@@ -1,13 +1,28 @@
 /* Present observable request phases and elapsed time without estimating completion or model reasoning. */
 
 const phaseLabels = {
-  preparing: 'Preparing request', waiting: 'Waiting for model', receiving: 'Receiving response',
-  finalizing: 'Finalizing response', stopping: 'Stopping', pausing: 'Pause requested · finishing current step', reasoning: 'Receiving reasoning summary'
+  preparing: 'Preparing request',
+  waiting: 'Waiting for model',
+  receiving: 'Receiving response',
+  finalizing: 'Finalizing response',
+  stopping: 'Stopping',
+  pausing: 'Pause requested · finishing current step',
+  reasoning: 'Receiving reasoning summary',
+  summarizing: 'Generating memory summary · Additional model call'
 };
 const toolProgress = {
-  helios_project_list_files: 'Listing files', helios_project_search_text: 'Searching project',
+  helios_project_list_files: 'Listing files',
+  helios_project_search_text: 'Searching project',
   helios_project_read_file: 'Reading file'
 };
+
+export function memoryWaitingLabel(source) {
+  if (source === 'original_history') return `${phaseLabels.waiting} · Using original history`;
+  if (source === 'saved_summary' || source === 'new_summary') {
+    return `${phaseLabels.waiting} · Using conversation memory`;
+  }
+  return phaseLabels.waiting;
+}
 
 export function workProgressLabel(event = {}) {
   if (event.type === 'cancel_requested') return phaseLabels.stopping;

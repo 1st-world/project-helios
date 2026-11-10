@@ -629,6 +629,7 @@ class AIService:
         profile_id: str | None = None,
         *,
         conversation_id: str | None = None,
+        on_submit: Callable[[], None] | None = None,
     ) -> str:
         """Create a compact factual memory without modifying the visible transcript."""
         client, profile = await self._get_client_and_profile(profile_id)
@@ -645,6 +646,8 @@ class AIService:
         started = time.perf_counter()
         call = self._begin_call(profile, "summary", conversation_id)
         try:
+            if on_submit is not None:
+                on_submit()
             response = await client.responses.create(
                 model=profile.deployment,
                 instructions=instructions,

@@ -6,7 +6,7 @@ import { renderExplorationEvidence } from './exploration-evidence.js';
 import { createDisclosure } from './disclosure.js';
 import { modelCallMetadata, workRunMetadata } from './response-usage.js';
 import { createResponseFooter } from './response-footer.js';
-import { createResponseProgress, workProgressLabel } from './response-progress.js';
+import { createResponseProgress, memoryWaitingLabel, workProgressLabel } from './response-progress.js';
 import { createReasoningSummary, renderReasoningText } from './reasoning-summary.js';
 import { describeWorkRun, workStepStatus, WORK_ACTION_LABELS } from './work-run-status.js';
 
@@ -736,6 +736,10 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     }
     const card = cards.get(event.run_id);
     if (!card) return;
+    if (event.type === 'start' || (event.type === 'memory_preparation' && event.phase === 'ready')) {
+      card.memorySource = event.memory_source || event.source;
+      card.phase = card.memorySource ? memoryWaitingLabel(card.memorySource) : null;
+    }
     const segmentId = event.segment_id || card.run.execution_segment_id;
     if (targets) card.targets = targets;
     if (['work_progress', 'work_usage', 'error', 'done', 'paused'].includes(event.type)) {
@@ -743,7 +747,8 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       card.loaded = false;
     }
     if (event.type === 'work_progress') {
-      card.phase = workProgressLabel(event);
+      if (event.phase !== 'model') card.memorySource = null;
+      card.phase = card.memorySource ? memoryWaitingLabel(card.memorySource) : workProgressLabel(event);
       card.loaded = false;
       if (event.phase === 'model' && event.call_id) {
         card.currentCallId = event.call_id;
@@ -755,6 +760,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
           result_available: event.phase === 'tool_completed' });
       }
     }
+    if (['work_output', 'work_usage', 'reasoning_summary', 'delta'].includes(event.type)) card.memorySource = null;
     if (event.type === 'work_output') {
       if (event.delta || event.text) card.phase = card.presentingWork ? workProgressLabel(event) : 'Receiving response';
       const previous = card.stepData.get(stepKey({ kind: 'model', segment_id: segmentId, call_id: event.call_id }));

@@ -5,6 +5,7 @@ import json
 import logging
 import mimetypes
 import sqlite3
+from collections.abc import Awaitable, Callable
 from copy import copy
 from contextlib import aclosing, asynccontextmanager
 from dataclasses import asdict, replace
@@ -31,6 +32,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from starlette.requests import ClientDisconnect
+from starlette.types import Send
 
 from config import settings
 from models.app_settings import AppSettings, DEFAULT_APP_SETTINGS
@@ -81,7 +83,7 @@ from services.context_recovery import ContextRecoveryRegistry, RecoveryError
 from services.conversation_workspaces import ConversationWorkspaces
 from services.conversation_profiles import ConversationProfiles
 from services.memory_service import (
-    ConversationMemoryService, MemoryPolicyChangedError,
+    ConversationMemoryService, MemoryPolicyChangedError, MemoryPreparation,
 )
 from services.local_work import check_local_cancelled, run_local
 from services.prompt_builder import PromptBuilder
@@ -489,6 +491,7 @@ class ChatRequest(ContextRequestOptions):
     """Validate a new chat turn or regeneration request and its context selection."""
 
     prompt: str = Field(min_length=1)
+    stream_preparation: bool = Field(default=False, strict=True)
     conversation_id: str | None = None
     workspace_file: str | None = None
     workspace_files: list[str] = Field(default_factory=list)
@@ -2317,11 +2320,32 @@ async def inspect_attachments(
     }
 
 
+def chat_preparation_error(exc: Exception) -> HTTPException:
+    """Preserve public preparation errors for both HTTP and streaming clients."""
+    if isinstance(exc, HTTPException):
+        return exc
+    if isinstance(exc, RecoveryError):
+        return HTTPException(status_code=exc.status, detail={"code": exc.code, "message": str(exc)})
+    if isinstance(exc, AttachmentError):
+        return HTTPException(status_code=exc.status_code, detail=exc.detail())
+    if isinstance(exc, ConnectionConfigurationError):
+        return HTTPException(status_code=400, detail={
+            "code": "connection_not_configured", "category": "configuration",
+            "message": str(exc),
+        })
+    logger.error("Chat preparation failed (error_type=%s)", type(exc).__name__)
+    return HTTPException(
+        status_code=500,
+        detail=ProviderFailure("request_failed").detail(phase="preparation"),
+    )
+
+
 @app.post("/api/chat")
 async def chat(payload: ChatRequest, request: Request = None):
     """Claim one conversation and honor explicit, one-use recovery authorization."""
     operation = None
     requested_profile_id = payload.profile_id
+    stream_preparation = payload.stream_preparation
     try:
         operation_id = str(payload.operation_id) if payload.operation_id else None
         ticket = (
@@ -2458,26 +2482,15 @@ async def chat(payload: ChatRequest, request: Request = None):
             await until_disconnect(
                 request, run_local, attachment_store.validate_originals, upload_ids,
             )
+        if stream_preparation:
+            async def prepare_with_progress(progress: MemoryPreparation):
+                """Prepare the claimed turn under the streaming disconnect watcher."""
+                return await prepare_chat(payload, conversation, operation, progress=progress)
+
+            return ChatPreparationResponse(prepare_with_progress, operation=operation)
         return await until_disconnect(
             request, prepare_chat, payload, conversation, operation,
         )
-    except RecoveryError as exc:
-        if operation is not None:
-            operation.close()
-        raise HTTPException(status_code=exc.status, detail={
-            "code": exc.code, "message": str(exc),
-        }) from None
-    except AttachmentError as exc:
-        if operation is not None:
-            operation.close()
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from None
-    except ConnectionConfigurationError as exc:
-        if operation is not None:
-            operation.close()
-        raise HTTPException(status_code=400, detail={
-            "code": "connection_not_configured", "category": "configuration",
-            "message": str(exc),
-        }) from None
     except HTTPException:
         if operation is not None:
             operation.close()
@@ -2485,18 +2498,17 @@ async def chat(payload: ChatRequest, request: Request = None):
     except Exception as exc:
         if operation is not None:
             operation.close()
-        logger.error("Chat preparation failed (error_type=%s)", type(exc).__name__)
-        raise HTTPException(
-            status_code=500,
-            detail=ProviderFailure("request_failed").detail(phase="preparation"),
-        ) from None
+        raise chat_preparation_error(exc) from None
     except BaseException:
         if operation is not None:
             operation.close()
         raise
 
 
-async def prepare_chat(payload: ChatRequest, conversation, operation):
+async def prepare_chat(
+    payload: ChatRequest, conversation, operation, *,
+    progress: MemoryPreparation | None = None,
+):
     """Prepare a versioned conversation turn and return its server-sent response stream."""
     ticket = operation.ticket
     data = ticket.data if ticket is not None else None
@@ -2685,6 +2697,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                 conversation, user_prompt, workspace_context, profile_id,
                 history_end=history_end, summary_policy=request_memory_policy,
                 input_limit=policy.input_budget if policy.mode == "block" else None,
+                progress=progress,
                 **attachment_options,
             )
         else:
@@ -2698,6 +2711,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                 summary_policy=request_memory_policy,
                 preflight_mode=policy.mode if policy.input_budget is not None else "off",
                 input_limit=policy.input_budget,
+                progress=progress,
                 **({
                     "reply_tools": exploration_tools,
                     "reply_instructions_suffix": EXPLORATION_INSTRUCTIONS,
@@ -2796,6 +2810,7 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
         profile_data = None
         completed = False
         reported_assessment = None
+        reported_memory_source = None
         run_id = None
         memory_submitted = False
         reasoning_summaries = {}
@@ -2859,7 +2874,10 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
 
         def policy_events():
             """Report the final estimate again if memory revocation changed the actual input."""
-            nonlocal reported_assessment
+            nonlocal reported_assessment, reported_memory_source
+            if using_original_context and reported_memory_source in {"saved_summary", "new_summary"}:
+                reported_memory_source = "original_history"
+                yield 'data: {"type":"memory_preparation","phase":"ready","source":"original_history"}\n\n'
             if reported_assessment == context_assessment:
                 return
             changed = reported_assessment is not None
@@ -2933,6 +2951,12 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
                 "type": "start", "conversation_id": conversation.id,
                 "user_created_at": user_message.created_at.isoformat(),
             }
+            if progress is not None and history_end:
+                if (outgoing_instructions, outgoing_messages) == original_context:
+                    reported_memory_source = "original_history"
+                else:
+                    reported_memory_source = "new_summary" if progress.selected_new_summary else "saved_summary"
+                start_event["memory_source"] = reported_memory_source
             if run_id is not None:
                 start_event["run_id"] = run_id
                 start_event["user_index"] = source_user_index
@@ -2950,6 +2974,9 @@ async def prepare_chat(payload: ChatRequest, conversation, operation):
             for notice in policy_events():
                 yield notice
             outgoing_instructions, outgoing_messages = current_inputs()
+            if progress is not None:
+                for notice in policy_events():
+                    yield notice
             if run_id is not None:
                 explorer = ProjectExplorer(
                     request_ai, work_run_store, run_id, live_workspace,
@@ -3248,6 +3275,84 @@ class ChatStreamingResponse(StreamingResponse):
                 finally:
                     if self.operation is not None:
                         self.operation.close()
+
+
+class ChatPreparationResponse(ChatStreamingResponse):
+    """Send foreground preparation events while keeping one owner for the request."""
+
+    def __init__(
+        self,
+        prepare: Callable[[MemoryPreparation], Awaitable[ChatStreamingResponse]],
+        *, operation,
+    ) -> None:
+        """Keep the operation until preparation and the reply stream are closed."""
+        super().__init__(
+            (), operation=operation, media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+        self.prepare = prepare
+
+    async def stream_response(self, send: Send) -> None:
+        """Report the first summary submission, then forward the prepared reply stream."""
+        await send({
+            "type": "http.response.start", "status": self.status_code,
+            "headers": self.raw_headers,
+        })
+
+        async def send_packet(packet: str) -> None:
+            """Write one server-sent event without ending the response."""
+            await send({
+                "type": "http.response.body", "body": packet.encode(self.charset),
+                "more_body": True,
+            })
+
+        sender, receiver = anyio.create_memory_object_stream[None](1)
+        summary_started = False
+        preparation_failure = None
+        send_failure = None
+
+        def summary_submitted() -> None:
+            """Publish once at the submission boundary without yielding control."""
+            nonlocal summary_started
+            if not summary_started:
+                sender.send_nowait(None)
+                summary_started = True
+
+        async with anyio.create_task_group() as tasks:
+            async def report_summary() -> None:
+                """Report a silent Provider call while the preparation task awaits it."""
+                nonlocal send_failure
+                with receiver:
+                    async for _ in receiver:
+                        try:
+                            await send_packet('data: {"type":"memory_preparation","phase":"summary_started"}\n\n')
+                        except OSError as exc:
+                            send_failure = exc
+                            tasks.cancel_scope.cancel()
+
+            tasks.start_soon(report_summary)
+            with sender:
+                try:
+                    await anyio.lowlevel.checkpoint()
+                    prepared = await self.prepare(MemoryPreparation(summary_submitted))
+                    self.body_iterator = prepared.body_iterator
+                    self.background = prepared.background
+                except Exception as exc:
+                    preparation_failure = chat_preparation_error(exc)
+
+        if send_failure is not None:
+            raise send_failure
+        if preparation_failure is not None:
+            self.operation.close()
+            error = {
+                "type": "error", "detail": preparation_failure.detail,
+                "preparation_status": preparation_failure.status_code,
+            }
+            await send_packet(f"data: {json.dumps(error)}\n\n")
+        else:
+            async for packet in self.body_iterator:
+                await send_packet(packet)
+        await send({"type": "http.response.body", "body": b"", "more_body": False})
 
 
 if __name__ == "__main__":

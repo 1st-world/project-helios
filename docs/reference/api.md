@@ -48,6 +48,8 @@ The API can update the next-response choice during active or paused work. Alread
 
 ## Memory policy API
 
+Set `stream_preparation: true` on `POST /api/chat` to receive preparation events on the reply stream. A foreground summary submission emits `memory_preparation` with `phase: "summary_started"`. With earlier messages, `start.memory_source` identifies the selected input as `original_history`, `saved_summary`, or `new_summary`. A later fallback to original history emits `memory_preparation` with `phase: "ready"` and the updated `source`. Preparation errors after the stream opens use an `error` event with `preparation_status` and the usual `detail`. Requests that omit the option receive preparation failures as HTTP errors.
+
 `GET /api/context-policy` describes the saved effective policy for the optional `profile_id`. `POST /api/context-policy/preview` accepts the same context and memory fields as profile updates. Omitted fields retain their values from the supplied `profile_id` or use new-profile defaults when no ID is supplied. Both responses use saved app settings and include input/output limit sources and memory generation readiness. Previewing leaves settings unchanged.
 
 `GET /api/settings` returns the configured app preferences and defaults. `PUT /api/settings` accepts strict booleans `memory_generation_enabled`, `memory_use_saved_summaries`, and `memory_background_enabled`; `null` restores the corresponding default. These preferences do not enable a profile's Conversation memory permission. Original-history mode retains saved summaries and the other preferences without automatically generating unused summaries.

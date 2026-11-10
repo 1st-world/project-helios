@@ -8,7 +8,7 @@ import { calendarDate, formatMessageTimestamp, getTimezone } from './timezone.js
 import { createDisclosure } from './disclosure.js';
 import { showActionDialog } from './dialogs.js';
 import { createResponseFooter } from './response-footer.js';
-import { createResponseProgress } from './response-progress.js';
+import { createResponseProgress, memoryWaitingLabel } from './response-progress.js';
 import { createReasoningSummary } from './reasoning-summary.js';
 import { describeResume, resumeBoundary, resumeSelection } from './work-resume.js';
 
@@ -771,6 +771,7 @@ export function createChat({ getActiveProfileId, getModelSelection = () => ({}),
     let contextPolicy = null;
     let requestProfile = null;
     let requestStarted = false;
+    let memorySummaryStarted = false;
     let requestSubmitted = false;
     let responseCompleted = false;
     let interrupted = false;
@@ -861,6 +862,7 @@ export function createChat({ getActiveProfileId, getModelSelection = () => ({}),
           ...options.resumeTarget
         } : {
           prompt: text,
+          stream_preparation: true,
           conversation_id: requestConversationId,
           ...attachmentSelection,
           ...workspaceContext,
@@ -893,6 +895,14 @@ export function createChat({ getActiveProfileId, getModelSelection = () => ({}),
           controller.signal.throwIfAborted();
           if (!frame.startsWith('data: ')) continue;
           const event = JSON.parse(frame.slice(6));
+          if (event.type === 'memory_preparation') {
+            if (event.phase === 'summary_started') {
+              memorySummaryStarted = true;
+              progress.update('summarizing');
+            } else if (event.phase === 'ready' && !workRunId) {
+              progress.update(memoryWaitingLabel(event.source));
+            }
+          }
           if (event.type === 'start') {
             workRunId = event.run_id || null;
             if (workRunId) {
@@ -903,7 +913,7 @@ export function createChat({ getActiveProfileId, getModelSelection = () => ({}),
               assistant.el.hidden = true;
               progress.destroy();
               responseProgress.delete(assistant.el);
-            } else progress.update('waiting');
+            } else progress.update(event.memory_source ? memoryWaitingLabel(event.memory_source) : 'waiting');
             requestStarted = true;
             requestFeedback.conversationId = event.conversation_id;
             requestFeedback.sourceCreatedAt = event.user_created_at || requestFeedback.sourceCreatedAt;
@@ -987,7 +997,8 @@ export function createChat({ getActiveProfileId, getModelSelection = () => ({}),
             if (!options.resumeRun) onAttachmentsSaved();
           }
           if (event.type === 'error') {
-            const feedback = describeRequestError(event, 'Unable to generate a response.');
+            const status = event.preparation_status ? `HTTP ${event.preparation_status}` : '';
+            const feedback = describeRequestError(event, 'Unable to generate a response.', status);
             throw Object.assign(new Error(feedback.message), { feedback, workRun: event.run_id ? { status: event.run_status, reason: event.code, failure: event } : null });
           }
           if (responseCompleted) break;
@@ -1097,7 +1108,9 @@ export function createChat({ getActiveProfileId, getModelSelection = () => ({}),
             }
             addRequestFeedback(requestFeedback, 'neutral', {
               title: stopState?.in_progress === false ? 'Response stopped' : 'Stop requested',
-              message: 'Only completed answers are saved. Any incomplete output is temporary and is not included in follow-up requests.',
+              message: memorySummaryStarted && !requestStarted
+                ? 'Stop was requested during memory preparation.'
+                : 'Only completed answers are saved. Any incomplete output is temporary and is not included in follow-up requests.',
               details: [
                 ...(sourceChanged ? ['The original question changed or was removed. Its incomplete output is not shown in this branch.'] : []),
                 ...(!stopState || stopState.in_progress ? ['Server cleanup is not yet confirmed. Wait before sending again or changing the Workspace.'] : []),

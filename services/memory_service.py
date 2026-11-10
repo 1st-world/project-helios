@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import re
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from copy import copy
 from dataclasses import dataclass, field, replace
@@ -29,6 +30,14 @@ logger = logging.getLogger(__name__)
 
 class MemoryPolicyChangedError(RuntimeError):
     """Stop unsubmitted summary work or adoption after permission or policy changes."""
+
+
+@dataclass
+class MemoryPreparation:
+    """Observe a foreground summary submission and track whether its result was selected."""
+
+    on_summary_submit: Callable[[], None]
+    selected_new_summary: bool = False
 
 
 @dataclass
@@ -563,6 +572,7 @@ class ConversationMemoryService:
         work: list[int],
         limit: int,
         snapshot: MemoryPolicySnapshot,
+        progress: MemoryPreparation | None = None,
     ) -> str:
         """Summarize a history range within call limits, shrinking chunks on context rejection."""
         history = [
@@ -590,6 +600,7 @@ class ConversationMemoryService:
                     chunk,
                     profile_id=profile_id,
                     conversation_id=conversation.id,
+                    **({"on_submit": progress.on_summary_submit} if progress is not None else {}),
                 )
             except ContextWindowExceeded:
                 self._check_policy(snapshot)
@@ -640,6 +651,7 @@ class ConversationMemoryService:
         profile_id: str, *, history_end: int, summary_policy: MemoryPolicySnapshot,
         attachment_content=None, visual_tokens: int = 0,
         input_limit: int | None = None,
+        progress: MemoryPreparation | None = None,
     ) -> tuple[str, list[dict]]:
         """Summarize original older turns once for this reply without adopting stored memory."""
         version = conversation.version
@@ -656,6 +668,7 @@ class ConversationMemoryService:
             summary = await self._summarize_prefix(
                 conversation, version, history, 0, cutoff, "", profile_id, [0],
                 summary_policy.policy["summary_input_limit"], summary_policy,
+                progress,
             )
             self._check_version(conversation, version)
             self._check_policy(summary_policy)
@@ -675,6 +688,8 @@ class ConversationMemoryService:
                 *original, visual_tokens=visual_tokens,
             ):
                 raise SummaryUnavailableError("The one-time summary did not produce a smaller input within the recovery allowance. No reply call was started. Edit the input or choose another deployment.")
+            if progress is not None:
+                progress.selected_new_summary = True
             return inputs
 
     async def prepare_context(
@@ -693,6 +708,7 @@ class ConversationMemoryService:
         summary_policy: MemoryPolicySnapshot | None = None,
         reply_tools: list[dict] | None = None,
         reply_instructions_suffix: str = "",
+        progress: MemoryPreparation | None = None,
     ) -> tuple[str, list[dict]]:
         """Apply memory thresholds and enforce blocking without forcing history summaries."""
         builder = self._prompt_builder(conversation.id)
@@ -816,6 +832,7 @@ class ConversationMemoryService:
                 candidate_summary = await self._summarize_prefix(
                     conversation, version, history, start, cutoff, summary,
                     profile_id, [0], memory_policy["summary_input_limit"], snapshot,
+                    progress,
                 )
             except MemoryPolicyChangedError:
                 return admit(inputs)
@@ -848,6 +865,8 @@ class ConversationMemoryService:
                     raise ContextChangedError(
                         "Conversation changed before memory could be saved. Please retry."
                     )
+            if progress is not None:
+                progress.selected_new_summary = start > original_count
             return inputs
 
     async def compact_if_needed(

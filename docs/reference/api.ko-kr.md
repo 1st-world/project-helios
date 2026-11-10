@@ -48,6 +48,8 @@ Microsoft의 [Foundry REST 참조](https://learn.microsoft.com/en-us/rest/api/mi
 
 ## 메모리 정책 API
 
+`POST /api/chat`에 `stream_preparation: true`를 보내면 답변 스트림에서 준비 이벤트를 받습니다. 답변 전 요약 호출을 제출하면 `phase: "summary_started"`인 `memory_preparation` 이벤트를 보냅니다. 이전 메시지가 있으면 `start.memory_source`가 선택한 입력을 `original_history`, `saved_summary`, `new_summary`로 표시합니다. 이후 원문 이력으로 전환하면 `phase: "ready"`와 갱신한 `source`를 담은 `memory_preparation` 이벤트를 보냅니다. 스트림을 연 뒤 준비 중에 발생한 오류는 `error` 이벤트에 `preparation_status`와 기존 형식의 `detail`을 담습니다. 옵션을 생략하면 준비 중 실패를 HTTP 오류로 받습니다.
+
 `GET /api/context-policy`는 선택적으로 전달한 `profile_id`에 대해 저장된 적용 정책을 반환합니다. `POST /api/context-policy/preview`는 프로필 수정과 같은 컨텍스트 및 메모리 필드를 받습니다. 생략한 필드는 전달한 `profile_id`의 저장값을 유지하며, ID가 없으면 새 프로필의 기본값을 사용합니다. 두 응답 모두 저장한 앱 설정을 기준으로 입력·출력 제한의 출처와 메모리 생성 준비 상태를 알려 줍니다. 미리보기는 설정을 변경하지 않습니다.
 
 `GET /api/settings`는 저장한 앱 선호값과 기본값을 반환합니다. `PUT /api/settings`는 엄격한 boolean인 `memory_generation_enabled`, `memory_use_saved_summaries`, `memory_background_enabled`를 받으며, `null`은 해당 기본값을 복원합니다. 이 선호값만으로 프로필의 Conversation memory 권한을 켜지는 않습니다. 원문 사용 모드는 저장된 요약과 다른 선호값을 보존하며 사용하지 않을 요약을 자동 생성하지 않습니다.
