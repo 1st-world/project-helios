@@ -9,6 +9,7 @@ import { describeRequestError } from './chat-feedback.js';
 import { createDisclosure } from './disclosure.js';
 import { showActionDialog } from './dialogs.js';
 import { initializeHelpPopovers } from './help-popovers.js';
+import { createFieldValidation } from './field-validation.js';
 
 export function createWorkspace({ getActiveProfileId, getModelContextSignature = getActiveProfileId, onWorkspaceSaved }) {
   // Bound selected-file rendering without changing attachment resource limits.
@@ -41,12 +42,24 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
   };
 
   let contextDisclosure = null;
+  let pathCheck = null;
+  let checkedPath = null;
+  const workspaceDialog = $('#workspace-dialog');
+  const pathInput = $('#workspace-path-input');
+  const pathValidation = createFieldValidation($('#workspace-form'), () => {
+    const path = pathInput.value.trim();
+    pathInput.setCustomValidity([...path].length > 4096 ? 'Use a folder path of up to 4,096 characters.' : '');
+  });
   const attachmentDrafts = createAttachmentDrafts({
     getFiles: () => [...state.attachments, ...($('#file-dialog').open ? state.pendingFiles : [])]
   });
   const picker = createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot: () => state.workspaceRoot, getWorkspaceScope: workspaceScope,
     isBusy: () => state.generating || state.changingWorkspace || !state.workspaceSessionId,
-    onStateChange() { state.workspaceFeedback = null; updateWorkspaceControls(); }, onCloseRequested: requestWorkspaceDialogClose });
+    onStateChange() {
+      if (picker.isPicking()) cancelPathCheck();
+      state.workspaceFeedback = null;
+      updateWorkspaceControls();
+    }, onCloseRequested: requestWorkspaceDialogClose });
 
   const filePicker = createFilePicker({
     async getWorkspaceScope() {
@@ -361,7 +374,10 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     try { if (!state.workspaceSessionId) await state.workspaceReady; }
     catch { toast('Could not load workspace. Open a new chat to try again.', 'error'); return false; }
     closeMobileSidebar();
-    $('#workspace-path-input').value = state.workspaceRoot || '';
+    cancelPathCheck();
+    checkedPath = null;
+    pathValidation.reset();
+    pathInput.value = state.workspaceRoot || '';
     $('#workspace-ignore-hidden').checked = state.workspaceReadOptions.ignore_hidden;
     $('#workspace-use-gitignore').checked = state.workspaceReadOptions.use_gitignore;
     state.workspaceFeedback = null;
@@ -492,6 +508,37 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     status.dataset.state = feedback?.type || 'idle';
   }
 
+  function cancelPathCheck() {
+    pathCheck?.abort();
+    pathCheck = null;
+  }
+
+  async function checkWorkspacePath() {
+    const path = pathInput.value.trim();
+    if (!workspaceDialog.open || pathInput.disabled || !pathInput.validity.valid
+      || !path || path === state.workspaceRoot || path === checkedPath || pathCheck) return;
+
+    const controller = new AbortController();
+    pathCheck = controller;
+    try {
+      const response = await fetch('/api/workspace/path-check', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }), signal: controller.signal
+      });
+      const message = response.status === 400
+        ? describeRequestError(await response.json(), 'Choose an existing folder.').message : '';
+      if (pathCheck !== controller || !workspaceDialog.open || pathInput.disabled || pathInput.value.trim() !== path) return;
+      if (response.ok || message) {
+        checkedPath = path;
+        pathValidation.showFieldError(pathInput, message);
+      }
+    } catch {
+      // Apply rechecks the folder and reports request failures.
+    } finally {
+      if (pathCheck === controller) pathCheck = null;
+    }
+  }
+
   function updateWorkspaceControls() {
     const busy = state.generating || state.changingWorkspace || picker.isPicking() || !state.workspaceSessionId;
     const connected = Boolean(state.workspaceRoot);
@@ -574,6 +621,8 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
 
   async function changeWorkspace(path) {
     if (state.generating || state.changingWorkspace || picker.isPicking()) return;
+    cancelPathCheck();
+    let pathError = '';
     state.changingWorkspace = true;
     state.workspaceFeedback = null;
     const request = ++state.workspaceRequest;
@@ -589,6 +638,10 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
       if (request !== state.workspaceRequest) return;
       if (!response.ok) {
         const feedback = describeRequestError(data, 'Could not change the workspace.');
+        if (path !== null && response.status === 400) {
+          pathError = feedback.message;
+          return;
+        }
         throw new Error(feedback.message);
       }
       applyWorkspace(data);
@@ -605,6 +658,10 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
       state.changingWorkspace = false;
       updateWorkspaceControls();
       updateSelection();
+      if (pathError && workspaceDialog.open && !pathInput.disabled) {
+        checkedPath = path;
+        pathValidation.showFieldError(pathInput, pathError, { focus: true });
+      }
     }
   }
 
@@ -792,7 +849,11 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
       if (preview.open) previewProjectContext();
       else clearContextPreview();
     });
-    $('#workspace-dialog').addEventListener('close', () => { if (!$('#workspace-dialog').open) resetContextPreview(); });
+    workspaceDialog.addEventListener('close', () => {
+      if (workspaceDialog.open) return;
+      cancelPathCheck();
+      resetContextPreview();
+    });
 
     $('#attach-selected-file').onclick = checkOrApplySelection;
     $('#file-dialog').addEventListener('close', () => {
@@ -805,11 +866,14 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
       updateSelection();
     });
 
-    $('#workspace-path-input').addEventListener('input', () => {
+    pathInput.addEventListener('input', () => {
+      cancelPathCheck();
+      checkedPath = null;
       state.workspaceFeedback = null;
       picker.clearStatus();
       updateWorkspaceControls();
     });
+    pathInput.addEventListener('blur', checkWorkspacePath);
     ['#workspace-ignore-hidden', '#workspace-use-gitignore'].forEach(selector => $(selector).addEventListener('change', () => {
       state.workspaceFeedback = null;
       resetContextPreview();
@@ -817,8 +881,8 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     }));
     $('#workspace-form').onsubmit = async event => {
       event.preventDefault();
-      const path = $('#workspace-path-input').value.trim();
-      if (path) await changeWorkspace(path);
+      const path = pathInput.value.trim();
+      if (path && (checkedPath === path || pathValidation.showErrors())) await changeWorkspace(path);
     };
     $('#load-file').onclick = openFileDialog;
     picker.init();

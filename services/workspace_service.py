@@ -33,11 +33,22 @@ class WorkspaceService:
                 self.root = None
                 self.revision += 1
             return
+        resolved = self.resolve_root(root_path)
+        if self.root != resolved:
+            self.root = resolved
+            self.revision += 1
+
+    @staticmethod
+    def resolve_root(root_path: str) -> Path:
+        """Validate and resolve an existing folder without changing a workspace."""
         if not root_path.strip():
             raise WorkspaceAccessError("Workspace path must not be empty. Use null to clear the selection.")
         if "\x00" in root_path:
             raise WorkspaceAccessError("Workspace path must not contain null characters.")
-        candidate = Path(root_path).expanduser()
+        try:
+            candidate = Path(root_path).expanduser()
+        except RuntimeError as exc:
+            raise WorkspaceAccessError("Workspace folder does not exist or cannot be resolved.") from exc
         if not candidate.is_absolute():
             raise WorkspaceAccessError("Workspace path must be absolute.")
         try:
@@ -48,9 +59,7 @@ class WorkspaceService:
             ) from exc
         if not resolved.is_dir():
             raise WorkspaceAccessError("Workspace path must be a folder.")
-        if self.root != resolved:
-            self.root = resolved
-            self.revision += 1
+        return resolved
 
     def is_available(self) -> bool:
         """Check a restored folder without recreating it or following a replaced root link."""

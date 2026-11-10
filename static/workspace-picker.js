@@ -55,7 +55,9 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
     picker.controls.forEach((control, index) => { control.disabled = picker.disabled[index]; });
     setStatus(picker.feedback.message, picker.feedback.type);
     if (!picker.closeOnCancel && result.status === 'selected' && $('#workspace-dialog').open) {
-      $('#workspace-path-input').value = result.path;
+      const input = $('#workspace-path-input');
+      input.value = result.path;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
       setStatus('', 'idle');
     } else if (result.status === 'cancelled' || (result.status === 'missing' && picker.cancelRequested)) {
       setStatus('Folder selection cancelled. Your folder path is unchanged.');

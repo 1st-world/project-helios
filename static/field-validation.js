@@ -9,13 +9,15 @@ export function setFieldFeedback(input, feedback, visible) {
   else input.removeAttribute('aria-describedby');
 }
 
-export function createFieldValidation(form) {
-  const fields = [...form.querySelectorAll('input, select')];
+export function createFieldValidation(container, updateValidity = () => {}) {
+  const fields = new Set(container.querySelectorAll('[data-field-control] :is(input, select, textarea)'));
+  const edited = new Set();
   const messages = new Map();
-  let reviewing = false;
 
   function render(input, message) {
     let error = messages.get(input);
+    if (message) input.setAttribute('aria-invalid', 'true');
+    else input.removeAttribute('aria-invalid');
     if (message && !error) {
       error = document.createElement('p');
       error.id = `${input.id}-error`;
@@ -30,36 +32,53 @@ export function createFieldValidation(form) {
   }
 
   function reset() {
-    reviewing = false;
+    edited.clear();
     for (const input of fields) {
       input.setCustomValidity('');
-      input.removeAttribute('aria-invalid');
       render(input, '');
     }
   }
 
-  function showErrors({ focus = true } = {}) {
-    reviewing = true;
+  function focusError(input) {
+    let disclosure = input.closest('details');
+    while (disclosure && container.contains(disclosure)) {
+      disclosure.open = true;
+      disclosure = disclosure.parentElement.closest('details');
+    }
+    input.focus();
+    messages.get(input).scrollIntoView({ block: 'nearest' });
+  }
+
+  function refresh({ field, revealAll = false } = {}) {
+    const related = updateValidity();
+    const dependent = related?.get(field);
     let firstInvalid = null;
     for (const input of fields) {
       const invalid = input.willValidate && !input.validity.valid;
-      if (invalid) {
-        firstInvalid ||= input;
-        input.setAttribute('aria-invalid', 'true');
-      } else input.removeAttribute('aria-invalid');
-      render(input, invalid ? input.validationMessage : '');
+      const visible = revealAll || input === field || input === dependent || messages.get(input)?.hidden === false;
+      if (invalid) firstInvalid ||= input;
+      render(input, invalid && visible ? input.validationMessage : '');
     }
-    if (firstInvalid && focus) {
-      let disclosure = firstInvalid.closest('details');
-      while (disclosure && form.contains(disclosure)) {
-        disclosure.open = true;
-        disclosure = disclosure.parentElement.closest('details');
-      }
-      firstInvalid.focus();
-      messages.get(firstInvalid).scrollIntoView({ block: 'nearest' });
-    }
+    if (firstInvalid && revealAll) focusError(firstInvalid);
     return !firstInvalid;
   }
 
-  return { reset, showErrors, isReviewing: () => reviewing };
+  container.addEventListener('input', ({ target }) => {
+    if (!fields.has(target)) return;
+    edited.add(target);
+    refresh();
+  });
+  container.addEventListener('focusout', ({ target }) => {
+    if (edited.delete(target)) refresh({ field: target });
+  });
+
+  return {
+    reset,
+    refresh,
+    showErrors: () => refresh({ revealAll: true }),
+    showFieldError(input, message, { focus = false } = {}) {
+      render(input, message);
+      if (message && focus) focusError(input);
+    },
+  };
 }

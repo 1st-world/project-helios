@@ -7,7 +7,7 @@ import { createFieldValidation, setFieldFeedback } from './field-validation.js';
 
 export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving }) {
   const form = $('#app-settings-form');
-  const validation = createFieldValidation(form);
+  const validation = createFieldValidation(form, updateValidity);
   const fields = new Map([...form.querySelectorAll('[data-app-setting]')].map(input => [input.dataset.appSetting, input]));
   const resetButtons = [...form.querySelectorAll('[data-reset-setting]')];
   const resetLabels = new Map(resetButtons.map(button => [button, button.getAttribute('aria-label')]));
@@ -209,11 +209,10 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     if (!state.saved || state.loading || state.saving || isProfileSaving()) return;
     const restoreAllFocus = document.activeElement === $('#restore-app-defaults');
     const focusedSetting = document.activeElement?.dataset.resetSetting;
-    const reviewing = validation.isReviewing();
     for (const name of names) restoreDefaultValue(name);
     state.feedback = null;
     updateControls();
-    if (reviewing) validate(false);
+    validation.refresh();
     if (restoreAllFocus) $('#save-app-settings').focus({ preventScroll: true });
     else if (focusedSetting) {
       const target = fields.get(focusedSetting === 'context_input_budget' ? 'context_input_budget_mode' : focusedSetting);
@@ -221,7 +220,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     }
   }
 
-  function validate(focus = true) {
+  function updateValidity() {
     for (const input of fields.values()) {
       input.setCustomValidity('');
       if (input.disabled) continue;
@@ -237,16 +236,24 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     }
     const budget = fields.get('context_token_budget');
     const reserve = fields.get('context_output_reserve');
-    if (fields.get('context_input_budget_mode').value === 'legacy' && budget.valueAsNumber - (valueOf(reserve) ?? 0) < 1024) budget.setCustomValidity('The previous policy must leave at least 1,024 input tokens after output reservation. Review the input budget to use independent limits.');
-    const trigger = fields.get('summary_trigger_tokens').valueAsNumber;
+    const related = new Map();
+    if (fields.get('context_input_budget_mode').value === 'legacy' && budget.validity.valid && reserve.validity.valid
+      && budget.valueAsNumber - (valueOf(reserve) ?? 0) < 1024) {
+      budget.setCustomValidity('The previous policy must leave at least 1,024 input tokens after output reservation. Review the input budget to use independent limits.');
+      related.set(reserve, budget);
+    }
+    const trigger = fields.get('summary_trigger_tokens');
     const recent = fields.get('keep_recent_tokens');
-    if (trigger > 0 && recent.valueAsNumber >= trigger) recent.setCustomValidity('Enter fewer tokens than the summary trigger.');
-    return validation.showErrors({ focus });
+    if (trigger.validity.valid && recent.validity.valid && trigger.valueAsNumber > 0 && recent.valueAsNumber >= trigger.valueAsNumber) {
+      recent.setCustomValidity('Enter fewer tokens than the summary trigger.');
+      related.set(trigger, recent);
+    }
+    return related;
   }
 
   async function save(event) {
     event.preventDefault();
-    if (!state.saved || state.loading || state.saving || isProfileSaving() || !hasUnsavedChanges() || !validate()) return;
+    if (!state.saved || state.loading || state.saving || isProfileSaving() || !hasUnsavedChanges() || !validation.showErrors()) return;
     const changes = {};
     for (const [name, input] of fields) {
       const value = valueOf(input);
@@ -293,7 +300,6 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
         if (name === 'memory_generation_enabled' && input.checked) resumeLegacyTrigger();
         setStatus('');
         updateControls();
-        if (validation.isReviewing()) validate(false);
       });
     }
     resetButtons.forEach(button => { button.onclick = () => restoreDefaults([button.dataset.resetSetting]); });

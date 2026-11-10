@@ -64,6 +64,8 @@ Microsoft의 [Foundry REST 참조](https://learn.microsoft.com/en-us/rest/api/mi
 
 개발용 `POST /api/chat`의 `explore_project: true`로 읽기 탐색을 명시적으로 선택합니다. 새 대화는 `POST /api/workspace`로 독립된 초안을 만들고, 반환된 `session_id`를 `workspace_session_id`로 전달해 `PUT /api/workspace/root`에서 폴더를 선택합니다. 첫 채팅에서 같은 식별자를 보내면 연결을 대화에 저장합니다. 저장된 대화는 `GET /api/workspace?conversation_id=<id>&include_entries=false`로 조회하고, 채팅·폴더 변경·문맥 및 구조 미리보기·파일 읽기·첨부 검사에 `conversation_id`와 현재 `workspace_revision`·`workspace_session_id`를 함께 보냅니다. Workspace가 필요하며 기본 프로젝트 개요는 자동 적용됩니다. 추가 도구 탐색은 별도 선택입니다. 전체 tree나 파일 본문·절대 root를 자동으로 넣지 않습니다. 식별자를 생략하는 기존 API의 임시 Workspace는 브라우저 대화의 선택과 분리됩니다.
 
+`POST /api/workspace/path-check`에 `{"path":"<폴더 경로>"}`를 보내면 연결을 적용하기 전에 Helios가 실행 중인 컴퓨터의 폴더를 확인합니다. 유효한 폴더에는 `204`를, 경로에 문제가 있으면 오류와 함께 `400`을 반환합니다. Workspace 선택은 유지됩니다.
+
 `POST /api/workspace/context`에 같은 범위 필드를 보내면 자동 개요를 로컬에서 미리 봅니다. 모델 호출이나 MCP 프로세스는 시작하지 않습니다. 기존 `workspace_structure`와 `POST /api/workspace/structure`는 개발용 명시적 추가 구조 요청으로 유지합니다. 깊이·항목 수·절대 경로 옵션은 이 추가 요청에만 적용되며, `workspace_structure: null`은 기본 개요를 끄지 않습니다. 프로젝트 문맥 없이 대화하려면 Workspace 연결을 해제합니다.
 
 아래 예시는 폴더 선택 응답의 revision이 `1`인 경우입니다. 실제 응답의 `revision`과 `session_id`를 사용하세요. 폴더 선택 시 revision이 증가하므로 연결 전 초안의 `0`을 연결된 요청의 고정값으로 쓰면 안 됩니다.

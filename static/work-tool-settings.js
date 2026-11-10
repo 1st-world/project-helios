@@ -14,7 +14,7 @@ const fields = [
 export function createWorkToolSettings({ getWorkspace, isGenerating }) {
   const dialog = $('#work-tools-settings-dialog');
   const form = $('#work-tools-settings-form');
-  const validation = createFieldValidation(form);
+  const validation = createFieldValidation(form, updateValidity);
   initializeHelpPopovers(dialog);
   let applied = {};
   let baseline = [];
@@ -38,8 +38,7 @@ export function createWorkToolSettings({ getWorkspace, isGenerating }) {
     });
   }
 
-  function readDraft(focus = true) {
-    const limits = {};
+  function updateValidity() {
     for (const [id, key] of fields) {
       const input = $(`#${id}`);
       input.setCustomValidity('');
@@ -49,9 +48,7 @@ export function createWorkToolSettings({ getWorkspace, isGenerating }) {
           ? input.valueAsNumber > Number.MAX_SAFE_INTEGER ? `Enter a whole number no greater than ${Number.MAX_SAFE_INTEGER.toLocaleString()}.` : 'Enter a positive whole number.'
           : 'Enter a number greater than zero.');
       }
-      if (input.value !== '') limits[key] = input.valueAsNumber;
     }
-    return validation.showErrors({ focus }) ? limits : null;
   }
 
   function beforeDialogClose() {
@@ -76,16 +73,12 @@ export function createWorkToolSettings({ getWorkspace, isGenerating }) {
   $('#work-tools-settings').onclick = open;
   form.onsubmit = event => {
     event.preventDefault();
-    if (isGenerating()) return;
-    const draft = readDraft();
-    if (draft == null) return;
-    applied = draft;
+    if (isGenerating() || !validation.showErrors()) return;
+    applied = Object.fromEntries(fields.map(([id, key]) => [key, $(`#${id}`).valueAsNumber])
+      .filter(([, value]) => Number.isFinite(value)));
     dialog.close();
     toast('Work tools settings applied.', 'success');
   };
-  fields.forEach(([id]) => $(`#${id}`).addEventListener('input', () => {
-    if (validation.isReviewing()) readDraft(false);
-  }));
   document.addEventListener('workspace-change', updateState);
   dialog.addEventListener('close', () => {
     if (dialog.open) return;

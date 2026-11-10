@@ -35,7 +35,7 @@ function isValidThreshold(value) {
 export function createProfiles({ isGenerating, onModelContextChange = () => {}, onSelectionChange = () => {} }) {
   const state = { defaultProfileId: null, editingProfileId: null, profiles: [], formBaseline: null, saving: false, defaultSaving: false, feedback: null, catalogLoaded: false, catalogLoading: false, catalogError: '', online: true };
   const form = $('#azure-settings-form');
-  const validation = createFieldValidation(form);
+  const validation = createFieldValidation(form, updateValidity);
   const profileContext = createProfileContext({ isSaving: () => state.saving });
   const modelSelection = createModelSelection({ onChange: renderModelSelection });
   let catalogPromise = null;
@@ -123,25 +123,15 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     const rates = PRICE_CATEGORIES.map(([name, standardId, longId]) => ({
       name, standard: readPrice($(`#${standardId}`)), long: readPrice($(`#${longId}`)),
     }));
-    const invalid = rates.flatMap(rate => [
-      ...(rate.standard.invalid ? [`the standard ${rate.name} rate`] : []),
-      ...(rate.long.invalid ? [`the long-context ${rate.name} rate`] : []),
-    ]);
-    if (!isValidThreshold(readThreshold())) invalid.push('the threshold breakpoint');
+    const invalid = rates.some(rate => rate.standard.invalid || rate.long.invalid) || !isValidThreshold(readThreshold());
     const missingStandard = rates.filter(rate => rate.standard.value === null).map(rate => rate.name);
     const hasPricing = rates.some(rate => rate.standard.value !== null || rate.long.value !== null);
     // Valid blank long rates use the corresponding standard rates.
-    const pricingState = invalid.length ? 'invalid' : !hasPricing ? 'empty' : missingStandard.length ? 'partial' : 'configured';
-    let message = '';
-    if (pricingState === 'partial') {
-      message = `Missing standard rates for ${pricingFieldList.format(missingStandard)}.`;
-    } else if (pricingState === 'invalid' && !validation.isReviewing()) {
-      message = `Check ${pricingFieldList.format(invalid)}.`;
-    }
+    const pricingState = invalid ? 'invalid' : !hasPricing ? 'empty' : missingStandard.length ? 'partial' : 'configured';
+    const message = pricingState === 'partial' ? `Missing standard rates for ${pricingFieldList.format(missingStandard)}.` : '';
     const completeness = $('#pricing-completeness-status');
     setText(completeness, message);
     completeness.hidden = !message;
-    completeness.dataset.state = pricingState;
     if (statusEl.dataset.state !== pricingState) {
       const labels = { empty: 'Not configured', partial: 'Partial pricing', configured: 'Configured', invalid: 'Check pricing' };
       const icons = { empty: 'circle-dashed', partial: 'triangle-alert', configured: 'check', invalid: 'circle-alert' };
@@ -499,7 +489,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     return input.value === '' && !input.validity.badInput ? Number(input.placeholder) : input.valueAsNumber;
   }
 
-  function validate(focus = true) {
+  function updateValidity() {
     for (const input of form.querySelectorAll('input, select')) input.setCustomValidity('');
     profileContext.validate();
     validatePrices();
@@ -519,9 +509,6 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     }
     const endpoint = $('#azure-endpoint');
     if (endpoint.validity.typeMismatch) endpoint.setCustomValidity('Enter a valid Foundry endpoint URL, including https://.');
-    const valid = validation.showErrors({ focus });
-    updatePricingStatus();
-    return valid;
   }
 
   function updateThresholdLabels() {
@@ -597,8 +584,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     };
     form.addEventListener('input', event => {
       setStatus('');
-      if (validation.isReviewing()) validate(false);
-      else if (event.target.closest('#profile-pricing-accordion')) updatePricingStatus();
+      if (event.target.closest('#profile-pricing-accordion')) updatePricingStatus();
     });
 
     const toggleKeyBtn = $('#toggle-api-key-btn');
@@ -612,7 +598,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     $('#azure-settings-form').onsubmit = async (event) => {
       event.preventDefault();
       if (state.saving || state.defaultSaving || !hasUnsavedChanges()) return;
-      if (!validate()) return;
+      if (!validation.showErrors()) return;
       const threshold = readThreshold();
       const editingId = $('#editing-profile-id').value;
       const name = $('#profile-name').value.trim();

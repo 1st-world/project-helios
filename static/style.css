@@ -2260,6 +2260,9 @@ textarea::placeholder {
 .action-dialog .action-dialog-field {
   margin-top: 16px;
 }
+.action-dialog .action-dialog-field > .field-error {
+  margin-top: 6px;
+}
 .action-dialog input {
   width: 100%;
   padding: 9px 10px;
@@ -2369,20 +2372,20 @@ textarea::placeholder {
   min-width: 0;
   gap: 6px;
 }
-.settings-dialog :is(.field-error, .field-review) {
+:is(.settings-dialog, .action-dialog) :is(.field-error, .field-review) {
   margin: 0;
   font-weight: var(--font-weight-regular);
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
   overflow-wrap: anywhere;
 }
-.settings-dialog .field-error {
+:is(.settings-dialog, .action-dialog) .field-error {
   color: var(--danger-text);
 }
 .settings-dialog .field-review {
   color: var(--warning-text);
 }
-.settings-dialog :is(.field-error, .field-review)[hidden] {
+:is(.settings-dialog, .action-dialog) :is(.field-error, .field-review)[hidden] {
   display: none;
 }
 
@@ -3198,7 +3201,7 @@ textarea::placeholder {
 .preferences-dialog .profile-context-settings button[hidden] {
   display: none;
 }
-.preferences-dialog .settings-editor-form [data-field-control] [aria-invalid="true"] {
+.preferences-dialog [data-field-control] [aria-invalid="true"] {
   border-color: var(--danger);
   animation: settings-invalid-emphasis 0.5s ease-out;
 }
@@ -3453,7 +3456,7 @@ textarea::placeholder {
   /* Hide the Chromium/WebKit indicator only after the separate picker button is available. */
   display: none;
 }
-.preferences-dialog .settings-usage-overview p {
+.preferences-dialog .settings-usage-overview p:not(.field-error) {
   margin: 12px 0 0;
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
@@ -4102,13 +4105,8 @@ textarea::placeholder {
 }
 .pricing-accordion .pricing-completeness {
   margin: 0 0 10px;
-  overflow-wrap: anywhere;
-}
-.pricing-accordion .pricing-completeness[data-state="partial"] {
   color: var(--warning-text);
-}
-.pricing-accordion .pricing-completeness[data-state="invalid"] {
-  color: var(--danger-text);
+  overflow-wrap: anywhere;
 }
 .pricing-tier-block {
   display: flex;
@@ -4384,6 +4382,9 @@ textarea::placeholder {
 }
 .workspace-manager #workspace-path-status[data-state="warning"] {
   color: var(--warning-text);
+}
+.workspace-manager .workspace-group-body > .field-error {
+  margin-top: 8px;
 }
 
 .workspace-manager #workspace-path-input[aria-invalid="true"] {
@@ -5120,7 +5121,7 @@ button svg,
 
 @media (prefers-reduced-motion: reduce) {
   .response-progress .response-progress-indicator,
-  .preferences-dialog .settings-editor-form [data-field-control] [aria-invalid="true"],
+  .preferences-dialog [data-field-control] [aria-invalid="true"],
   .work-tools-settings [data-field-control] [aria-invalid="true"],
   .action-dialog,
   .action-dialog::backdrop,

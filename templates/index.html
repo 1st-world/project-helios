@@ -194,9 +194,9 @@
             <h3 id="workspace-folder-title">Workspace folder</h3>
             <button id="browse-workspace-btn" class="quiet-btn" type="button"><i id="workspace-picker-browse-icon" data-lucide="folder-open" aria-hidden="true"></i><i id="workspace-picker-stop-icon" data-lucide="square" aria-hidden="true" hidden></i><span id="workspace-picker-label">Browse</span></button>
           </div>
-          <div class="workspace-group-body">
+          <div class="workspace-group-body" data-field-control>
             <label for="workspace-path-input">Folder path</label>
-            <input id="workspace-path-input" required placeholder="C:/Users/Projects/my-project" aria-describedby="workspace-path-help workspace-path-status">
+            <input id="workspace-path-input" placeholder="C:/Users/Projects/my-project" aria-describedby="workspace-path-help workspace-path-status">
             <span id="workspace-path-help" class="field-hint">Folder on the computer running Helios.</span>
             <p id="workspace-path-status" class="field-hint" role="status" hidden></p>
           </div>
@@ -325,7 +325,7 @@
               <div class="settings-preference-copy"><span id="ui-font-source-label" class="settings-preference-label">Interface font</span><small>Font used throughout the interface. Code keeps its monospace font.</small></div>
               <select id="ui-font-source" aria-labelledby="ui-font-source-label"><option value="default">Default (Pretendard)</option><option value="system">System font</option><option value="installed">Installed font</option></select>
             </div>
-            <div id="font-settings-local" class="font-settings-local" hidden>
+            <div id="font-settings-local" class="font-settings-local" data-field-control hidden>
               <label for="ui-font-family">Font family name</label>
               <input id="ui-font-family" type="text" list="installed-font-families" maxlength="200" autocomplete="off" placeholder="e.g. Malgun Gothic" aria-describedby="installed-fonts-status font-settings-status">
               <datalist id="installed-font-families"></datalist>
@@ -803,17 +803,17 @@
               <label>Period<select id="usage-period"><option value="all">All recorded</option><option value="today">Today</option><option value="week">Last 7 days</option><option value="custom">Custom range</option></select></label>
             </div>
             <div id="usage-date-range" class="form-grid-2 usage-date-range" hidden>
-              <div class="usage-date-field">
+              <div class="usage-date-field" data-field-control>
                 <label for="usage-start-date">Start date</label>
                 <div class="input-with-action">
-                  <input id="usage-start-date" type="date">
+                  <input id="usage-start-date" type="date" min="0001-01-01" max="9999-12-31">
                   <button class="input-action-btn hidden" type="button" data-date-picker="usage-start-date" title="Choose start date" aria-label="Choose start date"><i data-lucide="calendar" aria-hidden="true"></i></button>
                 </div>
               </div>
-              <div class="usage-date-field">
+              <div class="usage-date-field" data-field-control>
                 <label for="usage-end-date">End date</label>
                 <div class="input-with-action">
-                  <input id="usage-end-date" type="date">
+                  <input id="usage-end-date" type="date" min="0001-01-01" max="9999-12-31">
                   <button class="input-action-btn hidden" type="button" data-date-picker="usage-end-date" title="Choose end date" aria-label="Choose end date"><i data-lucide="calendar" aria-hidden="true"></i></button>
                 </div>
               </div>

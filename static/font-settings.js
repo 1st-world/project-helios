@@ -1,6 +1,7 @@
 /* Manage browser-local font family and text size preferences, with optional installed font discovery. */
 
 import { $ } from './ui.js';
+import { createFieldValidation } from './field-validation.js';
 
 const STORAGE_KEY = 'helios.uiFont';
 const SCALE_STORAGE_KEY = 'helios.uiFontScale';
@@ -74,6 +75,9 @@ export function initializeFontSettings() {
   const list = $("#installed-font-families");
   const listStatus = $("#installed-fonts-status");
   const status = $("#font-settings-status");
+  const validation = createFieldValidation(localFields, () => {
+    family.setCustomValidity(readSelection() ? "" : "Enter a font family name of up to 200 characters without control characters.");
+  });
   const defaultStack = getComputedStyle(root).getPropertyValue("--font-sans").trim();
   const canListFonts = window.isSecureContext && typeof window.queryLocalFonts === "function";
   let saved = readPreference();
@@ -97,8 +101,7 @@ export function initializeFontSettings() {
   function fillSaved() {
     source.value = saved.source;
     family.value = saved.family;
-    family.setCustomValidity("");
-    family.removeAttribute("aria-invalid");
+    validation.reset();
     status.textContent = "";
     updateControls();
   }
@@ -115,18 +118,14 @@ export function initializeFontSettings() {
     }
   }
 
-  function applySelection() {
-    family.setCustomValidity("");
-    family.removeAttribute("aria-invalid");
+  function readSelection() {
     const preference = normalizePreference({ source: source.value, family: family.value });
-    if (source.value === "installed" && family.value.trim() && preference.source !== "installed") {
-      const message = "Enter a font family name of up to 200 characters without control characters.";
-      family.setCustomValidity(message);
-      family.setAttribute("aria-invalid", "true");
-      status.textContent = message;
-      return;
-    }
-    persist(preference);
+    return source.value === "installed" && family.value.trim() && preference.source !== "installed" ? null : preference;
+  }
+
+  function applySelection() {
+    const preference = readSelection();
+    if (preference) persist(preference);
   }
 
   async function listInstalledFonts() {
@@ -160,6 +159,7 @@ export function initializeFontSettings() {
   }
 
   source.addEventListener("change", () => {
+    if (source.value !== "installed") validation.reset();
     updateControls();
     applySelection();
     if (source.value === "installed") listInstalledFonts();

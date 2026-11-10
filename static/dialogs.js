@@ -1,5 +1,7 @@
 /* Provide accessible app dialogs with asynchronous actions, inline errors, and focus restoration. */
 
+import { createFieldValidation } from './field-validation.js';
+
 let activeDialog = null;
 
 export function bindDialogBackdrop(dialog, onDismiss) {
@@ -34,7 +36,7 @@ export function showActionDialog({ title, description, confirmLabel, cancelLabel
     <form novalidate>
       <div class="dialog-heading"><h2 id="action-dialog-title"></h2></div>
       <p id="action-dialog-description"></p>
-      <div class="action-dialog-field" hidden><input id="action-dialog-input" type="text" autocomplete="off" aria-describedby="action-dialog-error"></div>
+      <div class="action-dialog-field" data-field-control hidden><input id="action-dialog-input" type="text" autocomplete="off" aria-describedby="action-dialog-error"></div>
       <p id="action-dialog-error" role="alert" hidden></p>
       <div class="dialog-actions"><button class="quiet" type="button" data-cancel></button><button type="submit" data-confirm></button></div>
     </form>
@@ -57,6 +59,12 @@ export function showActionDialog({ title, description, confirmLabel, cancelLabel
   }
   let busy = false;
   let accepted = false;
+  const validation = createFieldValidation(form, () => {
+    if (!field) return;
+    const value = input.value.trim();
+    input.setCustomValidity(!value ? `${field.label} is required.`
+      : field.maxLength && [...value].length > field.maxLength ? `Use ${field.maxLength} characters or fewer.` : '');
+  });
 
   function setBusy(value) {
     busy = value;
@@ -77,7 +85,6 @@ export function showActionDialog({ title, description, confirmLabel, cancelLabel
   });
   input.oninput = () => {
     error.hidden = true;
-    input.removeAttribute('aria-invalid');
   };
   dialog.addEventListener('keydown', event => {
     if (event.key === 'Enter' && event.isComposing) event.preventDefault();
@@ -92,15 +99,8 @@ export function showActionDialog({ title, description, confirmLabel, cancelLabel
   });
   form.onsubmit = async event => {
     event.preventDefault();
-    if (busy) return;
+    if (busy || !validation.showErrors()) return;
     const value = input.value.trim();
-    if (field && (!value || (field.maxLength && [...value].length > field.maxLength))) {
-      error.textContent = !value ? `${field.label} is required.` : `Use ${field.maxLength} characters or fewer.`;
-      error.hidden = false;
-      input.setAttribute('aria-invalid', 'true');
-      input.focus();
-      return;
-    }
     error.hidden = true;
     setBusy(true);
     try {

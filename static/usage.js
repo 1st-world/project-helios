@@ -2,6 +2,7 @@
 
 import { $, refreshIcons } from './ui.js';
 import { describeRequestError } from './chat-feedback.js';
+import { createFieldValidation } from './field-validation.js';
 import { createUsageHistory } from './usage-history.js';
 import { getTimezone, getTimezonePreference, calendarDate, formatTimestamp } from './timezone.js';
 
@@ -78,6 +79,10 @@ function reportNotes(report) {
 export function createUsage({ footer, renderFooter }) {
   const dialog = $('#settings-dialog');
   const overview = $('#settings-usage-overview');
+  const start = $('#usage-start-date');
+  const end = $('#usage-end-date');
+  const dateRange = $('#usage-date-range');
+  const dateValidation = createFieldValidation(dateRange, updateDateValidity);
   const views = {
     footer: { root: footer, render: renderFooter, refresh: footer.querySelector('[data-usage-retry]'), controller: null },
     settings: { root: overview, render: render => render(), refresh: $('#refresh-settings-usage'), controller: null }
@@ -291,6 +296,19 @@ export function createUsage({ footer, renderFooter }) {
     }
   }
 
+  function updateDateValidity() {
+    const custom = $('#usage-period').value === 'custom';
+    for (const [input, label] of [[start, 'start'], [end, 'end']]) {
+      input.required = custom;
+      input.setCustomValidity('');
+      if (custom && !input.validity.valid) input.setCustomValidity(`Enter a valid ${label} date.`);
+    }
+    if (custom && start.validity.valid && end.validity.valid && end.valueAsNumber < start.valueAsNumber) {
+      end.setCustomValidity('End date must be on or after start date.');
+      return new Map([[start, end]]);
+    }
+  }
+
   function refreshSettings({ resetHistory = false } = {}) {
     cancel(views.settings);
     if (!settingsVisible()) {
@@ -298,19 +316,11 @@ export function createUsage({ footer, renderFooter }) {
       return;
     }
     const custom = $('#usage-period').value === 'custom';
-    $('#usage-date-range').hidden = !custom;
-    const start = $('#usage-start-date');
-    const end = $('#usage-end-date');
-    for (const input of [start, end]) {
-      input.required = custom;
-      input.setCustomValidity('');
-      input.removeAttribute('aria-invalid');
-    }
-    if (custom && start.value && end.value && end.value < start.value) end.setCustomValidity('End date must be on or after start date.');
-    const invalid = custom && [start, end].find(input => !input.checkValidity());
-    if (invalid) {
-      invalid.setAttribute('aria-invalid', 'true');
-      showState(views.settings, 'Choose valid start and end dates, with the end on or after the start.', 'error');
+    dateRange.hidden = !custom;
+    if (!custom) dateValidation.reset();
+    const datesValid = resetHistory ? dateValidation.showErrors() : dateValidation.refresh();
+    if (custom && !datesValid) {
+      showState(views.settings, '', 'error');
       history.select(null, 'Choose valid dates above to view recorded calls.');
       return;
     }
@@ -405,6 +415,7 @@ export function createUsage({ footer, renderFooter }) {
     dialog.addEventListener('settings-panel-change', refreshSettings);
     dialog.addEventListener('close', () => {
       if (dialog.open) return;
+      dateValidation.reset();
       cancel(views.settings);
       history.suspend();
     });

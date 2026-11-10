@@ -12,7 +12,7 @@ from datetime import date, datetime, timezone
 from hashlib import sha256
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import Annotated, ClassVar, Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -597,10 +597,19 @@ class EditMessageRequest(BaseModel):
     content: str = Field(min_length=1)
 
 
+WorkspaceFolderPath = Annotated[str, Field(min_length=1, max_length=4096)]
+
+
+class WorkspacePathCheckRequest(BaseModel):
+    """Accept a folder path for validation without changing the selection."""
+
+    path: WorkspaceFolderPath
+
+
 class WorkspaceRootRequest(BaseModel):
     """Validate the submitted workspace folder path."""
 
-    path: str | None = Field(min_length=1, max_length=4096)
+    path: WorkspaceFolderPath | None
     conversation_id: str | None = None
     workspace_revision: int | None = Field(default=None, ge=0, strict=True)
     workspace_session_id: str | None = Field(default=None, min_length=1, max_length=64)
@@ -1714,6 +1723,15 @@ async def workspace_tree(
 async def create_workspace_draft():
     """Create a separate folder-free browser draft without saving a blank chat."""
     return workspace_payload(conversation_workspaces.create_draft(), None)
+
+
+@app.post("/api/workspace/path-check", status_code=204)
+async def check_workspace_path(payload: WorkspacePathCheckRequest, request: Request):
+    """Validate a host folder without listing files or publishing a selection."""
+    try:
+        await until_disconnect(request, run_local, WorkspaceService.resolve_root, payload.path)
+    except WorkspaceAccessError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.put("/api/workspace/root")
