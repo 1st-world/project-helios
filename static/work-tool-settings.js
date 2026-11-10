@@ -42,11 +42,15 @@ export function createWorkToolSettings({ getWorkspace, isGenerating }) {
     for (const [id, key] of fields) {
       const input = $(`#${id}`);
       input.setCustomValidity('');
+      const modelCallLimit = key === 'max_model_calls';
       if (input.validity.badInput || (input.value !== '' && (!Number.isFinite(input.valueAsNumber) || input.valueAsNumber <= 0
-          || (key === 'max_model_calls' && !Number.isSafeInteger(input.valueAsNumber))))) {
-        input.setCustomValidity(key === 'max_model_calls'
-          ? input.valueAsNumber > Number.MAX_SAFE_INTEGER ? `Enter a whole number no greater than ${Number.MAX_SAFE_INTEGER.toLocaleString()}.` : 'Enter a whole number of at least 1.'
-          : 'Enter a number greater than 0.');
+          || (modelCallLimit && !Number.isSafeInteger(input.valueAsNumber))))) {
+        const range = modelCallLimit
+          ? input.valueAsNumber > Number.MAX_SAFE_INTEGER
+            ? `Enter a whole number no greater than ${Number.MAX_SAFE_INTEGER.toLocaleString()}`
+            : 'Enter a whole number of at least 1'
+          : 'Enter a number greater than 0';
+        input.setCustomValidity(`${range}, or leave blank for ${modelCallLimit ? 'no limit' : 'no target'}.`);
       }
     }
   }

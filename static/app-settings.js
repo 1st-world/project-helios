@@ -221,17 +221,20 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
   }
 
   function updateValidity() {
-    for (const input of fields.values()) {
+    for (const [name, input] of fields) {
       input.setCustomValidity('');
       if (input.disabled) continue;
       if (input.type === 'checkbox') continue;
-      if (['context_output_reserve', 'summary_trigger_tokens'].includes(input.dataset.appSetting) && valueOf(input) === null) continue;
+      const blankHint = name === 'context_output_reserve' ? ', or leave blank for the provider default'
+        : name === 'summary_trigger_tokens' ? ', or leave blank for Automatic' : '';
+      if (blankHint && valueOf(input) === null) continue;
       if (input.tagName !== 'SELECT' && (!Number.isSafeInteger(input.valueAsNumber) || input.valueAsNumber < Number(input.min))) {
-        input.setCustomValidity(input.dataset.appSetting === 'summary_trigger_tokens' && input.valueAsNumber === 0
-          ? 'Use Generate summaries to pause new summaries. Enter a positive trigger or leave it blank for Automatic.'
-          : input.valueAsNumber > Number.MAX_SAFE_INTEGER
-          ? `Enter a whole number no greater than ${Number.MAX_SAFE_INTEGER.toLocaleString()}.`
-          : `Enter a whole number of at least ${Number(input.min).toLocaleString()}.`);
+        const range = input.valueAsNumber > Number.MAX_SAFE_INTEGER
+          ? `Enter a whole number no greater than ${Number.MAX_SAFE_INTEGER.toLocaleString()}`
+          : `Enter a whole number of at least ${Number(input.min).toLocaleString()}`;
+        const pauseHint = name === 'summary_trigger_tokens' && input.valueAsNumber === 0
+          ? 'Use Generate summaries to pause new summaries. ' : '';
+        input.setCustomValidity(`${pauseHint}${range}${blankHint}.`);
       }
     }
     const budget = fields.get('context_token_budget');

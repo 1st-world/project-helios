@@ -253,9 +253,10 @@ export function createProfileContext({ isSaving }) {
     if (!required && input.value === '' && !input.validity.badInput) return '';
 
     const value = input.valueAsNumber;
-    if (value > Number.MAX_SAFE_INTEGER) return `Enter a whole number no greater than ${Number.MAX_SAFE_INTEGER.toLocaleString()}.`;
+    const blankHint = required ? '' : ', or leave blank';
+    if (value > Number.MAX_SAFE_INTEGER) return `Enter a whole number no greater than ${Number.MAX_SAFE_INTEGER.toLocaleString()}${blankHint}.`;
     if (input.validity.badInput || !Number.isSafeInteger(value) || value < 1) {
-      return required ? 'Enter a whole number of at least 1.' : 'Enter a whole number of at least 1, or leave blank.';
+      return `Enter a whole number of at least 1${blankHint}.`;
     }
     return '';
   }

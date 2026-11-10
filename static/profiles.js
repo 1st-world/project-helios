@@ -496,7 +496,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     const thresholdInput = $('#azure-long-threshold');
     const threshold = readThreshold();
     thresholdInput.setCustomValidity(isValidThreshold(threshold) ? ''
-      : threshold > Number.MAX_SAFE_INTEGER ? `Enter a whole number no greater than ${Number.MAX_SAFE_INTEGER.toLocaleString()}.`
+      : threshold > Number.MAX_SAFE_INTEGER ? `Enter a whole number no greater than ${Number.MAX_SAFE_INTEGER.toLocaleString()}, or leave blank for the default.`
       : 'Enter a whole number of at least 1, or leave blank for the default.');
     for (const [id, message] of [
       ['profile-name', 'Enter a profile name.'],
