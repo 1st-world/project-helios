@@ -451,7 +451,7 @@
                     <button class="quiet settings-default-reset" type="button" data-reset-setting="summary_trigger_tokens" data-reset-unit="tokens" aria-label="Restore initial summary token trigger" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i></button>
                     <input id="summary-trigger-tokens" type="number" min="1" step="1" placeholder="Automatic" data-app-setting="summary_trigger_tokens" aria-describedby="summary-trigger-tokens-help" disabled aria-labelledby="summary-trigger-tokens-label">
                   </div>
-                  <p id="summary-trigger-review" class="field-review" hidden>A saved zero pauses automatic generation. Leave this field blank to restore the Automatic trigger.</p>
+                  <p id="summary-trigger-review" class="field-review" hidden>A saved trigger of 0 pauses automatic summaries. Leave this field blank to use Automatic.</p>
                 </div>
                 <div class="settings-preference-row" data-field-row>
                   <div class="settings-preference-copy"><span id="keep-recent-tokens-label" class="settings-preference-label">Recent history target (tokens)</span><small id="keep-recent-tokens-help">Preferred original history to retain. The effective target adapts to deployment capacity and preserves complete turns.</small></div>
@@ -750,7 +750,7 @@
                       <div class="field-control" data-field-control><label>Long cache read price ($ / 1M)<input id="azure-long-cache-read-price" type="number" step="any" min="0" placeholder="Use standard rate" aria-describedby="cache-pricing-hint long-pricing-hint"></label></div>
                       <div class="field-control" data-field-control><label>Long cache write price ($ / 1M)<input id="azure-long-cache-write-price" type="number" step="any" min="0" placeholder="Use standard rate" aria-describedby="cache-pricing-hint long-pricing-hint"></label></div>
                     </div>
-                    <span id="long-pricing-hint" class="field-hint">Long-context rates apply above the input-token breakpoint, including cache tokens. A blank breakpoint uses 272K. Each blank rate uses its corresponding standard rate.</span>
+                    <span id="long-pricing-hint" class="field-hint">Long-context rates apply above the input-token breakpoint, including cache tokens. A blank breakpoint uses 272,000 tokens. Each blank rate uses its corresponding standard rate.</span>
                   </div>
                 </div>
               </details>

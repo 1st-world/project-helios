@@ -87,7 +87,7 @@ Choose app-wide behavior under **Settings → Context & attachments → Memory s
 | Generate summaries | On | Allow new automatic summaries. Off keeps permitted saved summaries available. |
 | Background checks | On | Check after completed replies when generation and saved-summary use are active. Off leaves foreground generation available. |
 
-Turning Use saved summaries Off disables the dependent generation and background switches without changing their choices. Turning Generate summaries Off disables background checks. Numeric limits remain editable for future use and explicitly requested one-time summaries. Existing zero triggers stay unchanged on load; explicitly enabling Generate summaries switches a retained zero to Automatic. Numeric edits alone do not enable generation or saved-summary use.
+Turning Use saved summaries Off disables the dependent generation and background switches without changing their choices. Turning Generate summaries Off disables background checks. Numeric limits remain editable for future use and explicitly requested one-time summaries. The app loads a saved trigger of `0` as-is. Explicitly turning Generate summaries On switches it to Automatic. Numeric edits alone do not enable generation or saved-summary use.
 
 Profile-level Conversation memory permission remains required. Generation and background switches do not revoke already prepared saved-memory input. Disabling saved-summary use rebuilds unsubmitted requests with originals and stops tool runs that already submitted memory before further actions. Already charged summary results are discarded if their generation permission is revoked before adoption; their usage remains recorded. Explicit one-time recovery retains its separate, request-bound grant and never enables automatic background checks.
 
@@ -96,7 +96,7 @@ Profile-level Conversation memory permission remains required. Generation and ba
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | Summary work budget | 262,144 tokens | Estimated input budget per summary call, also bounded by declared deployment capacity. |
-| Summary trigger | Automatic | Uses 90% of the declared input allowance. A custom trigger is bounded by that allowance while Settings retains its saved value. Use Generate summaries to pause new creation; existing zero triggers remain readable. |
+| Summary trigger | Automatic | Uses 90% of the declared input allowance. A custom trigger is bounded by that allowance while Settings retains its saved value. Use Generate summaries to pause new summaries. Settings can still read a saved trigger of `0`. |
 | Recent history target | 65,536 tokens | Preferred amount of recent original text to retain, bounded by half the post-summary input target. Complete turns are preserved, so this target can be exceeded. |
 | Summary call limit | 8 | Maximum API calls allowed in one summary operation. |
 
@@ -205,6 +205,6 @@ Failed, cancelled, interrupted, and replaced runs remain available. Completed ru
 
 Use **Settings → Usage & costs** to inspect call records and date-based totals. Per-message and per-conversation displays are optional. Usage is based on provider-reported tokens and distinguishes missing values from `0`. Reasoning tokens are not added to output a second time.
 
-Enter prices under **Connections → profile → Token pricing** in USD / 1M tokens. You can configure standard, cache read/write, and long-context rates, plus an input-token breakpoint. A blank standard rate is unknown; `0` means free. A blank long-context rate uses its corresponding standard rate. The default breakpoint is 272,000 tokens; adjust it to the model's actual pricing conditions. The badge reflects the current form, and the section lists missing standard rates when pricing is partial. Invalid rates and breakpoints are marked beneath their fields when you leave the field or try to save.
+Enter prices under **Connections → profile → Token pricing** in USD per 1M tokens. You can configure standard, cache read/write, and long-context rates, plus an input-token breakpoint. A blank standard rate means unknown; enter `0` for a free rate. A blank long-context rate uses its corresponding standard rate. Adjust the default breakpoint of 272,000 tokens to the model's actual pricing conditions. The badge reflects the current form, and the section lists missing standard rates when pricing is partial. Invalid rates and breakpoints are marked beneath their fields when you leave the field or try to save.
 
 Costs are estimates using the prices saved at call time and the reported usage. Missing required values produce partial or unavailable estimates. The app does not retrieve Azure invoices or remaining account credits. The independent usage ledger remains after a conversation is deleted.

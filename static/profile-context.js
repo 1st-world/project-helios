@@ -248,14 +248,14 @@ export function createProfileContext({ isSaving }) {
   }
 
   function fieldError(input) {
-    if (input.disabled) return '';
-    if (input.tagName !== 'SELECT' && (input.validity.badInput || (input.value !== '' && (!Number.isSafeInteger(input.valueAsNumber) || input.valueAsNumber < 1)))) {
-      return input.valueAsNumber > Number.MAX_SAFE_INTEGER
-        ? `Enter a whole number no greater than ${Number.MAX_SAFE_INTEGER.toLocaleString()}.`
-        : 'Enter a positive whole number, or leave blank.';
-    }
-    if (input.dataset.profileContext === 'context_input_budget' && input.value === '') {
-      return 'Enter a positive token limit for the custom budget.';
+    if (input.disabled || input.tagName === 'SELECT') return '';
+    const required = input.dataset.profileContext === 'context_input_budget';
+    if (!required && input.value === '' && !input.validity.badInput) return '';
+
+    const value = input.valueAsNumber;
+    if (value > Number.MAX_SAFE_INTEGER) return `Enter a whole number no greater than ${Number.MAX_SAFE_INTEGER.toLocaleString()}.`;
+    if (input.validity.badInput || !Number.isSafeInteger(value) || value < 1) {
+      return required ? 'Enter a whole number of at least 1.' : 'Enter a whole number of at least 1, or leave blank.';
     }
     return '';
   }

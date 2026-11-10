@@ -45,8 +45,8 @@ export function createWorkToolSettings({ getWorkspace, isGenerating }) {
       if (input.validity.badInput || (input.value !== '' && (!Number.isFinite(input.valueAsNumber) || input.valueAsNumber <= 0
           || (key === 'max_model_calls' && !Number.isSafeInteger(input.valueAsNumber))))) {
         input.setCustomValidity(key === 'max_model_calls'
-          ? input.valueAsNumber > Number.MAX_SAFE_INTEGER ? `Enter a whole number no greater than ${Number.MAX_SAFE_INTEGER.toLocaleString()}.` : 'Enter a positive whole number.'
-          : 'Enter a number greater than zero.');
+          ? input.valueAsNumber > Number.MAX_SAFE_INTEGER ? `Enter a whole number no greater than ${Number.MAX_SAFE_INTEGER.toLocaleString()}.` : 'Enter a whole number of at least 1.'
+          : 'Enter a number greater than 0.');
       }
     }
   }
