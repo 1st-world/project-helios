@@ -5,6 +5,7 @@ import { createWorkspacePicker } from './workspace-picker.js';
 import { attachmentIcon, attachmentKey, attachmentSize, attachmentSourceLabel, attachmentSummary, attachmentWarnings } from './attachments.js';
 import { createFilePicker } from './file-picker.js';
 import { createAttachmentDrafts } from './attachment-drafts.js';
+import { createAttachmentRail } from './attachment-rail.js';
 import { describeRequestError } from './chat-feedback.js';
 import { createDisclosure } from './disclosure.js';
 import { showActionDialog } from './dialogs.js';
@@ -46,6 +47,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
   let checkedPath = null;
   const workspaceDialog = $('#workspace-dialog');
   const pathInput = $('#workspace-path-input');
+  const attachmentRail = createAttachmentRail($('.attachment-rail'));
   const pathValidation = createFieldValidation($('#workspace-form'), () => {
     const path = pathInput.value.trim();
     pathInput.setCustomValidity([...path].length > 4096 ? 'Use a folder path of up to 4,096 characters.' : '');
@@ -288,10 +290,11 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
   }
 
   function renderAttachments() {
-    const bar = $('.context-bar');
+    const { track } = attachmentRail;
     const focusedKey = document.activeElement?.closest('[data-attachment-key]')?.dataset.attachmentKey;
-    bar.querySelectorAll('.context-chip.file').forEach(chip => chip.remove());
-    for (const file of state.attachments) {
+    const chips = document.createDocumentFragment();
+    let focusedRemove = null;
+    for (const [index, file] of state.attachments.entries()) {
       const chip = $('#file-chip-template').content.firstElementChild.cloneNode(true);
       const key = attachmentKey(file);
       chip.dataset.attachmentKey = key;
@@ -303,7 +306,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
           : 'Original unavailable. Select the file again or remove this attachment.' : 'Included with each new message until removed.'].filter(Boolean).join('\n');
       chip.dataset.unavailable = String(file.available === false);
       chip.querySelector('.file-chip-name').textContent = file.path;
-      chip.querySelector('.file-chip-source').textContent = file.available === false ? 'Unavailable' : attachmentSourceLabel(file);
+      chip.querySelector('.file-chip-source').textContent = file.available === false ? 'Unavailable' : chip.dataset.source === 'workspace' ? 'Workspace' : 'Copy';
       const remove = chip.querySelector('button');
       remove.disabled = state.generating;
       const identity = file.reference.source === 'upload' ? ` (${file.reference.attachment_id.slice(0, 8)})` : '';
@@ -317,13 +320,16 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
         invalidateInspection();
         renderAttachments();
         updateSelection();
-        const next = [...bar.querySelectorAll('.context-chip.file button')][0] || $('#load-file');
-        next.focus();
+        const adjacent = track.children[index] || track.lastElementChild;
+        (adjacent?.querySelector('button') || $('#load-file')).focus();
       };
-      bar.append(chip);
-      if (focusedKey === key) remove.focus({ preventScroll: true });
+      chips.append(chip);
+      if (focusedKey === key) focusedRemove = remove;
     }
-    refreshIcons(bar);
+    track.replaceChildren(chips);
+    refreshIcons(track);
+    attachmentRail.refresh();
+    focusedRemove?.focus({ preventScroll: true });
   }
 
   function clearFocusFiles() {
@@ -418,7 +424,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
       const el = $(`#${id}`);
       if (el) el.disabled = value;
     });
-    $('.context-bar').querySelectorAll('.context-chip.file button').forEach((button) => { button.disabled = value; });
+    attachmentRail.track.querySelectorAll('button').forEach((button) => { button.disabled = value; });
     if (value) resetContextPreview();
     updateWorkspaceControls();
     updateSelection();
