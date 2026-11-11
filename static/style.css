@@ -1489,6 +1489,85 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:not(:disabled):hover 
 /* ========================================
    Composer Input Area
    ======================================== */
+.composer-conversation-notices .composer-conversation-notice {
+  display: flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto 8px;
+  padding: 6px 10px;
+  gap: 8px;
+  border: 1px solid var(--info-border);
+  border-radius: 8px;
+  background: var(--info-subtle);
+  box-shadow: var(--shadow-sm);
+  color: var(--info-text);
+  font-weight: var(--font-weight-label);
+  font-size: var(--font-size-body-compact);
+  line-height: var(--line-height-description);
+  opacity: 1;
+  transform: translateY(0);
+}
+.composer-conversation-notices .composer-conversation-notice[data-tone] {
+  transition:
+    opacity var(--motion-duration-fast) var(--motion-easing-default),
+    transform var(--motion-duration-fast) var(--motion-easing-default),
+    display var(--motion-duration-fast) allow-discrete;
+}
+.composer-conversation-notices .composer-conversation-notice[hidden] {
+  display: none;
+  opacity: 0;
+  transform: translateY(6px);
+}
+@starting-style {
+  .composer-conversation-notices .composer-conversation-notice[data-tone]:not([hidden]) {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.composer-conversation-notices .composer-conversation-notice > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.composer-conversation-notices [data-notice-icon] {
+  display: none;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--info);
+}
+.composer-conversation-notices [data-tone="progress"] [data-notice-icon="progress"] {
+  display: block;
+  animation: composer-notice-spin calc(var(--motion-duration) * 5) linear infinite;
+}
+.composer-conversation-notices .composer-conversation-notice[data-tone="success"] {
+  border-color: var(--success-border);
+  background: var(--success-subtle);
+  color: var(--success-text);
+}
+.composer-conversation-notices [data-tone="success"] [data-notice-icon="success"] {
+  display: block;
+  color: var(--success);
+  stroke-dasharray: 24;
+  animation: composer-notice-check calc(var(--motion-duration) * 1.5) var(--motion-easing-default);
+}
+.composer-conversation-notices [data-tone="info"] [data-notice-icon="info"] {
+  display: block;
+}
+@keyframes composer-notice-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@keyframes composer-notice-check {
+  from {
+    stroke-dashoffset: -24;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
 .composer-inputs,
 .context-bar,
 .composer-options,
@@ -5121,6 +5200,8 @@ button svg,
 
 @media (prefers-reduced-motion: reduce) {
   .response-progress .response-progress-indicator,
+  .composer-conversation-notices [data-tone="progress"] [data-notice-icon="progress"],
+  .composer-conversation-notices [data-tone="success"] [data-notice-icon="success"],
   .preferences-dialog [data-field-control] [aria-invalid="true"],
   .work-tools-settings [data-field-control] [aria-invalid="true"],
   .action-dialog,
@@ -5132,6 +5213,7 @@ button svg,
     animation: none;
   }
   .message-actions,
+  .composer-conversation-notices .composer-conversation-notice[data-tone],
   .message-footer .message-usage-toggle,
   .message-footer .message-usage-toggle svg,
   .conversation-usage .usage-details-chevron,

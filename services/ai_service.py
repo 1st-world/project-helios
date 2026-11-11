@@ -77,6 +77,7 @@ class AIService:
             raise ValueError("The output token limit must be positive.")
         self.max_output_tokens = max_output_tokens
         self._before_summary: Callable[[], None] | None = None
+        self._on_summary_submit: Callable[[], None] | None = None
         self._summary_target_tokens: int | None = None
         self._prepare_reply: Callable[[], tuple[str, list[dict]]] | None = None
 
@@ -117,6 +118,7 @@ class AIService:
     def with_profile(
         self, profile: ConnectionProfile, *,
         before_summary: Callable[[], None] | None = None,
+        on_summary_submit: Callable[[], None] | None = None,
         prepare_reply: Callable[[], tuple[str, list[dict]]] | None = None,
         summary_target_tokens: int | None = None,
     ) -> "AIService":
@@ -124,6 +126,7 @@ class AIService:
         snapshot = copy(self)
         snapshot.profile_service = _ProfileSnapshot(profile)
         snapshot._before_summary = before_summary
+        snapshot._on_summary_submit = on_summary_submit
         snapshot._prepare_reply = prepare_reply
         snapshot._summary_target_tokens = summary_target_tokens
         return snapshot
@@ -646,8 +649,9 @@ class AIService:
         started = time.perf_counter()
         call = self._begin_call(profile, "summary", conversation_id)
         try:
-            if on_submit is not None:
-                on_submit()
+            notify = on_submit or self._on_summary_submit
+            if notify is not None:
+                notify()
             response = await client.responses.create(
                 model=profile.deployment,
                 instructions=instructions,

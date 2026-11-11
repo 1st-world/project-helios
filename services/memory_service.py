@@ -21,6 +21,7 @@ from services.context_budget import (
     SummaryUnavailableError,
 )
 from services.conversation_service import ConversationManager
+from services.memory_updates import BackgroundMemoryUpdates
 from services.prompt_builder import PromptBuilder
 from services.model_context import MemoryCapacity, MemoryPlan
 from services.token_estimator import estimation_metadata
@@ -104,6 +105,7 @@ class ConversationMemoryService:
             if type(getattr(self, name)) is not bool:
                 raise ValueError(f"{name} must be a boolean.")
         self._running: set[str] = set()
+        self.background_updates = BackgroundMemoryUpdates()
         self._pending: dict[
             str, tuple[
                 Conversation, str | None, "ConversationMemoryService",
@@ -315,11 +317,15 @@ class ConversationMemoryService:
             "revision": self._revision.value, "one_shot": one_shot,
         }
 
-    def _pin_policy(self, snapshot: MemoryPolicySnapshot) -> MemoryPolicySnapshot:
+    def _pin_policy(
+        self, snapshot: MemoryPolicySnapshot, *,
+        on_summary_submit: Callable[[], None] | None = None,
+    ) -> MemoryPolicySnapshot:
         """Bind summary authorization to the exact foreground or background snapshot."""
         if snapshot.profile is not None and isinstance(snapshot.ai_service, AIService):
             snapshot = replace(snapshot, ai_service=snapshot.ai_service.with_profile(
                 snapshot.profile, before_summary=lambda: self._check_policy(snapshot),
+                on_summary_submit=on_summary_submit,
                 summary_target_tokens=snapshot.policy["summary_target_tokens"],
             ))
         return snapshot
@@ -883,7 +889,7 @@ class ConversationMemoryService:
         snapshot = summary_policy or self.capture_policy(profile_id)
         if not snapshot.policy["background_enabled"]:
             return
-        snapshot = self._pin_policy(replace(snapshot, background=True))
+        snapshot = replace(snapshot, background=True)
         if not self.policy_is_current(snapshot):
             return
         conversation_id = conversation.id
@@ -954,6 +960,17 @@ class ConversationMemoryService:
         )
         if cutoff <= start:
             return
+        submitted = False
+        applied = False
+
+        def summary_submitted() -> None:
+            """Start the notice at the first paid call, including chunked summaries."""
+            nonlocal submitted
+            if not submitted:
+                self.background_updates.publish(conversation.id, "updating")
+                submitted = True
+
+        snapshot = self._pin_policy(snapshot, on_summary_submit=summary_submitted)
         try:
             summary = await self._summarize_prefix(
                 conversation,
@@ -1000,3 +1017,8 @@ class ConversationMemoryService:
         except Exception as exc:
             # Memory is an optimization; a failed summary must not interrupt the user response.
             logger.error("Conversation memory compaction failed (error_type=%s)", type(exc).__name__)
+        finally:
+            if submitted and self.conversation_manager.is_active(conversation):
+                self.background_updates.publish(
+                    conversation.id, "updated" if applied else "not_updated",
+                )

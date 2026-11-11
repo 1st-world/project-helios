@@ -10,6 +10,8 @@ import { showActionDialog } from './dialogs.js';
 import { createResponseFooter } from './response-footer.js';
 import { createResponseProgress, memoryWaitingLabel } from './response-progress.js';
 import { createReasoningSummary } from './reasoning-summary.js';
+import { createConversationNotice } from './conversation-notice.js';
+import { createMemoryUpdates } from './memory-updates.js';
 import { describeResume, resumeBoundary, resumeSelection } from './work-resume.js';
 
 export function createChat({ getActiveProfileId, getModelSelection = () => ({}), onPausedModelChange = () => {}, prepareRequestProfile = async () => ({ profile_id: getActiveProfileId() }), selectModel, startModelDraft, adoptModel, refreshModelSelection, getAttachmentSelection, restoreAttachments, onAttachmentsSaved, getWorkspaceContext = () => ({}), selectWorkspace, startWorkspaceDraft, adoptWorkspace, onAttachmentMetadata, clearFocusFiles, onGeneratingChange, onConversationChange, openSettings, exploration }) {
@@ -41,6 +43,8 @@ export function createChat({ getActiveProfileId, getModelSelection = () => ({}),
   const prompt = $('#prompt');
   const send = $('#send');
   const pauseResponse = $('#pause-response');
+  const conversationNotice = createConversationNotice($('#composer-conversation-notices'), renderUsageContent);
+  const memoryUpdates = createMemoryUpdates(conversationNotice.show);
   const feedbackRegion = document.createElement('aside');
   feedbackRegion.className = 'chat-request-notices';
   feedbackRegion.setAttribute('aria-label', 'Latest request status');
@@ -445,8 +449,14 @@ export function createChat({ getActiveProfileId, getModelSelection = () => ({}),
     return { el, render, setMeta };
   }
 
+  function selectConversationNotices(id) {
+    conversationNotice.selectConversation(id);
+    memoryUpdates.selectConversation(id);
+  }
+
   function onStart(event, preparedProfile) {
     state.conversationId = event.conversation_id;
+    selectConversationNotices(state.conversationId);
     adoptWorkspace?.(state.conversationId);
     adoptModel?.(state.conversationId, preparedProfile);
   }
@@ -571,6 +581,7 @@ export function createChat({ getActiveProfileId, getModelSelection = () => ({}),
     updateComposerState();
     renderRequestFeedback();
     updateConversationUsage();
+    selectConversationNotices(state.conversationId);
     onConversationChange(state.conversationId);
     if (preserveScroll && !wasNearBottom) { chat.scrollTop = savedScrollTop; }
     else scrollDown(false);
@@ -586,6 +597,7 @@ export function createChat({ getActiveProfileId, getModelSelection = () => ({}),
     closeMobileSidebar();
     state.conversationId = null;
     state.conversationLoading = false;
+    selectConversationNotices(null);
     startModelDraft?.();
     setPausedRun(null, null);
     onConversationChange(null);

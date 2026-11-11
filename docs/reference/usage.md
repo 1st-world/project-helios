@@ -93,7 +93,7 @@ Turning Use saved summaries Off disables the dependent generation and background
 
 Profile-level Conversation memory permission remains required. Generation and background switches do not revoke already prepared saved-memory input. Disabling saved-summary use rebuilds unsubmitted requests with originals and stops tool runs that already submitted memory before further actions. Already charged summary results are discarded if their generation permission is revoked before adoption; their usage remains recorded. Explicit one-time recovery retains its separate, request-bound grant and never enables automatic background checks.
 
-If a background check starts a summary call, its call status and reported usage are available under **Usage & costs → Call history**.
+When a background check starts a summary call, **Updating conversation memory** appears above the composer for that conversation. You can keep typing and sending messages. **Memory updated** appears briefly after Helios saves the summary. If the result cannot be saved or used, the notice indicates that the memory was not updated. Call status and reported usage are available under **Usage & costs → Call history**.
 
 **Summary tuning** section contains the thresholds and limits for summary generation. The table lists their initial values.
 

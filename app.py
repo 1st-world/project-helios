@@ -971,6 +971,43 @@ async def get_conversation(conversation_id: str):
     return data
 
 
+@app.websocket("/api/conversations/{conversation_id}/memory/updates")
+async def conversation_memory_updates(websocket: WebSocket, conversation_id: str):
+    """Send background summary status for one conversation to a same-origin viewer."""
+    origin = websocket.headers.get("origin", "")
+    if urlsplit(origin).netloc != websocket.headers.get("host"):
+        await websocket.close(code=1008)
+        return
+    await websocket.accept()
+    conversation = conversation_manager.get(conversation_id)
+    if conversation is None:
+        await websocket.close(code=1008)
+        return
+
+    async with anyio.create_task_group() as tasks:
+        async def watch_disconnect() -> None:
+            """Release an idle subscription when the browser leaves the conversation."""
+            while (await websocket.receive())["type"] != "websocket.disconnect":
+                pass
+            tasks.cancel_scope.cancel()
+
+        tasks.start_soon(watch_disconnect)
+        try:
+            async with aclosing(memory_service.background_updates.watch(conversation_id)) as updates:
+                async for phase in updates:
+                    if not conversation_manager.is_active(conversation):
+                        break
+                    await websocket.send_json({"phase": phase})
+        except WebSocketDisconnect:
+            pass
+        finally:
+            tasks.cancel_scope.cancel()
+    try:
+        await websocket.close()
+    except (RuntimeError, WebSocketDisconnect):
+        pass
+
+
 @app.patch("/api/conversations/{conversation_id}")
 async def rename_conversation(
     conversation_id: str, payload: RenameConversationRequest
@@ -1478,6 +1515,7 @@ async def delete_conversation(conversation_id: str):
         )
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found.")
+    memory_service.background_updates.publish(conversation_id, "idle")
     conversation_workspaces.forget(conversation_id)
     context_recovery.forget_conversation(conversation_id)
     work_run_store.forget_conversation(conversation_id)
