@@ -88,11 +88,14 @@ Helios를 종료하고 프로젝트 폴더에서 앱과 같은 Python 환경으�
 ```bash
 python -m services.storage_diagnostics
 python -m services.storage_diagnostics --root "./helios-backup" --json
+python -m services.storage_diagnostics --root "./helios-backup" --deep --json
 ```
 
 설정·프로필 스키마, 이행 기록에 명시된 백업, 대화 구조와 메모리 요약 범위, SQLite 구조와 선언된 외래 키, 저장된 첨부 참조와 파일 크기를 검사합니다. 아직 초기화하지 않은 저장소와 호환되는 이전 스키마는 안내로 표시합니다. 삭제된 프로필을 선택한 대화에는 검토 안내를 표시하며 앱에서 다른 프로필을 선택할 수 있습니다. 결과에는 저장값, API 키, 대화 본문을 넣지 않습니다.
 
-SQLite는 읽기 전용으로 열며 저널이나 WAL 보조 파일이 있으면 검사를 보류합니다. 일관된 결과를 얻으려면 앱을 종료한 상태에서 실행합니다. 첨부 내용 해시와 실행 기록·사용량 행 간 참조는 별도 심층 검사가 필요합니다. 종료 코드 `0`은 차단할 문제 없음, `1`은 잘못된 데이터·미지원 스키마·필수 참조 누락, `2`는 확인된 문제 없이 검사를 끝내지 못한 경우입니다. 문제와 검사 보류가 함께 있으면 JSON의 `complete` 값으로도 확인할 수 있습니다. [SQLite 읽기 전용 URI 옵션](https://www.sqlite.org/uri.html#recognized_query_parameters)
+`--deep`을 추가하면 첨부 사본을 기록된 SHA-256 해시와 비교하고, 인덱스 일관성을 포함한 SQLite 전체 무결성 검사를 실행합니다. 크기가 일치하는 활성 사본을 모두 읽으므로 시간이 더 걸릴 수 있습니다. 매니페스트에 활성 항목이 없는 사본은 검토 대상으로 표시합니다. 두 모드 모두 SQLite를 읽기 전용으로 열고, 저널이나 WAL 보조 파일이 있으면 검사를 보류합니다. [SQLite 무결성 검사](https://www.sqlite.org/pragma.html#pragma_integrity_check) · [SQLite 읽기 전용 URI 옵션](https://www.sqlite.org/uri.html#recognized_query_parameters)
+
+종료 코드 `0`은 차단할 문제 없음, `1`은 잘못된 데이터·미지원 스키마·필수 참조 누락, `2`는 확인된 문제 없이 검사를 끝내지 못한 경우입니다. 문제와 검사 보류가 함께 있으면 JSON의 `complete` 값으로도 확인할 수 있습니다.
 
 ### 첨부 소유권과 정리
 

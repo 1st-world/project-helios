@@ -29,6 +29,14 @@ SQLITE_TABLES = {
 MANIFEST = "data/attachments/manifest.sqlite3"
 
 
+def is_upload_id(value: object) -> bool:
+    """Recognize a canonical upload UUID without accepting alternate filename spellings."""
+    try:
+        return isinstance(value, str) and str(UUID(value)) == value
+    except ValueError:
+        return False
+
+
 class SQLiteSidecarsPresent(OSError):
     """Defer a database check while journal or WAL files may affect its contents."""
 
@@ -43,12 +51,21 @@ class Finding:
     message: str
 
 
+@dataclass(frozen=True)
+class AttachmentFingerprint:
+    """Record the size and digest of an active attachment without its original name."""
+
+    size_bytes: int
+    sha256: str
+
+
 class StorageScan:
     """Collect content-free findings from a data directory that is at rest."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, deep: bool = False) -> None:
         """Bind the scan to one storage root."""
         self.root = root
+        self.deep = deep
         self.findings: list[Finding] = []
 
     def add(self, path: str, status: str, code: str, message: str) -> None:
@@ -192,7 +209,7 @@ class StorageScan:
         return any(self.stamp(path.with_name(path.name + suffix)) is not None
                    for suffix in ("-journal", "-wal", "-shm"))
 
-    def database(self, name: str) -> tuple[str, dict[str, int] | None]:
+    def database(self, name: str) -> tuple[str, dict[str, AttachmentFingerprint] | None]:
         """Run physical and schema checks without opening a writable SQLite connection."""
         path = self.root / name
         try:
@@ -227,7 +244,8 @@ class StorageScan:
                 return "unavailable", None
         status, uploads = result
         code, message = {
-            "ok": ("sqlite_valid", "SQLite structure and declared foreign keys passed validation."),
+            "ok": ("sqlite_valid", "SQLite structure, indexes, and declared foreign keys passed validation."
+                   if self.deep else "SQLite structure and declared foreign keys passed validation."),
             "not_initialized": ("database_absent", "No initialized database was found."),
             "compatible_legacy": ("legacy_database", "The database uses a supported previous schema."),
             "unsupported_version": ("unsupported_schema", "Use a Helios version that supports this database schema."),
@@ -236,10 +254,12 @@ class StorageScan:
         self.add(name, status, code, message)
         return status, uploads
 
-    @staticmethod
-    def database_contents(name: str, db: sqlite3.Connection) -> tuple[str, dict[str, int] | None]:
+    def database_contents(
+        self, name: str, db: sqlite3.Connection,
+    ) -> tuple[str, dict[str, AttachmentFingerprint] | None]:
         """Distinguish a compatible prior schema from missing structure and damage."""
-        if db.execute("PRAGMA quick_check(1)").fetchall() != [("ok",)]:
+        check = "PRAGMA integrity_check(1)" if self.deep else "PRAGMA quick_check(1)"
+        if db.execute(check).fetchall() != [("ok",)]:
             return "invalid_data", None
         tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if not tables:
@@ -278,20 +298,33 @@ class StorageScan:
                     return "invalid_data", None
                 db.execute("SELECT unclaimed_until FROM uploads LIMIT 0")
             for identity, size, digest, deleted in db.execute("SELECT id, size_bytes, sha256, deleted FROM uploads"):
-                try:
-                    valid = isinstance(identity, str) and str(UUID(identity)) == identity
-                except ValueError:
-                    valid = False
-                if (not valid or type(size) is not int or size < 0 or type(deleted) is not int or deleted not in {0, 1}
+                if (not is_upload_id(identity) or type(size) is not int or size < 0
+                        or type(deleted) is not int or deleted not in {0, 1}
                         or not isinstance(digest, str) or len(digest) != 64
                         or any(character not in "0123456789abcdef" for character in digest)):
                     return "invalid_data", None
                 if not deleted:
-                    uploads[identity] = size
+                    uploads[identity] = AttachmentFingerprint(size, digest)
         return ("ok" if current == version else "compatible_legacy"), uploads
 
-    def attachments(self, references: set[str], status: str, uploads: dict[str, int] | None) -> None:
-        """Check known upload references and stored sizes without reading attachment contents."""
+    def attachment_store(self, references: set[str]) -> None:
+        """Discard attachment findings if the manifest changes during the copy checks."""
+        path = self.root / MANIFEST
+        start = len(self.findings)
+        try:
+            with self.stable(path):
+                status, uploads = self.database(MANIFEST)
+                self.attachments(references, status, uploads)
+                if (status == "not_initialized" or uploads is not None) and self.has_sidecars(path):
+                    raise SQLiteSidecarsPresent
+        except (OSError, RuntimeError):
+            del self.findings[start:]
+            self.unavailable(MANIFEST)
+
+    def attachments(
+        self, references: set[str], status: str, uploads: dict[str, AttachmentFingerprint] | None,
+    ) -> None:
+        """Check known upload references, stored sizes, and optional content digests."""
         path = self.root / MANIFEST
         if status == "not_initialized":
             try:
@@ -308,24 +341,65 @@ class StorageScan:
         for identity in sorted(references - uploads.keys()):
             self.add(f"data/attachments/{identity}.blob", "missing_reference", "upload_reference_missing",
                      "A conversation refers to an upload without an active manifest entry.")
-        for identity, size in sorted(uploads.items()):
-            location = f"data/attachments/{identity}.blob"
+        verified = sum(self.attachment_copy(identity, fingerprint) for identity, fingerprint in sorted(uploads.items()))
+        if self.deep:
+            if uploads:
+                self.add("data/attachments", "ok" if verified == len(uploads) else "info", "attachment_hashes_checked",
+                         f"Verified SHA-256 hashes for {verified} of {len(uploads)} active attachment copies.")
+            self.untracked_copies(references | uploads.keys())
+
+    def attachment_copy(self, identity: str, fingerprint: AttachmentFingerprint) -> bool:
+        """Compare a stable copy with the manifest and report only the type of failure."""
+        location = f"data/attachments/{identity}.blob"
+        path = self.root / location
+        digest = None
+        try:
+            with self.stable(path) as info:
+                if self.deep and info is not None and info[2] == fingerprint.size_bytes:
+                    with path.open("rb") as source:
+                        digest = hashlib.file_digest(source, "sha256").hexdigest()
+        except (OSError, RuntimeError):
+            self.unavailable(location)
+            return False
+        if info is None:
+            self.add(location, "missing_reference", "upload_copy_missing",
+                     "An active attachment entry refers to a missing copy.")
+        elif info[2] != fingerprint.size_bytes:
+            self.add(location, "invalid_data", "upload_size_mismatch",
+                     "The attachment size differs from the manifest.")
+        elif self.deep and digest != fingerprint.sha256:
+            self.add(location, "invalid_data", "upload_hash_mismatch",
+                     "The attachment bytes differ from the manifest's recorded hash.")
+        else:
+            return True
+        return False
+
+    def untracked_copies(self, known: set[str]) -> None:
+        """Flag canonical copies without a live manifest row or an existing reference finding."""
+        name = "data/attachments"
+        directory = self.root / name
+        try:
+            with self.stable(directory, directory=True):
+                paths = sorted(path for path in directory.iterdir()
+                               if path.suffix == ".blob" and is_upload_id(path.stem) and path.stem not in known)
+        except (OSError, RuntimeError):
+            self.unavailable(name)
+            return
+        for path in paths:
+            location = path.relative_to(self.root).as_posix()
             try:
-                info = self.stamp(self.root / location)
+                if self.stamp(path) is None:
+                    raise OSError("Attachment copy disappeared during the check.")
             except (OSError, RuntimeError):
                 self.unavailable(location)
                 continue
-            if info is None:
-                self.add(location, "missing_reference", "upload_copy_missing",
-                         "An active attachment entry refers to a missing copy.")
-            elif info[2] != size:
-                self.add(location, "invalid_data", "upload_size_mismatch",
-                         "The attachment size differs from the manifest.")
+            self.add(location, "review", "upload_copy_untracked",
+                     "This copy has no active manifest entry. Preserve it until it can be reviewed.")
 
 
-def inspect_storage(root: Path) -> list[Finding]:
+def inspect_storage(root: Path, *, deep: bool = False) -> list[Finding]:
     """Inspect independent stores even when one registry prevents app startup."""
-    scan = StorageScan(root)
+    scan = StorageScan(root, deep=deep)
     try:
         scan.root = root.resolve()
         if scan.stamp(scan.root, directory=True) is None:
@@ -346,9 +420,10 @@ def inspect_storage(root: Path) -> list[Finding]:
         profile_ids = set()
     references = scan.conversations(profile_ids)
     for name in SQLITE_TABLES:
-        status, uploads = scan.database(name)
         if name == MANIFEST:
-            scan.attachments(references, status, uploads)
+            scan.attachment_store(references)
+        else:
+            scan.database(name)
     return scan.findings
 
 
@@ -357,8 +432,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=PROJECT_ROOT, help="Helios directory or offline data copy")
     parser.add_argument("--json", action="store_true", help="print a machine-readable report")
+    parser.add_argument("--deep", action="store_true", help="verify attachment hashes and run full SQLite integrity checks")
     args = parser.parse_args(argv)
-    findings = inspect_storage(args.root)
+    findings = inspect_storage(args.root, deep=args.deep)
     complete = not any(item.status == "unavailable" for item in findings)
     problems = any(item.status in PROBLEMS for item in findings)
     exit_code = 1 if problems else 0 if complete else 2
