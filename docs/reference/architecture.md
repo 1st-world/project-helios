@@ -102,6 +102,19 @@ Add `--deep` to verify attachment copies against their recorded SHA-256 hashes a
 
 Deep diagnostics also compare saved replies with their work runs, paused checkpoints with their source turns and retained uploads, and model and summary calls with the usage ledger. Work history and usage can outlive the conversation that created them. Missing usage and paused checkpoints whose source has changed are review findings. Incorrect ownership and missing required links, such as a reply's work record or a retained upload, are reported as problems. Cross-store findings are deferred if a participating file changes during the check.
 
+### Offline attachment recovery
+
+Close Helios and preview recovery with `--root` pointing to the damaged store and `--backup` pointing to a saved copy. Keep each backup attachment at its original `data/attachments/<UUID>.blob` path. The preview reports missing or damaged active copies and whether each backup matches the size and SHA-256 in the source manifest. It reads both inputs without modifying them.
+
+```bash
+python -m services.storage_recovery --root "../helios-offline" --backup "../helios-backup" --json
+python -m services.storage_recovery --root "../helios-offline" --backup "../helios-backup" --output-dir "../recovery"
+```
+
+Create the output directory before applying. `--output-dir` rechecks the plan and publishes a new `helios-recovered-*` folder under that directory, outside both input trees. It copies saved settings, profiles and migration backups, transcripts, SQLite stores, and attachment blobs from the source. It restores matching backups in that copy and runs deep diagnostics before publishing it. Keep the recovered folder as private as the original because it can contain API keys and conversation data.
+
+Exit code `0` indicates a successful preview or a copy with no blocking findings. Code `1` indicates unverified repairs in the preview or problems that remain in the published copy. Code `2` means the operation was blocked. The command reports the published path and remaining findings. If no backups qualify for restoration, it creates no output folder.
+
 ### Attachment ownership and cleanup
 
 Copies stay on the computer running the app while conversation messages, the composer, or an Attach files selection reference them. Conversation deletion, branch replacement, selection removal/discard, and request completion check only affected copies for cleanup. Attachments used by earlier messages remain after composer removal; other conversations, drafts, running requests, and valid retry receipts retain their copies. Original source files are never deleted.
