@@ -3636,12 +3636,7 @@ textarea::placeholder {
 .preferences-dialog .settings-usage-overview .usage-date-range[hidden] {
   display: none;
 }
-.preferences-dialog .usage-date-range .usage-date-field {
-  display: grid;
-  min-width: 0;
-  gap: 6px;
-}
-.preferences-dialog .usage-date-range .usage-date-field > label {
+.preferences-dialog .usage-date-range .field-control > label {
   margin: 0;
 }
 .preferences-dialog .usage-date-range input {
@@ -3653,7 +3648,6 @@ textarea::placeholder {
   display: none;
 }
 .preferences-dialog .settings-usage-overview p:not(.field-error) {
-  margin: 12px 0 0;
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
 }
@@ -3809,6 +3803,9 @@ textarea::placeholder {
 }
 .preferences-dialog .usage-call-history .usage-call-details-body {
   display: flow-root;
+}
+.preferences-dialog .usage-call-history .usage-call-details-body p {
+  margin: 12px 0 0;
 }
 .preferences-dialog .usage-call-history .usage-call-fields {
   display: grid;
