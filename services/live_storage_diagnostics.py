@@ -8,6 +8,7 @@ from services.local_work import check_local_cancelled
 from services.profile_service import ProfileService
 from services.settings_service import SETTINGS_SCHEMA_VERSION, SettingsService
 from services.storage_diagnostics import PROBLEMS, StorageScan
+from services.storage_references import Finding
 
 
 MAX_ATTENTION_FINDINGS = 50
@@ -48,13 +49,18 @@ def inspect_live_storage(
         scan.database(name, path=path)
         findings.extend(scan.findings)
 
+    return storage_report(findings, scope="basic")
+
+
+def storage_report(findings: list[Finding], *, scope: str) -> dict:
+    """Summarize findings for Settings while retaining bounded attention details."""
     problems = [item for item in findings if item.status in PROBLEMS]
     review = [item for item in findings if item.status == "review"]
     deferred = [item for item in findings if item.status == "unavailable"]
-    attention = problems + review + deferred
+    attention = problems + deferred + review
     routine = [item for item in findings if item.status not in PROBLEMS | {"review", "unavailable"}]
     return {
-        "scope": "basic",
+        "scope": scope,
         "complete": not deferred,
         "summary": {"problems": len(problems), "review": len(review), "deferred": len(deferred)},
         "findings": [asdict(item) for item in attention[:MAX_ATTENTION_FINDINGS] + routine],

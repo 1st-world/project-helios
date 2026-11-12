@@ -207,7 +207,14 @@ Failed, cancelled, interrupted, and replaced runs remain available. Completed ru
 
 ## Storage diagnostics
 
-Open **Settings → Storage → Run basic check** to check saved settings, profiles, conversations, and individual databases while Helios is open. The report lists problems, deferred checks, and the relative location of each finding. Use **Stop check** to cancel a running check. For attachment contents, links between stores, or recovery, see [storage diagnostics and recovery](architecture.md#read-only-storage-diagnostics).
+Open **Settings → Storage** and choose a check.
+
+- **Run basic check** inspects settings, profiles, conversations, and individual databases while Helios is open. Select **Stop check** to cancel it.
+- **Run deep check** also verifies attachment contents and links across stores when Helios was started with `python app.py`. After you confirm, Helios finishes active requests, stops the server for the check, and restarts. Keep the browser tab open to see the result.
+
+The results identify problems, checks that were deferred, and the relative location of each finding. Helios saves the latest outcome of each check type. Settings shows the most recent valid result and its check time in the interface timezone, including after a browser refresh or server restart. With no valid saved result, Settings shows the check controls.
+
+If Helios cannot start, see [standalone diagnostics](architecture.md#standalone-diagnostics) and [offline attachment recovery](architecture.md#offline-attachment-recovery).
 
 ## Usage and costs
 

@@ -385,10 +385,17 @@
 
     <section id="settings-storage" class="settings-panel" role="tabpanel" aria-labelledby="settings-storage-tab" tabindex="0" hidden>
       <section class="settings-group" aria-labelledby="storage-diagnostics-title">
-        <div class="settings-panel-heading"><h3 id="storage-diagnostics-title">Storage diagnostics</h3><button id="run-storage-check" class="quiet-btn" type="button"><i data-lucide="search-check" data-storage-action="check" aria-hidden="true"></i><i data-lucide="square" data-storage-action="stop" aria-hidden="true" hidden></i><span>Run basic check</span></button></div>
+        <div class="settings-panel-heading">
+          <h3 id="storage-diagnostics-title">Storage diagnostics</h3>
+          <div class="storage-check-actions">
+            <button id="run-storage-check" class="quiet-btn" type="button"><i data-lucide="search-check" data-storage-action="check" aria-hidden="true"></i><i data-lucide="square" data-storage-action="stop" aria-hidden="true" hidden></i><span>Run basic check</span></button>
+            <button id="run-storage-deep-check" class="quiet-btn" type="button" title="Available with the Helios managed launcher" disabled><i data-lucide="hard-drive" aria-hidden="true"></i><span>Run deep check</span></button>
+          </div>
+        </div>
         <div class="settings-group-body">
-          <p class="field-hint">Check saved settings, connection profiles, conversations, and individual databases while Helios is open.</p>
+          <p class="field-hint">A basic check inspects saved settings, profiles, conversations, and individual databases. A deep check also verifies attachment contents and links across stores.</p>
           <p id="storage-check-status" role="status" aria-atomic="true"></p>
+          <p id="storage-check-time" class="field-hint" hidden><span></span> <time></time></p>
           <div id="storage-check-results" tabindex="0" role="region" aria-label="Storage diagnostic results" hidden><ul></ul></div>
           <p id="storage-check-omitted" class="field-hint" hidden></p>
         </div>

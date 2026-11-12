@@ -413,6 +413,10 @@ export function createUsage({ footer, renderFooter }) {
     }
 
     dialog.addEventListener('settings-panel-change', refreshSettings);
+    document.addEventListener('helios-restarted', () => {
+      refreshFooter();
+      refreshSettings();
+    });
     dialog.addEventListener('close', () => {
       if (dialog.open) return;
       dateValidation.reset();

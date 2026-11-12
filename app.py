@@ -1,5 +1,6 @@
 """Serve the Helios web client and API, connecting application services and managing their lifecycle."""
 
+import atexit
 import asyncio
 import json
 import logging
@@ -7,7 +8,7 @@ import mimetypes
 import sqlite3
 from collections.abc import Awaitable, Callable
 from copy import copy
-from contextlib import aclosing, asynccontextmanager
+from contextlib import ExitStack, aclosing, asynccontextmanager
 from dataclasses import asdict, replace
 from datetime import date, datetime, timezone
 from hashlib import sha256
@@ -103,11 +104,26 @@ from services.profile_service import (
 )
 from services.provider_errors import ConnectionConfigurationError, ProviderFailure
 from services.settings_service import SettingsService, SettingsStorageError
+from services.storage_maintenance import (
+    load_check_result, own_storage, ownership_path, result_path, save_basic_check,
+)
 from services.storage_references import CALL_USAGE, MANIFEST, SUMMARY_USAGE, WORK_RUNS
 from services.summary_usage_store import SummaryUsageStore
 from services.usage_service import UsageService
 from services.token_estimator import estimation_metadata
 from services.workspace_service import WorkspaceAccessError, WorkspaceService
+
+if __name__ == "__main__":
+    from services.managed_server import main
+
+    raise SystemExit(main())
+
+
+_runtime_storage = ExitStack()
+if __name__ == "app":
+    # Acquire ownership before canonical server imports initialize writable stores.
+    _runtime_storage.enter_context(own_storage(settings.profiles_path.parent))
+    atexit.register(_runtime_storage.close)
 
 settings.logs_root.mkdir(parents=True, exist_ok=True)
 file_handler = RotatingFileHandler(
@@ -216,7 +232,7 @@ memory_service = ConversationMemoryService(
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(application: FastAPI):
     """Collect unused attachment copies and close background resources on shutdown."""
     global pause_deadline_changed
 
@@ -234,6 +250,10 @@ async def lifespan(_: FastAPI):
         await folder_picker_service.close()
         await file_picker_service.close()
         await ai_service.close()
+        maintenance = getattr(application.state, "storage_maintenance", None)
+        if maintenance is not None and maintenance.pending is not None:
+            maintenance.mark_drained(conversation_workspaces.snapshot_drafts())
+        _runtime_storage.close()
         logger.info("Helios stopped")
 
 
@@ -1717,9 +1737,11 @@ def build_workspace_structure(
 
 def project_protected_paths() -> list[Path]:
     """Use the same host runtime exclusions for automatic overview and explicit exploration."""
-    return [
+    storage_root = settings.profiles_path.parent
+    paths = [
         profile_service.storage_path, settings_service.storage_path,
         settings.conversations_root, settings.logs_root,
+        ownership_path(storage_root), result_path(storage_root).parent,
         getattr(
             settings, "attachments_root",
             settings.profiles_path.parent / "data" / "attachments",
@@ -1729,6 +1751,10 @@ def project_protected_paths() -> list[Path]:
             settings.profiles_path.parent / "data" / "work_runs.sqlite3",
         ),
     ]
+    maintenance = getattr(app.state, "storage_maintenance", None)
+    if maintenance is not None:
+        paths.append(maintenance.channel)
+    return paths
 
 
 def chat_uses_workspace(payload: ChatRequest) -> bool:
@@ -2051,7 +2077,7 @@ async def get_application_settings():
 
 @app.get("/api/storage/diagnostics")
 async def storage_diagnostics(request: Request):
-    """Run one read-only check against the app's configured local stores."""
+    """Check the configured stores and save a separate copy of the resulting report."""
     if storage_check_lock.locked():
         return JSONResponse(status_code=409, headers={"Cache-Control": "no-store"}, content={"detail": {
             "code": "storage_check_in_progress", "message": "A storage check is already running. Try again shortly.",
@@ -2069,7 +2095,42 @@ async def storage_diagnostics(request: Request):
                 SUMMARY_USAGE: settings.logs_root / "summary_usage.sqlite3",
             },
         )
-    return JSONResponse(report, headers={"Cache-Control": "no-store"})
+        result = await run_local(save_basic_check, settings.profiles_path.parent, report)
+    return JSONResponse({**report, "id": result["id"], "finished_at": result["finished_at"],
+                         "saved": result["saved"]}, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/storage/maintenance")
+async def storage_maintenance_status(request: Request):
+    """Return the maintenance capability and latest saved outcomes."""
+    maintenance = getattr(request.app.state, "storage_maintenance", None)
+    root = settings.profiles_path.parent
+    basic = await run_local(load_check_result, result_path(root, scope="basic"), scope="basic")
+    deep = (await run_local(maintenance.status) if maintenance is not None else
+            await run_local(load_check_result, result_path(root), scope="deep"))
+    return JSONResponse({
+        "available": maintenance is not None,
+        "job": deep,
+        "basic": basic,
+    }, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/storage/maintenance")
+async def start_storage_maintenance(request: Request):
+    """Accept one fixed offline check from the local Settings interface."""
+    if (request.url.hostname not in {"localhost", "127.0.0.1"}
+            or request.headers.get("x-helios-maintenance") != "deep-check"):
+        raise HTTPException(status_code=403, detail="Start the deep check from local Helios Settings.")
+    maintenance = getattr(request.app.state, "storage_maintenance", None)
+    if maintenance is None:
+        raise HTTPException(status_code=409, detail="Deep checks require the Helios managed launcher.")
+    if maintenance.pending is not None:
+        raise HTTPException(status_code=409, detail="A deep check is already scheduled.")
+    try:
+        job = maintenance.queue_check()
+    except OSError:
+        raise HTTPException(status_code=500, detail="Could not schedule the deep check. Try again.") from None
+    return JSONResponse(job, status_code=202, headers={"Cache-Control": "no-store"})
 
 
 @app.put("/api/settings")
@@ -3417,15 +3478,3 @@ class ChatPreparationResponse(ChatStreamingResponse):
             async for packet in self.body_iterator:
                 await send_packet(packet)
         await send({"type": "http.response.body", "body": b"", "more_body": False})
-
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(
-        "app:app",
-        host="127.0.0.1",
-        port=8000,
-        reload=True,
-        reload_excludes=["logs/*", "conversation/*"],
-    )

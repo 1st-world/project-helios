@@ -19,6 +19,7 @@ Technical reference for Helios `0.4.1-alpha`: implementation boundaries, local d
 | Path | Responsibility |
 | --- | --- |
 | `app.py` | Web pages and APIs, service wiring, and request/stream lifecycle. |
+| `services/managed_server.py` | Server process supervision and offline checks requested from Settings. |
 | `models/` | Profile, app settings, conversation, and message models. |
 | `services/` | Responses calls, input policies, summaries, attachments, Workspace, persistence, and usage. |
 | `templates/index.html` | Web UI structure. |
@@ -28,10 +29,10 @@ Follow [AGENTS.md](../../AGENTS.md) for development guidelines. The [frontend as
 
 Use `“name”` when UI prose or action text refers directly to a specific model, profile or conversation. Frontend copy uses `nameInText` from `static/ui.js`. Standalone labels, chips, list entries and values separated by a label or parentheses remain unquoted. Generic guidance, states, counts, times and prices keep their usual formatting; stored values are not changed.
 
-For automatic reload during development, run:
+For automatic reload during development, run Uvicorn directly. This mode supports basic checks in Settings. To run deep checks from Settings, use the [managed launcher](#checks-from-settings).
 
 ```powershell
-.\.venv\Scripts\python.exe app.py
+.\.venv\Scripts\python.exe -m uvicorn app:app --reload --host 127.0.0.1 --port 8000
 ```
 
 Provider request construction keeps app guidance in `instructions`. Workspace context, file bodies selected through legacy path fields, and applicable conversation memory become JSON source data in the first `user` input. Unsummarized original history and saved tool calls/results follow, with the current question last. New attachment labels and their text or native content immediately follow that question. Empty memory or a summary outside the current history's coverage never replaces original messages.
@@ -83,24 +84,29 @@ Work records do not expire automatically and remain after conversation deletion.
 
 ### Read-only storage diagnostics
 
-Close Helios, then run the diagnostic from the project directory with the same Python environment as the app. It can run when the app cannot start. Use `--root` to inspect a stopped data copy with the same directory layout and `--json` for a structured report.
+#### Checks from Settings
+
+`python app.py` starts a launcher that runs a Uvicorn worker on loopback. A confirmed deep check lets active requests finish before the worker exits. The launcher takes the same storage lock used by the server, runs the offline check, saves the result, and starts a new worker on the same port.
+
+Check results are separate from the stores they inspect. The latest result of each type is saved in `.cache/storage-maintenance/` as `last-basic-check.json` and `last-deep-check.json`. The deep check file retains the full findings. The launcher prints its path before starting the new worker so the result remains accessible if startup fails.
+
+#### Standalone diagnostics
+
+Use the standalone command when Helios cannot start or to inspect an offline copy. Close Helios before scanning its live data directory. Run from the project directory in the app's Python environment. Use `--root` for a copy with the same data layout and `--json` for a structured report.
 
 ```bash
 python -m services.storage_diagnostics
 python -m services.storage_diagnostics --root "./helios-backup" --json
-```
-
-The diagnostic checks the settings and profile schemas, recorded migration backups, conversation structure and memory coverage, SQLite structure and declared foreign keys, and saved upload references and file sizes. It treats absent, uninitialized stores and compatible older schemas as informational. A deleted conversation profile selection requires review and can be replaced in the app. The report omits saved field values, API keys, and conversation text.
-
-Exit code `0` means no blocking finding, `1` means invalid data, an unsupported schema or a missing required reference, and `2` means the check could not finish and found no confirmed problem. The JSON `complete` flag records incomplete checks even when there is also a confirmed problem.
-
-```bash
 python -m services.storage_diagnostics --root "./helios-backup" --deep --json
 ```
+
+The default offline check covers settings and profile schemas, recorded migration backups, conversation structure and memory coverage, SQLite structure and declared foreign keys, and saved upload references and file sizes. Uninitialized stores and compatible older schemas are informational. If a conversation refers to a deleted profile, select another profile in the app. Reports omit saved field values, API keys, and conversation text.
 
 Add `--deep` to verify attachment copies against their recorded SHA-256 hashes and run SQLite's full integrity check, including index consistency. This reads every size-matching active copy and can take longer. Copies without an active manifest entry are flagged for review. Both modes open SQLite read-only and defer checks when journal or WAL sidecars exist. [SQLite integrity checks](https://www.sqlite.org/pragma.html#pragma_integrity_check) · [SQLite read-only URI options](https://www.sqlite.org/uri.html#recognized_query_parameters)
 
 Deep diagnostics also compare saved replies with their work runs, paused checkpoints with their source turns and retained uploads, and model and summary calls with the usage ledger. Work history and usage can outlive the conversation that created them. Missing usage and paused checkpoints whose source has changed are review findings. Incorrect ownership and missing required links, such as a reply's work record or a retained upload, are reported as problems. Cross-store findings are deferred if a participating file changes during the check.
+
+Exit code `0` means the check finished without a blocking finding. Code `1` means invalid data, an unsupported schema, or a missing required reference. Code `2` means a check was deferred and no blocking finding was confirmed. The JSON `complete` flag indicates whether checks were deferred, including when there is also a confirmed problem.
 
 ### Offline attachment recovery
 

@@ -36,9 +36,21 @@ Microsoft's [Foundry REST reference](https://learn.microsoft.com/en-us/rest/api/
 
 ## Storage diagnostics API
 
-`GET /api/storage/diagnostics` runs a read-only basic check of the server's configured settings, profiles, transcripts, and individual SQLite databases. It accepts no storage paths. A successful request returns `scope: "basic"`, `complete`, a `summary` with `problems`, `review`, and `deferred` counts, and relative `findings` with `path`, `status`, `code`, and `message`. `omitted_findings` counts attention items beyond the first 50 returned. `complete` is false if a check was deferred. Concurrent requests receive HTTP `409` with `detail.code` set to `storage_check_in_progress`.
+### Run a basic check
 
-The live endpoint checks individual stores and defers databases with active journals or WAL mode. Attachment content, cross-store references, and recovery are covered by the [offline tools](architecture.md#read-only-storage-diagnostics).
+`GET /api/storage/diagnostics` checks the configured settings, profiles, transcripts, and individual SQLite databases. It reads the inspected stores without changing them and saves the resulting report separately. Databases with journal sidecars or WAL mode are deferred. A second basic check requested while one is running receives HTTP `409` with `detail.code: "storage_check_in_progress"`.
+
+The response includes the report, `id`, `finished_at`, and `saved`. If saving fails, `saved` is false and the response still contains the new report.
+
+### Schedule a deep check
+
+Send `POST /api/storage/maintenance` to `localhost` or `127.0.0.1` with the `X-Helios-Maintenance: deep-check` header. The managed server returns HTTP `202` with an `id` and `status: "pending"` before shutting down. The endpoint returns HTTP `403` if the host or header requirement fails, and HTTP `409` if the launcher is unavailable or a job is already pending. The check endpoints use the server's configured storage paths.
+
+### Read saved results
+
+`GET /api/storage/maintenance` returns `available` for managed deep-check support, `basic` for the latest saved basic check, and `job` for a pending deep check or the latest saved deep result. A saved outcome includes `id`, `status`, and `finished_at`, plus a `report` when completed or a `message` when failed. Fields for missing or invalid outcomes are `null`.
+
+Both report types include `scope` (`basic` or `deep`), `complete`, and a `summary` with `problems`, `review`, and `deferred` counts. Each finding has `path`, `status`, `code`, and `message`. Paths are relative, and `omitted_findings` counts attention items beyond the first 50 returned. `complete` is false if any check was deferred. See [standalone diagnostics](architecture.md#standalone-diagnostics) for the offline check scope.
 
 ## Conversation model selection API
 

@@ -5,6 +5,8 @@ from copy import copy
 from dataclasses import dataclass
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from models.workspace import WorkspaceBinding
 from services.conversation_service import ConversationManager
 from services.workspace_service import WorkspaceService
@@ -20,6 +22,8 @@ class DraftWorkspace:
 
 class ConversationWorkspaces:
     """Keep live authority objects separate while the conversation JSON owns durable state."""
+
+    MAX_DRAFTS = 128
 
     def __init__(self, manager: ConversationManager) -> None:
         """Initialize a bounded draft inventory and lazy conversation authority cache."""
@@ -41,22 +45,44 @@ class ConversationWorkspaces:
         """Start a fresh folder-free draft without adding an empty saved conversation."""
         workspace = WorkspaceService()
         self.drafts[workspace.session_id] = DraftWorkspace(workspace)
-        while len(self.drafts) > 128:
+        while len(self.drafts) > self.MAX_DRAFTS:
             self.drafts.popitem(last=False)
+        return workspace
+
+    def snapshot_drafts(self) -> list[dict]:
+        """Retain bounded draft bindings for one managed restart without saving transcripts."""
+        return [{"binding": self.binding(draft.workspace).model_dump(), "conversation_id": draft.conversation_id}
+                for draft in self.drafts.values()]
+
+    def restore_drafts(self, snapshot: object) -> None:
+        """Rebuild the preceding worker's browser draft identities from its private handoff."""
+        if not isinstance(snapshot, list):
+            return
+        for item in snapshot[-self.MAX_DRAFTS:]:
+            try:
+                binding = WorkspaceBinding.model_validate(item["binding"])
+                conversation_id = item.get("conversation_id")
+            except (KeyError, TypeError, ValidationError):
+                continue
+            if conversation_id is not None and not isinstance(conversation_id, str):
+                continue
+            self.drafts[binding.session_id] = DraftWorkspace(self._workspace_from(binding), conversation_id)
+
+    @staticmethod
+    def _workspace_from(binding: WorkspaceBinding) -> WorkspaceService:
+        """Restore a binding without resolving paths or reading Workspace content."""
+        workspace = WorkspaceService()
+        workspace.root = Path(binding.root) if binding.root is not None else None
+        workspace.revision = binding.revision
+        workspace.session_id = binding.session_id
+        workspace.read_options = binding.read_options
         return workspace
 
     def for_conversation(self, conversation) -> WorkspaceService:
         """Restore metadata without resolving paths, creating folders, or listing files."""
         workspace = self.saved.get(conversation.id)
         if workspace is None:
-            binding = conversation.workspace
-            workspace = WorkspaceService()
-            workspace.root = (
-                Path(binding.root) if binding.root is not None else None
-            )
-            workspace.revision = binding.revision
-            workspace.session_id = binding.session_id
-            workspace.read_options = binding.read_options
+            workspace = self._workspace_from(conversation.workspace)
             self.saved[conversation.id] = workspace
             self.owners[id(workspace)] = conversation.id
         return workspace

@@ -25,7 +25,7 @@ Microsoft Foundry에 배포한 모델을 자신의 API 키로 사용하는 로�
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m uvicorn app:app --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe app.py
 ```
 
 브라우저에서 [http://127.0.0.1:8000](http://127.0.0.1:8000)을 엽니다. 종료할 때는 터미널에서 `Ctrl + C`를 누릅니다.
@@ -102,9 +102,9 @@ Workspace를 연결한 뒤 **Tools → Explore project**를 켜고 질문을 보
 - API 키는 `profiles.json`에 **평문으로 저장**됩니다. 설정과 백업 파일을 함께 보호하세요.
 - 대화는 `conversation/`, 첨부·작업 기록은 `data/`, 사용량과 앱 로그는 `logs/`에 저장됩니다. 대화를 삭제해도 원본 작업 기록과 별도 사용량 원장은 자동 삭제하지 않습니다.
 - 앱은 로컬에서 실행하지만 질문·대화 이력·선택한 문맥과 첨부 내용은 답변 생성을 위해 외부 Provider로 전송됩니다.
-- 기본 구성은 로그인·사용자별 권한 분리가 없는 **로컬 단일 사용자 앱**입니다. 서버는 한 프로세스로 실행합니다.
+- 기본 구성은 로그인·사용자별 권한 분리가 없는 **로컬 단일 사용자 앱**입니다. 같은 데이터 디렉터리에서는 Helios를 한 번만 실행하세요.
 - 알파 버전의 기능과 저장 형식은 변경될 수 있습니다. 중요한 자료는 [저장 형식과 호환성 안내](docs/reference/architecture.ko-kr.md#버전과-호환성)에 따라 함께 백업하세요.
-- Helios가 시작되지 않거나 저장한 항목을 찾을 수 없다면 [읽기 전용 저장소 진단](docs/reference/architecture.ko-kr.md#읽기-전용-저장소-진단)을 실행하세요.
+- 저장 데이터가 누락되거나 손상된 것으로 보이면 [Settings → Storage](docs/reference/usage.ko-kr.md#저장소-진단)에서 검사하세요. Helios가 시작되지 않으면 [독립 실행 진단](docs/reference/architecture.ko-kr.md#독립-실행-진단)을 사용하세요.
 
 ## 문서와 개발
 

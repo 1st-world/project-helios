@@ -25,7 +25,7 @@ Run from the project root:
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m uvicorn app:app --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe app.py
 ```
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser. Press `Ctrl + C` in the terminal to stop the server.
@@ -102,9 +102,9 @@ See the [detailed usage guide](docs/reference/usage.md) for settings precedence,
 - API keys are stored in **plaintext** in `profiles.json`. Protect settings and their backups together.
 - Conversations are stored in `conversation/`, attachments and work records in `data/`, and usage and app logs in `logs/`. Deleting a conversation does not automatically erase original work records or the separate usage ledger.
 - The app runs locally, but questions, history, selected context, and attachment content are sent to the external Provider to generate replies.
-- The default setup is a **local single-user app** without login or separate user permissions. Run one server process.
+- The default setup is a **local single-user app** without login or separate user permissions. Use one Helios instance per data directory.
 - Alpha features and storage formats can change. Back up related data together as described in [storage and compatibility](docs/reference/architecture.md#versions-and-compatibility).
-- If Helios cannot start or a saved item is missing, run the [read-only storage diagnostic](docs/reference/architecture.md#read-only-storage-diagnostics).
+- If saved data appears missing or damaged, run a check in [Settings → Storage](docs/reference/usage.md#storage-diagnostics). If Helios cannot start, use [standalone diagnostics](docs/reference/architecture.md#standalone-diagnostics).
 
 ## Documentation and development
 

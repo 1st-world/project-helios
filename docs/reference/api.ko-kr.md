@@ -36,9 +36,21 @@ Microsoft의 [Foundry REST 참조](https://learn.microsoft.com/en-us/rest/api/mi
 
 ## 저장소 진단 API
 
-`GET /api/storage/diagnostics`는 서버에 설정된 설정·프로필 파일, 대화, 개별 SQLite 데이터베이스를 읽기 전용으로 기본 검사합니다. 요청에서 검사 경로를 받지 않습니다. 성공 응답에는 `scope: "basic"`, `complete`, `problems`·`review`·`deferred` 건수를 담은 `summary`, 그리고 `path`·`status`·`code`·`message`를 담은 `findings`가 들어갑니다. `omitted_findings`는 처음 50건을 넘어 응답에서 생략한 검토·문제·보류 항목 수입니다. 보류된 검사가 있으면 `complete`는 `false`입니다. 검사가 실행 중이면 후속 요청은 HTTP `409`와 `detail.code`의 `storage_check_in_progress`를 반환합니다.
+### 기본 검사 실행
 
-앱 실행 중에는 개별 저장소를 검사하며 저널 보조 파일이 있거나 WAL 모드인 데이터베이스는 보류합니다. 첨부 내용, 저장소 간 참조, 복구는 [오프라인 도구](architecture.ko-kr.md#읽기-전용-저장소-진단)에서 다룹니다.
+`GET /api/storage/diagnostics`는 서버의 설정·프로필 파일, 대화, 개별 SQLite 데이터베이스를 읽기 전용으로 검사하고 결과를 별도 파일에 저장합니다. 저널 보조 파일이 있거나 WAL 모드인 데이터베이스는 검사를 보류합니다. 검사 중에 같은 요청이 들어오면 HTTP `409`와 `detail.code: "storage_check_in_progress"`를 반환합니다.
+
+응답에는 검사 결과와 `id`, `finished_at`, `saved`가 들어갑니다. 파일 저장에 실패하면 `saved`가 `false`가 되며 새 검사 결과는 응답에 포함됩니다.
+
+### 심층 검사 예약
+
+`localhost` 또는 `127.0.0.1`에 `X-Helios-Maintenance: deep-check` 헤더를 붙여 `POST /api/storage/maintenance`를 보냅니다. 관리 실행기로 시작한 서버는 종료 전에 HTTP `202`와 작업의 `id`, `status: "pending"`을 반환합니다. 호스트나 헤더 조건을 충족하지 않으면 HTTP `403`을, 관리 실행기로 시작하지 않았거나 이미 대기 중인 작업이 있으면 HTTP `409`를 반환합니다. 검사 경로는 서버에 설정된 경로를 사용합니다.
+
+### 저장된 결과 조회
+
+`GET /api/storage/maintenance`는 관리 실행기를 통한 심층 검사 지원 여부를 `available`에, 최신 기본 검사 결과를 `basic`에, 대기 중인 심층 검사 또는 그 최신 결과를 `job`에 반환합니다. 저장된 결과에는 `id`, `status`, `finished_at`과 함께 완료 시 `report`, 실패 시 `message`가 들어갑니다. 유효한 저장 결과가 없는 필드는 `null`입니다.
+
+두 검사 결과에는 `scope`(`basic` 또는 `deep`), `complete`, `problems`·`review`·`deferred` 건수를 담은 `summary`가 들어갑니다. `findings`의 각 항목은 상대 경로 `path`와 `status`, `code`, `message`를 담습니다. `omitted_findings`는 처음 50건 이후 응답에서 생략한 문제·보류·검토 항목 수입니다. 보류된 검사가 있으면 `complete`는 `false`입니다. 오프라인 검사 범위는 [독립 실행 진단](architecture.ko-kr.md#독립-실행-진단)을 참고하세요.
 
 ## 대화별 모델 선택 API
 

@@ -6,7 +6,7 @@ import json
 import sqlite3
 import stat
 from contextlib import closing, contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from uuid import UUID
 
@@ -172,6 +172,7 @@ class StorageScan:
             self.add(name, "not_initialized", "conversations_absent", "No saved conversations were found.")
             return references
         readable = 0
+        first_finding = len(self.findings)
         for path in paths:
             check_local_cancelled()
             location = f"{name}/{path.name}"
@@ -211,7 +212,7 @@ class StorageScan:
                          "The saved selection refers to a missing profile. Select a profile to continue.")
             references.update(source["attachment_id"] for message in conversation.messages
                               for source in message.attachment_sources if source["source"] == "upload")
-        status = "ok" if readable == len(paths) else "info"
+        status = "ok" if len(self.findings) == first_finding else "info"
         self.add(name, status, "conversations_read", f"Read {readable} of {len(paths)} conversation files.")
         return references
 
@@ -460,6 +461,11 @@ class StorageScan:
             self.add(".", "unavailable", "reference_snapshot_changed",
                      "A source changed during the reference check. Close Helios and try again.")
             return
+        if any(item.path.startswith(f"{CONVERSATIONS}/") for item in findings):
+            for index, item in enumerate(self.findings):
+                if item.code == "conversations_read" and item.status == "ok":
+                    self.findings[index] = replace(item, status="info")
+                    break
         existing = set(self.findings)
         self.findings.extend(item for item in findings if item not in existing)
 
