@@ -34,6 +34,12 @@ POST:     https://your-resource.services.ai.azure.com/api/projects/your-project/
 
 Microsoft의 [Foundry REST 참조](https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/aiproject)는 프로젝트 Endpoint와 `{endpoint}/openai/v1/responses` 경로를 명시합니다. 프로젝트 Endpoint를 일괄적으로 관리 전용 주소로 분류하지 않습니다. 개별 `/responses` 주소나 쿼리 매개변수를 붙인 호출 URL 대신 API 기준 주소를 입력하며, 실제 요청의 인증·모델·입력 지원 여부는 해당 배포에 따라 확인합니다.
 
+## 저장소 진단 API
+
+`GET /api/storage/diagnostics`는 서버에 설정된 설정·프로필 파일, 대화, 개별 SQLite 데이터베이스를 읽기 전용으로 기본 검사합니다. 요청에서 검사 경로를 받지 않습니다. 성공 응답에는 `scope: "basic"`, `complete`, `problems`·`review`·`deferred` 건수를 담은 `summary`, 그리고 `path`·`status`·`code`·`message`를 담은 `findings`가 들어갑니다. `omitted_findings`는 처음 50건을 넘어 응답에서 생략한 검토·문제·보류 항목 수입니다. 보류된 검사가 있으면 `complete`는 `false`입니다. 검사가 실행 중이면 후속 요청은 HTTP `409`와 `detail.code`의 `storage_check_in_progress`를 반환합니다.
+
+앱 실행 중에는 개별 저장소를 검사하며 저널 보조 파일이 있거나 WAL 모드인 데이터베이스는 보류합니다. 첨부 내용, 저장소 간 참조, 복구는 [오프라인 도구](architecture.ko-kr.md#읽기-전용-저장소-진단)에서 다룹니다.
+
 ## 대화별 모델 선택 API
 
 대화 JSON은 다음 응답에 사용할 `profile_id`와 독립적인 `profile_revision`을 저장합니다. 자격 증명과 연결 설정은 프로필 저장소에서 공유하며 대화에 복제하지 않습니다. 새 대화는 생성 시점의 활성 프로필을 초깃값으로 저장합니다. 이후 활성 프로필 변경은 기존 선택에 영향을 주지 않습니다. 모델 선택 저장은 본문 `version`·메모리·Workspace·메시지·대화 정렬 시각을 바꾸지 않습니다.

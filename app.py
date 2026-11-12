@@ -86,6 +86,7 @@ from services.memory_service import (
     ConversationMemoryService, MemoryPolicyChangedError, MemoryPreparation,
 )
 from services.local_work import check_local_cancelled, run_local
+from services.live_storage_diagnostics import inspect_live_storage
 from services.prompt_builder import PromptBuilder
 from services.project_access import ProjectReadError
 from services.project_context import (
@@ -102,6 +103,7 @@ from services.profile_service import (
 )
 from services.provider_errors import ConnectionConfigurationError, ProviderFailure
 from services.settings_service import SettingsService, SettingsStorageError
+from services.storage_references import CALL_USAGE, MANIFEST, SUMMARY_USAGE, WORK_RUNS
 from services.summary_usage_store import SummaryUsageStore
 from services.usage_service import UsageService
 from services.token_estimator import estimation_metadata
@@ -161,6 +163,7 @@ attachment_store.on_change = attachment_cleanup.notify
 conversation_manager.on_attachments_released = attachment_cleanup.notify
 context_recovery.on_attachments_changed = attachment_cleanup.notify
 workspace_operations: dict[object, str] = {}
+storage_check_lock = asyncio.Lock()
 usage_service = UsageService()
 summary_usage_store = SummaryUsageStore(
     settings.logs_root / "summary_usage.sqlite3"
@@ -2044,6 +2047,29 @@ def application_settings_response() -> dict:
 async def get_application_settings():
     """Expose application preferences for future Settings GUI integration."""
     return application_settings_response()
+
+
+@app.get("/api/storage/diagnostics")
+async def storage_diagnostics(request: Request):
+    """Run one read-only check against the app's configured local stores."""
+    if storage_check_lock.locked():
+        return JSONResponse(status_code=409, headers={"Cache-Control": "no-store"}, content={"detail": {
+            "code": "storage_check_in_progress", "message": "A storage check is already running. Try again shortly.",
+        }})
+    async with storage_check_lock:
+        report = await until_disconnect(
+            request, run_local, inspect_live_storage,
+            settings_path=getattr(settings, "app_settings_path", settings.profiles_path.with_name("settings.json")),
+            profiles_path=settings.profiles_path,
+            conversations_path=settings.conversations_root,
+            databases={
+                WORK_RUNS: getattr(settings, "work_runs_path", settings.profiles_path.parent / WORK_RUNS),
+                MANIFEST: attachment_store.root / "manifest.sqlite3",
+                CALL_USAGE: settings.logs_root / "usage_calls.sqlite3",
+                SUMMARY_USAGE: settings.logs_root / "summary_usage.sqlite3",
+            },
+        )
+    return JSONResponse(report, headers={"Cache-Control": "no-store"})
 
 
 @app.put("/api/settings")

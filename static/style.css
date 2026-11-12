@@ -2978,7 +2978,7 @@ textarea::placeholder {
 }
 .preferences-dialog .settings-tabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   flex: none;
   margin: 0 0 20px;
   padding: 4px;
@@ -3075,6 +3075,101 @@ textarea::placeholder {
 .preferences-dialog .settings-field-group > .settings-preference-row:last-child {
   padding-bottom: 0;
   border-bottom: 0;
+}
+
+.preferences-dialog #settings-storage .settings-panel-heading {
+  flex-wrap: wrap;
+}
+.preferences-dialog #settings-storage #run-storage-check [hidden] {
+  display: none;
+}
+.preferences-dialog #settings-storage #storage-check-status {
+  margin: 0;
+  color: var(--text-sub);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+}
+.preferences-dialog #settings-storage #storage-check-status:not(:empty) {
+  display: flex;
+  margin-top: 12px;
+}
+.preferences-dialog #settings-storage .storage-finding-status {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+.preferences-dialog #settings-storage :is(#storage-check-status, .storage-finding-status) {
+  align-items: center;
+  gap: 4px;
+}
+.preferences-dialog #settings-storage :is(#storage-check-status, .storage-finding-status) > svg {
+  flex-shrink: 0;
+  width: 11px;
+  height: 11px;
+  color: var(--storage-status-icon-color, var(--text-muted));
+}
+.preferences-dialog #settings-storage #storage-check-status[data-tone="success"],
+.preferences-dialog #settings-storage .storage-finding-status[data-status="ok"] {
+  --storage-status-icon-color: var(--success);
+
+  color: var(--success-text);
+}
+.preferences-dialog #settings-storage #storage-check-status[data-tone="warning"],
+.preferences-dialog #settings-storage .storage-finding-status:is([data-status="review"], [data-status="unavailable"]) {
+  --storage-status-icon-color: var(--warning);
+
+  color: var(--warning-text);
+}
+.preferences-dialog #settings-storage #storage-check-status[data-tone="error"],
+.preferences-dialog #settings-storage .storage-finding-status:is([data-status="invalid_data"], [data-status="unsupported_version"], [data-status="missing_reference"]) {
+  --storage-status-icon-color: var(--danger);
+
+  color: var(--danger-text);
+}
+.preferences-dialog #settings-storage #storage-check-results {
+  max-height: min(280px, 38dvh);
+  margin-top: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-block: 1px solid var(--border);
+}
+.preferences-dialog #settings-storage #storage-check-results:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+}
+.preferences-dialog #settings-storage #storage-check-results ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.preferences-dialog #settings-storage #storage-check-results li {
+  padding: 10px 8px;
+}
+.preferences-dialog #settings-storage #storage-check-results li + li {
+  border-top: 1px solid var(--border);
+}
+.preferences-dialog #settings-storage #storage-check-results li > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-meta);
+  overflow-wrap: anywhere;
+}
+.preferences-dialog #settings-storage #storage-check-results code {
+  min-width: 0;
+  color: var(--text-main);
+}
+.preferences-dialog #settings-storage #storage-check-results li p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+  overflow-wrap: anywhere;
+}
+.preferences-dialog #settings-storage #storage-check-omitted {
+  margin: 8px 0 0;
 }
 
 .preferences-dialog .settings-policy-summary {
@@ -5133,6 +5228,9 @@ button svg,
 
   .preferences-dialog .settings-tabs {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .preferences-dialog .settings-tabs > button:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
   }
   .preferences-dialog .settings-group:has(> .profile-manager) > .settings-panel-heading {
     flex-wrap: wrap;

@@ -16,10 +16,15 @@ class _LocalWorkCancelled(BaseException):
     """Unwind local parser contexts without becoming a file-validation error."""
 
 
+def local_work_cancelled() -> bool:
+    """Read the request's cancellation signal for local libraries with callbacks."""
+    stop = _stop.get()
+    return stop is not None and stop.is_set()
+
+
 def check_local_cancelled() -> None:
     """Stop at a safe boundary when the owning asynchronous request was cancelled."""
-    stop = _stop.get()
-    if stop is not None and stop.is_set():
+    if local_work_cancelled():
         raise _LocalWorkCancelled()
 
 

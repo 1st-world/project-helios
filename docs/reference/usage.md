@@ -205,6 +205,10 @@ For runs with actual tool activity, **Work process** appears above model answers
 
 Failed, cancelled, interrupted, and replaced runs remain available. Completed runs outside the current answer branch are labelled and never automatically adopted. Reopening a conversation restores its history; older runs and steps are paged. Conversation deletion does not automatically erase original run content or the separate usage ledger, but deleted conversations' activity cannot be opened through the UI/API.
 
+## Storage diagnostics
+
+Open **Settings → Storage → Run basic check** to check saved settings, profiles, conversations, and individual databases while Helios is open. The report lists problems, deferred checks, and the relative location of each finding. Use **Stop check** to cancel a running check. For attachment contents, links between stores, or recovery, see [storage diagnostics and recovery](architecture.md#read-only-storage-diagnostics).
+
 ## Usage and costs
 
 Use **Settings → Usage & costs** to inspect call records and date-based totals. Per-message and per-conversation displays are optional. Usage is based on provider-reported tokens and distinguishes missing values from `0`. Reasoning tokens are not added to output a second time.

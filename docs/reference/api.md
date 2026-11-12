@@ -34,6 +34,12 @@ POST:     https://your-resource.services.ai.azure.com/api/projects/your-project/
 
 Microsoft's [Foundry REST reference](https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/aiproject) documents the project endpoint and its `{endpoint}/openai/v1/responses` route. Project endpoints should not be classified as management-only URLs. Enter an API base rather than an individual `/responses` URL or a query-bearing operation URL; authentication, model, and input support still depend on the deployment.
 
+## Storage diagnostics API
+
+`GET /api/storage/diagnostics` runs a read-only basic check of the server's configured settings, profiles, transcripts, and individual SQLite databases. It accepts no storage paths. A successful request returns `scope: "basic"`, `complete`, a `summary` with `problems`, `review`, and `deferred` counts, and relative `findings` with `path`, `status`, `code`, and `message`. `omitted_findings` counts attention items beyond the first 50 returned. `complete` is false if a check was deferred. Concurrent requests receive HTTP `409` with `detail.code` set to `storage_check_in_progress`.
+
+The live endpoint checks individual stores and defers databases with active journals or WAL mode. Attachment content, cross-store references, and recovery are covered by the [offline tools](architecture.md#read-only-storage-diagnostics).
+
 ## Conversation model selection API
 
 Conversation JSON stores the next response's `profile_id` and an independent `profile_revision`. Credentials and connection settings remain in the shared profile registry. A new conversation captures the active profile at creation; later active-profile changes do not retarget it. Saving a model choice leaves the transcript `version`, memory, Workspace, messages and conversation recency unchanged.

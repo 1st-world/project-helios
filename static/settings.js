@@ -6,6 +6,7 @@ import { initializeFontSettings, initializeFontSizeSettings } from './font-setti
 import { createDisclosure } from './disclosure.js';
 import { initializeTimezoneSettings } from './timezone.js';
 import { initializeHelpPopovers } from './help-popovers.js';
+import { initializeStorageDiagnostics } from './storage-diagnostics.js';
 
 const panelScrollPositions = new Map();
 
@@ -49,6 +50,7 @@ export function initializeSettings({ onConversationUsageVisibilityChange, onResp
   initializeFontSettings();
   initializeFontSizeSettings();
   initializeTimezoneSettings();
+  initializeStorageDiagnostics($('#settings-dialog'));
   initializeSettingsDisclosures();
   const help = initializeHelpPopovers($('#settings-dialog'));
   $('#settings-dialog').addEventListener('settings-panel-change', help.close);
@@ -66,7 +68,10 @@ export function initializeSettings({ onConversationUsageVisibilityChange, onResp
       else if (['ArrowUp', 'ArrowDown'].includes(event.key)) {
         const columns = getComputedStyle(tab.parentElement).gridTemplateColumns.split(' ').length;
         if (columns >= tabs.length) return;
-        nextIndex = (index + (event.key === 'ArrowDown' ? columns : -columns) + tabs.length) % tabs.length;
+        const rows = Math.ceil(tabs.length / columns);
+        const row = Math.floor(index / columns);
+        const nextRow = (row + (event.key === 'ArrowDown' ? 1 : -1) + rows) % rows;
+        nextIndex = Math.min(nextRow * columns + index % columns, tabs.length - 1);
       }
       else return;
 

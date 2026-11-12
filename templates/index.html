@@ -321,6 +321,7 @@
 
     <div class="settings-tabs" role="tablist" aria-label="Settings categories">
       <button id="settings-general-tab" type="button" role="tab" data-settings-tab="general" aria-controls="settings-general" aria-selected="true">General</button>
+      <button id="settings-storage-tab" type="button" role="tab" data-settings-tab="storage" aria-controls="settings-storage" aria-selected="false" tabindex="-1">Storage</button>
       <button id="settings-context-tab" type="button" role="tab" data-settings-tab="context" aria-controls="settings-context" aria-selected="false" tabindex="-1">Context & attachments</button>
       <button id="settings-connections-tab" type="button" role="tab" data-settings-tab="connections" aria-controls="settings-connections" aria-selected="false" tabindex="-1">Connections</button>
       <button id="settings-usage-tab" type="button" role="tab" data-settings-tab="usage" aria-controls="settings-usage" aria-selected="false" tabindex="-1">Usage & costs</button>
@@ -378,6 +379,18 @@
             <div class="settings-preference-copy"><span id="notify-desktop-label" class="settings-preference-label">Desktop notifications</span><small id="notify-desktop-help">System notifications; browser permission required.</small></div>
             <input id="notify-desktop" type="checkbox" disabled aria-labelledby="notify-desktop-label" class="settings-switch" role="switch" aria-describedby="notify-desktop-help">
           </div>
+        </div>
+      </section>
+    </section>
+
+    <section id="settings-storage" class="settings-panel" role="tabpanel" aria-labelledby="settings-storage-tab" tabindex="0" hidden>
+      <section class="settings-group" aria-labelledby="storage-diagnostics-title">
+        <div class="settings-panel-heading"><h3 id="storage-diagnostics-title">Storage diagnostics</h3><button id="run-storage-check" class="quiet-btn" type="button"><i data-lucide="search-check" data-storage-action="check" aria-hidden="true"></i><i data-lucide="square" data-storage-action="stop" aria-hidden="true" hidden></i><span>Run basic check</span></button></div>
+        <div class="settings-group-body">
+          <p class="field-hint">Check saved settings, connection profiles, conversations, and individual databases while Helios is open.</p>
+          <p id="storage-check-status" role="status" aria-atomic="true"></p>
+          <div id="storage-check-results" tabindex="0" role="region" aria-label="Storage diagnostic results" hidden><ul></ul></div>
+          <p id="storage-check-omitted" class="field-hint" hidden></p>
         </div>
       </section>
     </section>

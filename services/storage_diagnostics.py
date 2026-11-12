@@ -14,6 +14,7 @@ from config import PROJECT_ROOT
 from models.conversation import Conversation
 from services.attachment_store import AttachmentStore
 from services.json_storage import SCHEMA_VERSION, JsonStorageError, decode_storage_json
+from services.local_work import check_local_cancelled, local_work_cancelled
 from services.profile_service import ProfileService
 from services.settings_service import SETTINGS_SCHEMA_VERSION, SettingsService
 from services.storage_references import (
@@ -44,6 +45,10 @@ class SQLiteSidecarsPresent(OSError):
     """Defer a database check while journal or WAL files may affect its contents."""
 
 
+class SQLiteLiveWalMode(OSError):
+    """Defer live WAL readers that could create SQLite coordination files."""
+
+
 @dataclass(frozen=True)
 class AttachmentFingerprint:
     """Record the size and digest of an active attachment without its original name."""
@@ -55,10 +60,11 @@ class AttachmentFingerprint:
 class StorageScan:
     """Collect content-free findings from a data directory that is at rest."""
 
-    def __init__(self, root: Path, *, deep: bool = False) -> None:
+    def __init__(self, root: Path, *, deep: bool = False, live: bool = False) -> None:
         """Bind the scan to one storage root."""
         self.root = root
         self.deep = deep
+        self.live = live
         self.findings: list[Finding] = []
         self.references = StorageReferences() if deep else None
         self.reference_stamps: dict[Path, tuple | None] = {}
@@ -92,12 +98,13 @@ class StorageScan:
 
     def unavailable(self, name: str) -> None:
         """Avoid interpreting read failures or concurrent writes as data damage."""
-        self.add(name, "unavailable", "read_unavailable",
-                 "The check could not read a stable local entry. Close Helios and try again.")
+        message = "The check could not read a stable local entry."
+        message += " Try again when Helios is idle." if self.live else " Close Helios and try again."
+        self.add(name, "unavailable", "read_unavailable", message)
 
-    def json_registry(self, name: str, loader, current_version: str):
+    def json_registry(self, name: str, loader, current_version: str, *, path: Path | None = None):
         """Reuse the app's read-only registry validation and check its backup claim."""
-        path = self.root / name
+        path = path if path is not None else self.root / name
         try:
             with self.stable(path) as original:
                 service = loader(path) if original is not None else None
@@ -124,13 +131,13 @@ class StorageScan:
             self.add(name, "compatible_legacy", "legacy_registry",
                      "The previous schema can be loaded by this version of Helios.")
         if document.migration is not None:
-            self.backup(name, document.migration)
+            self.backup(name, document.migration, path=path)
         return service
 
-    def backup(self, name: str, migration: dict) -> None:
+    def backup(self, name: str, migration: dict, *, path: Path) -> None:
         """Check that the claimed migration source still has its recorded bytes."""
-        path = (self.root / name).with_name(migration["backup_file"])
-        location = path.relative_to(self.root).as_posix()
+        path = path.with_name(migration["backup_file"])
+        location = Path(name).with_name(path.name).as_posix()
         try:
             with self.stable(path) as info:
                 digest = None
@@ -147,10 +154,10 @@ class StorageScan:
             self.add(location, "invalid_data", "migration_backup_mismatch",
                      "The backup bytes differ from the recorded migration source.")
 
-    def conversations(self, profiles: set[str] | None) -> set[str]:
+    def conversations(self, profiles: set[str] | None, *, path: Path | None = None) -> set[str]:
         """Check transcript structure and collect references from readable conversations."""
         name = CONVERSATIONS
-        path = self.root / name
+        path = path if path is not None else self.root / name
         references = set()
         try:
             with self.stable(path, directory=True) as info:
@@ -166,7 +173,8 @@ class StorageScan:
             return references
         readable = 0
         for path in paths:
-            location = path.relative_to(self.root).as_posix()
+            check_local_cancelled()
+            location = f"{name}/{path.name}"
             try:
                 with self.stable(path) as info:
                     data = decode_storage_json(path.read_text(encoding="utf-8"))
@@ -212,9 +220,28 @@ class StorageScan:
         return any(self.stamp(path.with_name(path.name + suffix)) is not None
                    for suffix in ("-journal", "-wal", "-shm"))
 
-    def database(self, name: str) -> tuple[str, dict[str, AttachmentFingerprint] | None]:
+    @contextmanager
+    def database_reader(self, path: Path):
+        """Use SQLite read locks for live reads and immutable mode for offline snapshots."""
+        uri = path.resolve().as_uri() + "?mode=ro"
+        if self.live:
+            with path.open("rb") as source:
+                header = source.read(20)
+            # WAL readers can create sidecars even when the database is opened read-only.
+            if header.startswith(b"SQLite format 3\0") and 2 in header[18:20]:
+                raise SQLiteLiveWalMode
+        else:
+            uri += "&immutable=1"
+        with closing(sqlite3.connect(uri, uri=True, timeout=0.05 if self.live else 5.0)) as db:
+            db.execute("PRAGMA trusted_schema=OFF")
+            if self.live:
+                db.execute("BEGIN")
+                db.set_progress_handler(local_work_cancelled, 1024)
+            yield db
+
+    def database(self, name: str, *, path: Path | None = None) -> tuple[str, dict[str, AttachmentFingerprint] | None]:
         """Run physical and schema checks without opening a writable SQLite connection."""
-        path = self.root / name
+        path = path if path is not None else self.root / name
         reader = REFERENCE_READERS.get(name) if self.references is not None else None
         projected = None
         try:
@@ -225,10 +252,7 @@ class StorageScan:
                     if info is None:
                         result = ("not_initialized", None)
                     else:
-                        # Immutable mode avoids creating a WAL index or recovering a journal.
-                        uri = path.resolve().as_uri() + "?mode=ro&immutable=1"
-                        with closing(sqlite3.connect(uri, uri=True)) as db:
-                            db.execute("PRAGMA trusted_schema=OFF")
+                        with self.database_reader(path) as db:
                             result = self.database_contents(name, db)
                             if reader is not None and result[0] in {"ok", "compatible_legacy"}:
                                 projected = reader(db)
@@ -236,13 +260,21 @@ class StorageScan:
                     if self.has_sidecars(path):
                         raise SQLiteSidecarsPresent
         except SQLiteSidecarsPresent:
+            message = "Journal or WAL files are present. Close Helios or inspect a consistent offline copy."
+            if self.live:
+                message = "Journal or WAL files are present. Try again when Helios is idle."
             self.add(name, "unavailable", "sqlite_sidecars_present",
-                     "Journal or WAL files are present. Close Helios or inspect a consistent offline copy.")
+                     message)
+            return "unavailable", None
+        except SQLiteLiveWalMode:
+            self.add(name, "unavailable", "sqlite_wal_requires_offline_check",
+                     "This database uses WAL mode and needs an offline check.")
             return "unavailable", None
         except (OSError, RuntimeError):
             self.unavailable(name)
             return "unavailable", None
         except sqlite3.Error as error:
+            check_local_cancelled()
             code = getattr(error, "sqlite_errorcode", 0) & 0xff
             if code in {sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB, sqlite3.SQLITE_ERROR}:
                 result = ("invalid_data", None)
@@ -308,6 +340,7 @@ class StorageScan:
                     return "invalid_data", None
                 db.execute("SELECT unclaimed_until FROM uploads LIMIT 0")
             for identity, size, digest, deleted in db.execute("SELECT id, size_bytes, sha256, deleted FROM uploads"):
+                check_local_cancelled()
                 if (not is_upload_id(identity) or type(size) is not int or size < 0
                         or type(deleted) is not int or deleted not in {0, 1}
                         or not isinstance(digest, str) or len(digest) != 64
