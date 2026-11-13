@@ -12,12 +12,14 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Annotated, BinaryIO, Literal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from config import PROJECT_ROOT
-from services.project_access import ProjectReadError, final_handle_path, is_link, signature
+from services.project_access import (
+    RECOVERY_COPY_PREFIX, RECOVERY_STAGE_PREFIX, ProjectReadError, final_handle_path, is_link, signature,
+)
 from services.storage_diagnostics import (
     PROBLEMS, SQLITE_TABLES, AttachmentFingerprint, StorageScan, inspect_storage, is_upload_id,
 )
@@ -79,6 +81,7 @@ class RecoveryPlan:
     backup: Path
     manifest_stamp: Stamp
     attachments: tuple[AttachmentRecovery, ...]
+    confirmation: str = ""
 
     @property
     def ready(self) -> tuple[AttachmentRecovery, ...]:
@@ -130,6 +133,23 @@ def resolve_recovery_backup(root: Path, path: str) -> Path:
     except (OSError, RuntimeError, ValueError):
         raise RecoveryError("invalid_backup_dir", "Choose an existing backup folder separate from the active storage folder.") from None
     return backup
+
+
+def resolve_recovery_output(root: Path, backup: Path, path: Path) -> tuple[Path, tuple[int, int]]:
+    """Resolve an existing output directory outside both input trees and pin its identity."""
+    try:
+        parent = path.resolve(strict=True)
+        stamp = _stamp(parent, directory=True)
+        if (stamp is None or parent.is_relative_to(root) or parent.is_relative_to(backup)):
+            raise ValueError
+    except (OSError, RuntimeError, ValueError):
+        raise RecoveryError("invalid_output_dir", "Choose an existing output directory outside the source and backup trees.") from None
+    return parent, stamp[:2]
+
+
+def recovery_copy_name(identity: UUID) -> str:
+    """Use a stable folder name for one approved preview and output directory."""
+    return f"{RECOVERY_COPY_PREFIX}{identity.hex}"
 
 
 def _stamp(path: Path, *, directory: bool = False) -> Stamp | None:
@@ -218,22 +238,34 @@ def plan_attachment_recovery(root: Path, backup: Path) -> RecoveryPlan:
     """Preview the damaged active copies and verify candidate bytes without writing files."""
     try:
         root, backup = root.resolve(strict=True), backup.resolve(strict=True)
-        if _stamp(root, directory=True) is None or _stamp(backup, directory=True) is None:
+        backup_stamp = _stamp(backup, directory=True)
+        if _stamp(root, directory=True) is None or backup_stamp is None:
             raise OSError("Recovery input directory is missing.")
         path = root / MANIFEST
         before = _database_stamp(path)
         status, uploads = StorageScan(root, deep=True).database(MANIFEST)
         if before is None or uploads is None:
             raise RecoveryError("manifest_unavailable", f"The source attachment manifest is {status.replace('_', ' ')}. Use a valid offline manifest.")
-        attachments = tuple(item for identity, fingerprint in sorted(uploads.items())
+        ordered_uploads = sorted(uploads.items())
+        attachments = tuple(item for identity, fingerprint in ordered_uploads
                             if (item := _attachment_candidate(root, backup, identity, fingerprint)) is not None)
         if _database_stamp(path) != before:
             raise RecoveryError("source_changed", "The manifest changed during planning. Close Helios and preview recovery again.")
+        latest_backup = _stamp(backup, directory=True)
+        if latest_backup is None or latest_backup[:2] != backup_stamp[:2]:
+            raise RecoveryError("backup_changed", "The backup folder changed. Preview recovery again.")
     except RecoveryError:
         raise
     except READ_ERRORS:
         raise RecoveryError("read_unavailable", "Recovery could not read stable source files. Check the offline paths and try again.") from None
-    return RecoveryPlan(root, backup, before, attachments)
+    # Pin active attachment data rather than unrelated draft lease changes in SQLite.
+    digest = hashlib.sha256(json.dumps([os.path.normcase(root), os.path.normcase(backup),
+                                       before[:2], backup_stamp[:2]]).encode())
+    for identity, fingerprint in ordered_uploads:
+        digest.update(json.dumps([identity, fingerprint.size_bytes, fingerprint.sha256]).encode())
+    for item in attachments:
+        digest.update(json.dumps(asdict(item), sort_keys=True).encode())
+    return RecoveryPlan(root, backup, before, attachments, digest.hexdigest())
 
 
 def _storage_snapshot(root: Path) -> dict[str, Stamp]:
@@ -281,24 +313,31 @@ def _verification(stage: Path, repaired: set[str]) -> list[Finding]:
     return findings
 
 
-def restore_attachment_copy(plan: RecoveryPlan, output_dir: Path) -> tuple[Path, list[Finding]]:
+def restore_attachment_copy(
+    plan: RecoveryPlan, output_dir: Path, *,
+    preview_id: UUID | None = None, output_identity: tuple[int, int] | None = None,
+) -> tuple[Path, list[Finding]]:
     """Copy the offline store, apply verified repairs, and publish a new directory."""
     ready = plan.ready
     if not ready:
         raise RecoveryError("no_verified_backups", "The plan has no verified attachment backups to restore.")
     try:
-        parent = output_dir.resolve()
-        parent_stamp = _stamp(parent, directory=True)
-        if (parent_stamp is None or parent.is_relative_to(plan.root)
-                or parent.is_relative_to(plan.backup)):
-            raise RecoveryError("invalid_output_dir", "Choose an existing output directory outside the source and backup trees.")
+        parent, parent_identity = resolve_recovery_output(plan.root, plan.backup, output_dir)
+        if output_identity is not None and (parent != output_dir or parent_identity != output_identity):
+            raise RecoveryError("output_changed", "The output location changed during recovery. Choose another directory.")
+        destination = parent / recovery_copy_name(preview_id or uuid4())
+        if destination.resolve() != destination or destination.exists():
+            raise RecoveryError("output_changed", "The recovery folder already exists. Choose another output directory.")
         files = _storage_snapshot(plan.root)
         if (files.get(MANIFEST) != plan.manifest_stamp
                 or any(files.get(item.path) != item.original_stamp for item in ready)):
             raise RecoveryError("source_changed", "The manifest or an affected attachment changed. Preview recovery again.")
         repaired = {item.path for item in ready}
-        with TemporaryDirectory(prefix=".helios-recovery-", dir=parent, ignore_cleanup_errors=True) as temporary:
+        with TemporaryDirectory(prefix=RECOVERY_STAGE_PREFIX, dir=parent, ignore_cleanup_errors=True) as temporary:
             stage = Path(temporary) / "storage"
+            current_parent = _stamp(parent, directory=True)
+            if current_parent is None or current_parent[:2] != parent_identity or stage.resolve() != stage:
+                raise RecoveryError("output_changed", "The output location changed during recovery. Choose another directory.")
             stage.mkdir(mode=0o700)
             for name, stamp in sorted(files.items()):
                 if name not in repaired:
@@ -310,9 +349,8 @@ def restore_attachment_copy(plan: RecoveryPlan, output_dir: Path) -> tuple[Path,
             findings = _verification(stage, repaired)
             if _storage_snapshot(plan.root) != files:
                 raise RecoveryError("source_changed", "The source changed during recovery. Close Helios and try again.")
-            destination = parent / f"helios-recovered-{uuid4().hex}"
             current_parent = _stamp(parent, directory=True)
-            if (current_parent is None or current_parent[:2] != parent_stamp[:2]
+            if (current_parent is None or current_parent[:2] != parent_identity
                     or stage.resolve() != stage or destination.resolve() != destination or destination.exists()):
                 raise RecoveryError("output_changed", "The output location changed during recovery. Choose another directory.")
             stage.rename(destination)

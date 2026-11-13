@@ -17,6 +17,19 @@ from models.workspace import WorkspaceReadOptions
 from services.local_work import check_local_cancelled
 
 
+RECOVERY_COPY_PREFIX = "helios-recovered-"
+RECOVERY_STAGE_PREFIX = ".helios-recovery-"
+RECOVERY_DIRECTORY = re.compile(
+    rf"(?:{re.escape(RECOVERY_COPY_PREFIX)}[0-9a-f]{{32}}|{re.escape(RECOVERY_STAGE_PREFIX)}[0-9a-z_]+)",
+    re.IGNORECASE | re.ASCII,
+)
+
+
+def _is_recovery_path(path: Path) -> bool:
+    """Identify paths within app-generated staging or recovery folders."""
+    return any(RECOVERY_DIRECTORY.fullmatch(part) for part in path.parts)
+
+
 class ProjectReadError(ValueError):
     """Report a stable tool error without exposing host paths or file contents."""
 
@@ -84,6 +97,8 @@ class ProjectAccess:
             raise ProjectReadError("workspace_required") from None
         if not stat.S_ISDIR(info.st_mode) or is_link(info):
             raise ProjectReadError("workspace_required")
+        if _is_recovery_path(self.root):
+            raise ProjectReadError("protected_path")
         self.identity = (info.st_dev, info.st_ino)
         self.protected = tuple(path.resolve() for path in protected)
         self.options = options or WorkspaceReadOptions()
@@ -119,7 +134,9 @@ class ProjectAccess:
         return "/".join(part for part in parts if part not in {"", "."}) or "."
 
     def _runtime(self, path: Path) -> bool:
-        """Protect exact runtime locations, their descendants, and file backups."""
+        """Protect runtime locations, file backups, and generated recovery directories."""
+        if _is_recovery_path(path):
+            return True
         for protected in self.protected:
             if path == protected or protected in path.parents:
                 return True

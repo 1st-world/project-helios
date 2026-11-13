@@ -1,5 +1,6 @@
 """Coordinate storage ownership and one offline job across server restarts."""
 
+import hashlib
 import json
 import os
 from collections.abc import Callable
@@ -12,7 +13,9 @@ from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 
-from services.storage_recovery import RecoveryPreviewReport
+from services.storage_recovery import (
+    RecoveryError, RecoveryPreviewReport, recovery_copy_name, resolve_recovery_backup, resolve_recovery_output,
+)
 
 if os.name == "nt":
     import msvcrt
@@ -29,6 +32,8 @@ class MaintenanceBusy(RuntimeError):
 
 
 RECOVERY_PREVIEW = "recovery-preview"
+RECOVERY_APPLY = "recovery-apply"
+RecoveryOperation = Literal["recovery-preview", "recovery-apply"]
 
 
 def ownership_path(root: Path) -> Path:
@@ -80,10 +85,10 @@ def read_job(path: Path) -> dict | None:
     return None
 
 
-def result_path(root: Path, *, scope: Literal["basic", "deep", "recovery-preview"] = "deep") -> Path:
+def result_path(root: Path, *, scope: Literal["basic", "deep"] | RecoveryOperation = "deep") -> Path:
     """Locate the latest report of the selected maintenance operation."""
     filename = {"basic": "last-basic-check.json", "deep": "last-deep-check.json",
-                RECOVERY_PREVIEW: "last-recovery-preview.json"}[scope]
+                RECOVERY_PREVIEW: "last-recovery-preview.json", RECOVERY_APPLY: "last-recovery-copy.json"}[scope]
     return root / ".cache" / "storage-maintenance" / filename
 
 
@@ -139,23 +144,93 @@ def load_check_result(path: Path, *, scope: Literal["basic", "deep"]) -> dict | 
     return check_result(read_job(path), scope=scope)
 
 
-def load_recovery_preview(root: Path) -> dict | None:
-    """Return the latest validated preview without exposing private job parameters."""
-    job = read_job(result_path(root, scope=RECOVERY_PREVIEW))
+def load_recovery_result(root: Path, operation: RecoveryOperation) -> dict | None:
+    """Load the latest saved recovery result for one operation."""
+    return _recovery_result(read_job(result_path(root, scope=operation)), operation)
+
+
+def _recovery_result(job: dict | None, operation: RecoveryOperation) -> dict | None:
+    """Return a validated public outcome without exposing private job parameters."""
     result = _finished_outcome(job)
-    if job is None or result is None or job.get("operation") != RECOVERY_PREVIEW:
+    if job is None or result is None or job.get("operation") != operation:
         return None
     if result["status"] == "completed":
-        try:
-            report = RecoveryPreviewReport.model_validate(job.get("report"))
-        except ValidationError:
-            return None
-        return {**result, "report": report.model_dump()}
+        if operation == RECOVERY_PREVIEW:
+            try:
+                report = RecoveryPreviewReport.model_validate(job.get("report")).model_dump()
+            except ValidationError:
+                return None
+            return {**result, "report": report, "can_apply": bool(report["verified"] and _recovery_confirmation(job))}
+        report = _recovery_copy_report(job.get("report"))
+        return {**result, "report": report} if report is not None else None
     if result["status"] == "failed":
         code, message = job.get("code"), job.get("message")
         if isinstance(code, str) and code and isinstance(message, str) and message.strip():
             return {**result, "code": code, "message": message}
     return None
+
+
+def _recovery_copy_report(report: object) -> dict | None:
+    """Expose only the copy location, attachment totals, and inspection summary."""
+    if not isinstance(report, dict):
+        return None
+    preview_id, output = report.get("preview_id"), report.get("output")
+    restored, unresolved = report.get("restored"), report.get("unresolved")
+    diagnostics = report.get("diagnostics")
+    if (not isinstance(preview_id, str) or not isinstance(output, str) or "\x00" in output
+            or type(restored) is not int or restored < 1
+            or type(unresolved) is not int or unresolved < 0 or not _valid_report(diagnostics, "deep")):
+        return None
+    try:
+        if not Path(output).is_absolute() or Path(output).name != recovery_copy_name(UUID(preview_id)):
+            return None
+    except ValueError:
+        return None
+    return {"preview_id": preview_id, "output": output, "restored": restored,
+            "unresolved": unresolved, "diagnostics": diagnostics}
+
+
+def recovery_backup_selection(backup: Path) -> str:
+    """Identify the selected folder without storing its path in the preview report."""
+    return hashlib.sha256(os.fsencode(os.path.normcase(backup))).hexdigest()
+
+
+def _recovery_confirmation(job: dict) -> str | None:
+    """Reject previews saved before apply support or with invalid confirmation data."""
+    confirmation, selection = job.get("confirmation"), job.get("backup_selection")
+    if all(isinstance(digest, str) and len(digest) == 64
+           and all(char in "0123456789abcdef" for char in digest) for digest in (confirmation, selection)):
+        return confirmation
+    return None
+
+
+def require_recovery_confirmation(root: Path, preview_id: UUID, backup: Path) -> str:
+    """Require the latest successful, non-empty preview and return its private confirmation."""
+    job = read_job(result_path(root, scope=RECOVERY_PREVIEW))
+    result = _recovery_result(job, RECOVERY_PREVIEW)
+    confirmation = _recovery_confirmation(job) if job is not None else None
+    if (job is None or result is None or result["id"] != str(preview_id)
+            or result["status"] != "completed" or confirmation is None):
+        raise RecoveryError("recovery_preview_required", "Run a new recovery preview and review its results before creating a copy.")
+    if not result["report"]["verified"]:
+        raise RecoveryError("no_verified_backups", "This preview has no verified attachment backups to restore.")
+    if job.get("backup_selection") != recovery_backup_selection(backup):
+        raise RecoveryError("backup_changed", "Select the backup folder used for this preview or run a new preview.")
+    return confirmation
+
+
+def prepare_recovery_copy(root: Path, preview_id: UUID, backup_path: str, output_dir: str) -> dict:
+    """Validate a copy request without writing to a selected directory."""
+    backup = resolve_recovery_backup(root, backup_path)
+    confirmation = require_recovery_confirmation(root, preview_id, backup)
+    if "\x00" in output_dir or not Path(output_dir).is_absolute():
+        raise RecoveryError("invalid_output_dir", "Choose an absolute path to an existing output directory.")
+    parent, identity = resolve_recovery_output(root.resolve(), backup, Path(output_dir))
+    destination = parent / recovery_copy_name(preview_id)
+    if destination.exists() or destination.is_symlink():
+        raise RecoveryError("recovery_copy_exists", "A recovery folder for this preview already exists in the selected directory.")
+    return {"operation": RECOVERY_APPLY, "preview_id": str(preview_id), "confirmation": confirmation,
+            "backup_path": str(backup), "output_dir": str(parent), "output_identity": list(identity)}
 
 
 def save_basic_check(root: Path, report: dict) -> dict:
@@ -189,7 +264,11 @@ class MaintenanceSession:
         """Queue an attachment preview for one resolved backup folder."""
         return self._queue(operation=RECOVERY_PREVIEW, backup_path=str(backup))
 
-    def _queue(self, **parameters: str) -> dict:
+    def queue_recovery_copy(self, parameters: dict) -> dict:
+        """Queue a copy using validated inputs and one reviewed preview."""
+        return self._queue(**parameters)
+
+    def _queue(self, **parameters: object) -> dict:
         """Publish one job before requesting shutdown and return only its ticket."""
         if self.pending is not None:
             raise MaintenanceBusy("Storage maintenance is already scheduled.")
@@ -220,13 +299,13 @@ class MaintenanceSession:
         saved = load_check_result(result_path(self.root), scope="deep")
         return self._pending_ticket(None) or saved
 
-    def recovery_preview_status(self) -> dict | None:
-        """Return the queued recovery preview or its latest saved result."""
-        pending = self._pending_ticket(RECOVERY_PREVIEW)
+    def recovery_status(self, operation: RecoveryOperation) -> dict | None:
+        """Return the pending or latest saved result for one recovery operation."""
+        pending = self._pending_ticket(operation)
         if pending is not None:
             return pending
-        saved = load_recovery_preview(self.root)
-        return self._pending_ticket(RECOVERY_PREVIEW) or saved
+        saved = load_recovery_result(self.root, operation)
+        return self._pending_ticket(operation) or saved
 
     def _pending_ticket(self, operation: str | None) -> dict | None:
         """Project a pending job without returning its private parameters."""

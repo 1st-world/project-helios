@@ -11,15 +11,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Thread
+from uuid import UUID
 
 from config import PROJECT_ROOT, Settings
 from services.storage_diagnostics import inspect_storage, storage_report
 from services.storage_maintenance import (
-    RECOVERY_PREVIEW, MaintenanceSession, StorageInUse, own_storage, read_job, result_path, write_job,
+    RECOVERY_APPLY, RECOVERY_PREVIEW, MaintenanceSession, StorageInUse, own_storage, read_job,
+    recovery_backup_selection, require_recovery_confirmation, result_path, write_job,
 )
 from services.storage_recovery import (
-    RecoveryError, plan_attachment_recovery, recovery_preview_report, resolve_recovery_backup,
+    RecoveryError, plan_attachment_recovery, recovery_preview_report, resolve_recovery_backup, restore_attachment_copy,
 )
+
+
+OFFLINE_LABELS = {None: "deep check", RECOVERY_PREVIEW: "recovery preview", RECOVERY_APPLY: "recovery copy"}
 
 
 def _failed_result(job: dict, code: str, message: str) -> dict:
@@ -30,33 +35,57 @@ def _failed_result(job: dict, code: str, message: str) -> dict:
     return result
 
 
-def _preview_recovery(root: Path, job: dict) -> dict:
-    """Verify attachment backups under the storage lock using the selected directory."""
+def _recovery_backup(root: Path, job: dict) -> Path:
+    """Require the same canonical folder resolved by the worker before shutdown."""
     path = job.get("backup_path")
     if not isinstance(path, str):
         raise RecoveryError("invalid_backup_dir", "Choose an existing backup folder and try again.")
     backup = resolve_recovery_backup(root, path)
     if backup != Path(path):
         raise RecoveryError("backup_changed", "The backup folder changed. Select it again.")
+    return backup
+
+
+def _offline_recovery(root: Path, job: dict) -> dict:
+    """Preview verified attachments or apply an explicitly confirmed repair plan."""
+    backup = _recovery_backup(root, job)
+    operation = job["operation"]
+    result = {"id": job["id"], "status": "completed", "operation": operation}
+    if operation == RECOVERY_APPLY:
+        preview_id = UUID(job["preview_id"])
+        confirmation = require_recovery_confirmation(root, preview_id, backup)
+        if confirmation != job.get("confirmation"):
+            raise RecoveryError("recovery_preview_required", "The saved preview changed. Run a new recovery preview.")
     plan = plan_attachment_recovery(root, backup)
     if plan.backup != backup:
         raise RecoveryError("backup_changed", "The backup folder changed. Select it again.")
-    return {"id": job["id"], "status": "completed", "operation": RECOVERY_PREVIEW,
-            "report": recovery_preview_report(plan)}
+    if operation == RECOVERY_PREVIEW:
+        return {**result, "confirmation": plan.confirmation, "backup_selection": recovery_backup_selection(backup),
+                "report": recovery_preview_report(plan)}
+    if plan.confirmation != confirmation:
+        raise RecoveryError("recovery_preview_changed", "The attachment recovery inputs changed. Run a new preview and review the results.")
+    restored = len(plan.ready)
+    destination, findings = restore_attachment_copy(
+        plan, Path(job["output_dir"]), preview_id=preview_id, output_identity=tuple(job["output_identity"]),
+    )
+    return {**result, "report": {
+        "preview_id": str(preview_id), "output": str(destination), "restored": restored,
+        "unresolved": len(plan.attachments) - restored, "diagnostics": storage_report(findings, scope="deep"),
+    }}
 
 
 def _offline_result(root: Path, channel: Path, job: dict, exit_code: int) -> dict:
     """Run one supported operation after the worker finished a clean shutdown."""
     operation = job.get("operation")
-    if operation not in (None, RECOVERY_PREVIEW):
+    if operation not in (None, RECOVERY_PREVIEW, RECOVERY_APPLY):
         return _failed_result(job, "unsupported_operation", "The launcher received an unsupported storage operation.")
-    label = "recovery preview" if operation == RECOVERY_PREVIEW else "deep check"
+    label = OFFLINE_LABELS[operation]
     if exit_code or read_job(channel / "drained.json") != job:
         return _failed_result(job, "shutdown_failed", f"Helios could not finish shutting down. The {label} was skipped.")
     try:
         with own_storage(root):
-            if operation == RECOVERY_PREVIEW:
-                return _preview_recovery(root, job)
+            if operation is not None:
+                return _offline_recovery(root, job)
             findings = inspect_storage(root, deep=True)
     except StorageInUse:
         return _failed_result(job, "storage_in_use", f"Another Helios process owns this store. The {label} was skipped.")
@@ -72,11 +101,13 @@ def _offline_result(root: Path, channel: Path, job: dict, exit_code: int) -> dic
 def _save_result(root: Path, result: dict) -> None:
     """Keep each type of offline outcome available even if the next worker cannot start."""
     operation = result.get("operation")
-    if operation not in (None, RECOVERY_PREVIEW):
+    if operation not in (None, RECOVERY_PREVIEW, RECOVERY_APPLY):
         print(result["message"], file=sys.stderr, flush=True)
         return
-    path = result_path(root, scope=RECOVERY_PREVIEW if operation == RECOVERY_PREVIEW else "deep")
-    label = "recovery preview" if operation == RECOVERY_PREVIEW else "deep storage"
+    path = result_path(root, scope=operation or "deep")
+    label = OFFLINE_LABELS[operation]
+    if operation == RECOVERY_APPLY and result["status"] == "completed":
+        print(f"Verified recovery copy: {result['report']['output']}", flush=True)
     try:
         write_job(path, {**result, "finished_at": datetime.now(timezone.utc).isoformat()})
     except OSError:
@@ -86,7 +117,7 @@ def _save_result(root: Path, result: dict) -> None:
         elif operation == RECOVERY_PREVIEW:
             print(f"Verified backups: {result['report']['verified']}. Unresolved: {result['report']['unresolved']}.",
                   file=sys.stderr, flush=True)
-        else:
+        elif operation is None:
             print(result["report"]["summary"], file=sys.stderr, flush=True)
     else:
         print(f"Storage maintenance {result['status']}. Report: {path}", flush=True)

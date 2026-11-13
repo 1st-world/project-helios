@@ -56,7 +56,13 @@ Microsoft의 [Foundry REST 참조](https://learn.microsoft.com/en-us/rest/api/mi
 
 `localhost` 또는 `127.0.0.1`에 `X-Helios-Maintenance: recovery-preview` 헤더와 `backup_path`가 포함된 JSON 본문을 붙여 `POST /api/storage/recovery/preview`를 보냅니다. 서버에서 접근 가능한 기존 백업 폴더의 절대 경로를 지정합니다. 백업 폴더는 현재 저장소와 달라야 합니다. 관리 실행기로 시작한 서버는 HTTP `202`와 작업의 `id`, `status: "pending"`을 반환합니다. 실행기는 워커가 정상 종료된 뒤 백업을 검증하고 같은 포트에 서버를 다시 띄웁니다. 심층 검사와 복구 미리보기는 한 번에 하나만 예약할 수 있습니다. 잘못된 폴더에는 HTTP `400`, 호스트나 헤더 조건을 충족하지 못하면 `403`, 관리 실행기를 사용할 수 없거나 이미 대기 중인 오프라인 작업이 있으면 `409`를 반환합니다.
 
-`GET /api/storage/recovery/preview`는 `available`과 `job`을 반환합니다. 대기 중인 작업에는 `id`와 `status`가 들어갑니다. 작업이 끝나면 `finished_at`과 함께 완료 시 `report`를, 실패 시 `code`와 `message`를 반환합니다. 보고서에는 검증된 항목과 미해결 항목의 합계인 `verified`와 `unresolved`, 최대 50개의 첨부 항목, 생략된 항목 수인 `omitted_attachments`가 들어갑니다. 각 항목에는 사본의 상대 `path`, 원본의 `problem`, `backup` 상태와 매니페스트의 `size_bytes`가 들어갑니다. 유효한 결과가 없으면 `job`은 `null`입니다. 사본에 복구하는 절차는 [오프라인 첨부 복구](architecture.ko-kr.md#오프라인-첨부-복구)를 참고하세요.
+`GET /api/storage/recovery/preview`는 `available`과 `job`을 반환합니다. 대기 중인 작업에는 `id`와 `status`가 들어갑니다. 작업이 끝나면 `finished_at`과 함께 완료 시 `report`를, 실패 시 `code`와 `message`를 반환합니다. 완료한 미리보기에는 검증된 복원 항목과 적용에 필요한 확인 데이터가 있는지 나타내는 `can_apply`도 포함합니다. 적용 기능이 추가되기 전에 저장한 미리보기도 조회할 수 있습니다. 보고서에는 검증된 항목과 미해결 항목의 합계인 `verified`와 `unresolved`, 최대 50개의 첨부 항목, 생략된 항목 수인 `omitted_attachments`가 들어갑니다. 각 항목에는 사본의 상대 `path`, 원본의 `problem`, `backup` 상태와 매니페스트의 `size_bytes`가 들어갑니다. 유효한 결과가 없으면 `job`은 `null`입니다.
+
+### 복구 사본 만들기
+
+미리보기를 검토한 뒤 루프백 주소에 `X-Helios-Maintenance: recovery-apply` 헤더를 붙여 `POST /api/storage/recovery/apply`를 보냅니다. JSON 본문에는 최신 완료 미리보기의 `preview_id`, 미리보기에서 선택한 `backup_path`, 두 입력 폴더 바깥에 있는 기존 폴더의 절대 경로 `output_dir`를 지정합니다. 예약하면 HTTP `202`와 새 작업 ID를 반환합니다. 잘못된 폴더에는 HTTP `400`, 호스트나 헤더 조건을 충족하지 못하면 `403`을 반환합니다. 관리 실행기를 사용할 수 없거나 이미 대기 중인 작업이 있을 때, 미리보기가 유효하지 않거나 백업 폴더가 다를 때, 복원할 항목이 없거나 같은 미리보기와 위치의 복구 폴더가 이미 있을 때는 `409`를 반환합니다.
+
+서버가 종료되면 실행기가 미리보기 당시의 첨부 복구 입력과 결과 폴더를 다시 확인합니다. 복구 계획이 바뀌었으면 새로 미리보기를 실행합니다. 복구가 성공하면 검증한 `helios-recovered-<하이픈을 뺀 미리보기 UUID>` 폴더를 만들고, 원래 저장소를 사용하는 서버를 다시 띄웁니다. 루프백 주소로 `GET /api/storage/recovery/apply`를 호출하면 미리보기와 같은 상태 구조를 반환합니다. 완료 보고서에는 `preview_id`, 생성된 폴더 경로 `output`, 복원된 첨부와 미해결 첨부의 수인 `restored`와 `unresolved`, 심층 검사 형식의 `diagnostics`가 들어갑니다. 저장소 사본의 범위는 [오프라인 첨부 복구](architecture.ko-kr.md#오프라인-첨부-복구)를 참고하세요.
 
 ## 대화별 모델 선택 API
 

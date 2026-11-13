@@ -97,8 +97,9 @@ from services.profile_service import (
 from services.provider_errors import ConnectionConfigurationError, ProviderFailure
 from services.settings_service import SettingsStorageError
 from services.storage_maintenance import (
-    RECOVERY_PREVIEW, MaintenanceBusy, MaintenanceSession, load_check_result, load_recovery_preview,
-    own_storage, ownership_path, result_path, save_basic_check,
+    RECOVERY_APPLY, RECOVERY_PREVIEW, MaintenanceBusy, MaintenanceSession, RecoveryOperation,
+    load_check_result, load_recovery_result, own_storage, ownership_path,
+    prepare_recovery_copy, result_path, save_basic_check,
 )
 from services.storage_recovery import RecoveryError as StorageRecoveryError, resolve_recovery_backup
 from services.storage_references import WORK_RUNS
@@ -360,6 +361,13 @@ class RecoveryPreviewRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     backup_path: str = Field(min_length=1, max_length=4096)
+
+
+class RecoveryCopyRequest(RecoveryPreviewRequest):
+    """Apply one reviewed preview into a selected output directory."""
+
+    preview_id: UUID
+    output_dir: str = Field(min_length=1, max_length=4096)
 
 
 class WorkspaceStructureRequest(BaseModel):
@@ -2057,10 +2065,23 @@ async def start_storage_maintenance(request: Request):
 @router.get("/api/storage/recovery/preview")
 async def storage_recovery_preview_status():
     """Return the latest saved attachment preview or its current ticket."""
+    return await storage_recovery_status(RECOVERY_PREVIEW)
+
+
+@router.get("/api/storage/recovery/apply")
+async def storage_recovery_copy_status(request: Request):
+    """Return the latest verified copy outcome or its current ticket."""
+    if request.url.hostname not in {"localhost", "127.0.0.1"}:
+        raise HTTPException(status_code=403, detail="View the recovery copy from local Helios.")
+    return await storage_recovery_status(RECOVERY_APPLY)
+
+
+async def storage_recovery_status(operation: RecoveryOperation):
+    """Expose one recovery operation's result and managed capability."""
     runtime = current_runtime()
     maintenance = runtime.maintenance
-    job = (await run_local(maintenance.recovery_preview_status) if maintenance is not None else
-           await run_local(load_recovery_preview, runtime.storage_root))
+    job = (await run_local(maintenance.recovery_status, operation) if maintenance is not None else
+           await run_local(load_recovery_result, runtime.storage_root, operation))
     return JSONResponse({"available": maintenance is not None, "job": job},
                         headers={"Cache-Control": "no-store"})
 
@@ -2085,6 +2106,31 @@ async def start_storage_recovery_preview(request: Request, payload: RecoveryPrev
         raise HTTPException(status_code=409, detail=str(error)) from None
     except OSError:
         raise HTTPException(status_code=500, detail="Could not schedule the recovery preview. Try again.") from None
+    return JSONResponse(job, status_code=202, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/api/storage/recovery/apply")
+async def start_storage_recovery_copy(request: Request, payload: RecoveryCopyRequest):
+    """Queue a reviewed repair that publishes a separate copy under offline ownership."""
+    if not is_local_maintenance_request(request, RECOVERY_APPLY):
+        raise HTTPException(status_code=403, detail="Confirm the recovery copy from local Helios.")
+    runtime = current_runtime()
+    maintenance = runtime.maintenance
+    if maintenance is None:
+        raise HTTPException(status_code=409, detail="Recovery copies require the Helios managed launcher.")
+    try:
+        parameters = await until_disconnect(
+            request, run_local, prepare_recovery_copy, runtime.storage_root,
+            payload.preview_id, payload.backup_path, payload.output_dir,
+        )
+        job = maintenance.queue_recovery_copy(parameters)
+    except StorageRecoveryError as error:
+        status = 400 if error.code in {"invalid_backup_dir", "invalid_output_dir"} else 409
+        raise HTTPException(status_code=status, detail={"code": error.code, "message": str(error)}) from None
+    except MaintenanceBusy as error:
+        raise HTTPException(status_code=409, detail=str(error)) from None
+    except OSError:
+        raise HTTPException(status_code=500, detail="Could not schedule the recovery copy. Try again.") from None
     return JSONResponse(job, status_code=202, headers={"Cache-Control": "no-store"})
 
 
