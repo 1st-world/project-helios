@@ -1,18 +1,16 @@
 """Serve the Helios web client and API, connecting application services and managing their lifecycle."""
 
-import atexit
 import asyncio
 import json
 import logging
 import mimetypes
 import sqlite3
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import AsyncExitStack, ExitStack, aclosing, asynccontextmanager
 from copy import copy
-from contextlib import ExitStack, aclosing, asynccontextmanager
 from dataclasses import asdict, replace
-from datetime import date, datetime, timezone
+from datetime import date
 from hashlib import sha256
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Annotated, ClassVar, Literal
 from urllib.parse import urlsplit
@@ -20,6 +18,7 @@ from uuid import UUID
 
 import anyio
 from fastapi import (
+    APIRouter,
     BackgroundTasks,
     FastAPI,
     HTTPException,
@@ -30,13 +29,12 @@ from fastapi import (
 )
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from starlette.requests import ClientDisconnect
-from starlette.types import Send
+from starlette.types import ASGIApp, Receive, Scope, Send
 
-from config import settings
-from models.app_settings import AppSettings, DEFAULT_APP_SETTINGS
+from config import Settings, settings as default_settings
+from models.app_settings import AppSettings
 from models.attachment import (
     ATTACHMENT_SOURCES, AttachmentPath, AttachmentSource, WorkspaceAttachment,
 )
@@ -47,12 +45,11 @@ from models.profile import (
 )
 from models.workspace import WorkspaceReadOptions
 from services.ai_service import AIService
+from services.app_runtime import AppRuntime, bind_runtime, configure_logging, current_runtime
 from services.attachment_errors import ProviderAttachmentError
 from services.attachment_service import (
     AttachmentError, AttachmentService, PreparedAttachments,
 )
-from services.attachment_store import AttachmentStore
-from services.attachment_cleanup import AttachmentCleanup
 from services.context_budget import (
     ContextBudget,
     ContextBudgetExceeded,
@@ -61,12 +58,10 @@ from services.context_budget import (
     SummaryUnavailableError,
 )
 from services.conversation_service import (
-    ConversationManager,
     ConversationProfileConflictError,
     ConversationUnavailableError,
 )
 from services.context_policy import ContextPolicy
-from services.call_usage_store import CallUsageStore
 from services.work_run_store import (
     ACTIVE_STATES, WorkContextUnavailableError, WorkRunStore,
 )
@@ -75,16 +70,13 @@ from services.work_resume import (
     selected_files_fingerprint, workspace_fingerprint,
 )
 from services.work_handoff import render_handoff_history
-from services.file_picker_service import FilePickerService
 from services.folder_picker_service import (
     FolderPickerService,
     PickerReconnectingError,
 )
-from services.context_recovery import ContextRecoveryRegistry, RecoveryError
-from services.conversation_workspaces import ConversationWorkspaces
-from services.conversation_profiles import ConversationProfiles
+from services.context_recovery import RecoveryError
 from services.memory_service import (
-    ConversationMemoryService, MemoryPolicyChangedError, MemoryPreparation,
+    MemoryPolicyChangedError, MemoryPreparation,
 )
 from services.local_work import check_local_cancelled, run_local
 from services.live_storage_diagnostics import inspect_live_storage
@@ -100,16 +92,14 @@ from services.project_exploration import (
 )
 from services.project_reader import ProjectReadLimits
 from services.profile_service import (
-    ProfileNotFoundError, ProfileService, ProfileStorageError,
+    ProfileNotFoundError, ProfileStorageError,
 )
 from services.provider_errors import ConnectionConfigurationError, ProviderFailure
-from services.settings_service import SettingsService, SettingsStorageError
+from services.settings_service import SettingsStorageError
 from services.storage_maintenance import (
-    load_check_result, own_storage, ownership_path, result_path, save_basic_check,
+    MaintenanceSession, load_check_result, own_storage, ownership_path, result_path, save_basic_check,
 )
-from services.storage_references import CALL_USAGE, MANIFEST, SUMMARY_USAGE, WORK_RUNS
-from services.summary_usage_store import SummaryUsageStore
-from services.usage_service import UsageService
+from services.storage_references import WORK_RUNS
 from services.token_estimator import estimation_metadata
 from services.workspace_service import WorkspaceAccessError, WorkspaceService
 
@@ -119,194 +109,73 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-_runtime_storage = ExitStack()
-if __name__ == "app":
-    # Acquire ownership before canonical server imports initialize writable stores.
-    _runtime_storage.enter_context(own_storage(settings.profiles_path.parent))
-    atexit.register(_runtime_storage.close)
-
-settings.logs_root.mkdir(parents=True, exist_ok=True)
-file_handler = RotatingFileHandler(
-    settings.logs_root / "helios.log",
-    maxBytes=5 * 1024 * 1024,
-    backupCount=10,
-    encoding="utf-8",
-)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    handlers=[file_handler, logging.StreamHandler()],
-)
-logging.getLogger("watchfiles").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+router = APIRouter()
 
-settings_service = SettingsService(
-    getattr(
-        settings, "app_settings_path",
-        settings.profiles_path.with_name("settings.json"),
-    ),
-    AppSettings(**{
-        name: getattr(settings, name, value)
-        for name, value in DEFAULT_APP_SETTINGS.to_dict().items()
-    }),
-)
-application_settings = settings_service.current
-profile_service = ProfileService(
-    settings.profiles_path,
-    app_settings=(settings_service.migration_origin or settings_service.current)
-    if settings_service.source_exists else None,
-)
-conversation_manager = ConversationManager(
-    settings.conversations_root,
-    default_profile_id=lambda: getattr(
-        profile_service.get_active_profile(), "id", None,
-    ),
-)
-workspace_service = WorkspaceService(settings.workspace_root)
-conversation_workspaces = ConversationWorkspaces(conversation_manager)
-attachment_store = AttachmentStore(getattr(
-    settings, "attachments_root", settings.profiles_path.parent / "data" / "attachments",
-), referenced=lambda identity: conversation_manager.attachment_is_referenced(identity) or context_recovery.attachment_is_referenced(identity) or work_run_store.attachment_is_referenced(identity))
-attachment_service = AttachmentService(
-    workspace_service,
-    limits=application_settings.attachment_limits(), store=attachment_store,
-)
-folder_picker_service = FolderPickerService()
-file_picker_service = FilePickerService(attachment_service)
-context_recovery = ContextRecoveryRegistry()
-attachment_cleanup = AttachmentCleanup(attachment_store, context_recovery)
-attachment_store.on_change = attachment_cleanup.notify
-conversation_manager.on_attachments_released = attachment_cleanup.notify
-context_recovery.on_attachments_changed = attachment_cleanup.notify
-workspace_operations: dict[object, str] = {}
-storage_check_lock = asyncio.Lock()
-usage_service = UsageService()
-summary_usage_store = SummaryUsageStore(
-    settings.logs_root / "summary_usage.sqlite3"
-)
-call_usage_store = CallUsageStore(settings.logs_root / "usage_calls.sqlite3")
-work_run_store = WorkRunStore(getattr(
-    settings, "work_runs_path", settings.profiles_path.parent / "data" / "work_runs.sqlite3",
-))
-conversation_profiles = ConversationProfiles(
-    conversation_manager, profile_service, work_run_store,
-)
-work_run_store.on_attachments_released = attachment_cleanup.notify
-pause_deadline_changed = asyncio.Event()
-work_run_store.on_pause_changed = pause_deadline_changed.set
-try:
-    call_usage_store.import_summaries(summary_usage_store)
-except Exception:
-    call_usage_store.import_errors += 1
-    logger.exception("Could not import historical summary usage")
-for stored_conversation in conversation_manager.list():
-    try:
-        call_usage_store.import_conversation(
-            conversation_manager.get(stored_conversation["id"])
-        )
-    except Exception:
-        call_usage_store.import_errors += 1
-        logger.exception("Could not import historical conversation usage")
-ai_service = AIService(
-    usage_service, profile_service, summary_usage_store=summary_usage_store,
-    call_usage_store=call_usage_store,
-    work_run_store=work_run_store,
-    max_output_tokens=application_settings.context_output_reserve,
-)
-context_budget = ContextBudget(
-    application_settings.context_token_budget,
-    application_settings.context_output_reserve,
-    application_settings.max_summary_calls,
-    reserve_output=False,
-)
-memory_service = ConversationMemoryService(
-    ai_service,
-    conversation_manager,
-    application_settings.summary_trigger_tokens,
-    application_settings.keep_recent_tokens,
-    context_budget,
-    memory_generation_enabled=application_settings.memory_generation_enabled,
-    memory_use_saved_summaries=application_settings.memory_use_saved_summaries,
-    memory_background_enabled=application_settings.memory_background_enabled,
-)
+
+class RuntimeMiddleware:
+    """Bind a request and its streaming or background work to the owning app."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        """Wrap the ASGI application."""
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Keep the runtime bound until a request or WebSocket has fully exited."""
+        if scope["type"] not in {"http", "websocket"}:
+            await self.app(scope, receive, send)
+            return
+        with bind_runtime(scope["app"].state.runtime):
+            await self.app(scope, receive, send)
 
 
 @asynccontextmanager
-async def lifespan(application: FastAPI):
-    """Collect unused attachment copies and close background resources on shutdown."""
-    global pause_deadline_changed
-
-    logger.info("Helios started")
-    pause_deadline_changed = asyncio.Event()
-    work_run_store.on_pause_changed = pause_deadline_changed.set
-    cleanup = asyncio.create_task(attachment_cleanup.run())
-    pause_expiry = asyncio.create_task(expire_paused_runs())
-    try:
-        yield
-    finally:
-        cleanup.cancel()
-        pause_expiry.cancel()
-        await asyncio.gather(cleanup, pause_expiry, return_exceptions=True)
-        await folder_picker_service.close()
-        await file_picker_service.close()
-        await ai_service.close()
-        maintenance = getattr(application.state, "storage_maintenance", None)
+async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+    """Own storage from initialization through cleanup and acknowledge a completed drain."""
+    settings = application.state.settings
+    maintenance = application.state.storage_maintenance
+    with own_storage(settings.profiles_path.parent), ExitStack() as logging_resources:
+        configure_logging(settings, logging_resources)
+        with ExitStack() as stores:
+            runtime = AppRuntime(settings, stores, maintenance=maintenance)
+            async with AsyncExitStack() as services:
+                services.push_async_callback(runtime.ai_service.close_clients)
+                services.push_async_callback(runtime.file_picker_service.close)
+                services.push_async_callback(runtime.folder_picker_service.close)
+                if maintenance is not None:
+                    runtime.conversation_workspaces.restore_drafts(maintenance.take_drafts())
+                application.state.runtime = runtime
+                cleanup = asyncio.create_task(runtime.attachment_cleanup.run())
+                expiry = asyncio.create_task(runtime.expire_paused_runs())
+                logger.info("Helios started")
+                try:
+                    yield
+                finally:
+                    del application.state.runtime
+                    cleanup.cancel()
+                    expiry.cancel()
+                    await asyncio.gather(cleanup, expiry, return_exceptions=True)
         if maintenance is not None and maintenance.pending is not None:
-            maintenance.mark_drained(conversation_workspaces.snapshot_drafts())
-        _runtime_storage.close()
+            maintenance.mark_drained(runtime.conversation_workspaces.snapshot_drafts())
         logger.info("Helios stopped")
-
-
-async def expire_paused_runs() -> None:
-    """Release paused payloads at their exact deadline without periodic polling."""
-    failures = 0
-    while True:
-        pause_deadline_changed.clear()
-        try:
-            work_run_store.prune_paused()
-            deadline = work_run_store.next_pause_expiry()
-            failures = 0
-        except (sqlite3.Error, OSError):
-            failures += 1
-            logger.warning("Paused checkpoint expiry was deferred because storage is unavailable.")
-            deadline = datetime.now(timezone.utc).timestamp() + min(2 ** min(failures, 6), 60)
-        if deadline is None:
-            await pause_deadline_changed.wait()
-        else:
-            delay = max(0, deadline - datetime.now(timezone.utc).timestamp())
-            try:
-                await asyncio.wait_for(pause_deadline_changed.wait(), timeout=delay)
-            except asyncio.TimeoutError:
-                pass
 
 
 async def collect_attachments(candidates: set[str] | None = None) -> None:
     """Defer cleanup when storage or any saved reference cannot be verified safely."""
     try:
-        await run_local(attachment_store.collect, candidates)
+        await run_local(current_runtime().attachment_store.collect, candidates)
     except (OSError, sqlite3.Error, ValueError, KeyError, TypeError):
         logger.warning("Attachment cleanup was deferred because stored references could not be verified.", exc_info=True)
 
 
-# Serve WOFF2 consistently when the host does not register its MIME type.
-mimetypes.add_type("font/woff2", ".woff2")
-
-app = FastAPI(
-    title="Helios BYOK AI Assistant", version="0.4.1-alpha", lifespan=lifespan,
-)
-app.mount(
-    "/static", StaticFiles(directory=settings.static_root), name="static"
-)
-templates = Jinja2Templates(directory=settings.templates_root)
-
-
-@app.get("/api/usage/summaries")
+@router.get("/api/usage/summaries")
 async def summary_usage(conversation_id: str | None = None):
     """Return recorded summary usage for one conversation or all conversations."""
-    return summary_usage_store.totals(conversation_id)
+    runtime = current_runtime()
+    return runtime.summary_usage_store.totals(conversation_id)
 
 
-@app.get("/api/usage")
+@router.get("/api/usage")
 async def call_usage(
     conversation_id: str | None = None,
     kind: Literal[
@@ -316,29 +185,31 @@ async def call_usage(
     end_date: date | None = None,
 ):
     """Return cumulative call usage and daily buckets in the requested IANA timezone."""
+    runtime = current_runtime()
     try:
         conversation = (
-            conversation_manager.get(conversation_id)
+            runtime.conversation_manager.get(conversation_id)
             if conversation_id is not None else None
         )
-        report = call_usage_store.totals(
+        report = runtime.call_usage_store.totals(
             conversation_id=conversation_id, kind=kind,
             timezone_name=timezone, start_date=start_date, end_date=end_date,
             conversation_created_at=(
                 conversation.created_at if conversation is not None else None
             ),
         )
-        report["revision"] = call_usage_store.revision(conversation_id)
+        report["revision"] = runtime.call_usage_store.revision(conversation_id)
         return report
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.websocket("/api/usage/changes")
+@router.websocket("/api/usage/changes")
 async def call_usage_changes(
     websocket: WebSocket, revision: str, conversation_id: str | None = None,
 ):
     """Notify a same-origin browser when recorded usage changes over one connection."""
+    runtime = current_runtime()
     origin = websocket.headers.get("origin", "")
     if urlsplit(origin).netloc != websocket.headers.get("host"):
         await websocket.close(code=1008)
@@ -354,7 +225,7 @@ async def call_usage_changes(
     disconnected = asyncio.create_task(wait_for_disconnect())
     try:
         while not disconnected.done():
-            update = asyncio.create_task(call_usage_store.wait_for_change(
+            update = asyncio.create_task(runtime.call_usage_store.wait_for_change(
                 revision, conversation_id,
             ))
             finished, _ = await asyncio.wait(
@@ -380,7 +251,7 @@ async def call_usage_changes(
             pass
 
 
-@app.get("/api/usage/calls")
+@router.get("/api/usage/calls")
 async def call_usage_records(
     conversation_id: str | None = None,
     kind: Literal[
@@ -390,8 +261,9 @@ async def call_usage_records(
     end_date: date | None = None, limit: int = 100, offset: int = 0,
 ):
     """Return a bounded page of immutable call results and saved pricing metadata."""
+    runtime = current_runtime()
     try:
-        return {"calls": call_usage_store.records(
+        return {"calls": runtime.call_usage_store.records(
             conversation_id=conversation_id, kind=kind,
             timezone_name=timezone, start_date=start_date, end_date=end_date,
             limit=limit, offset=offset,
@@ -728,34 +600,38 @@ class UpdateProfileRequest(ProfileContextSettings):
     clear_long_cache_write_price: bool = False
 
 
-@app.get("/", response_class=HTMLResponse)
+@router.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """Render the main assistant page with the active deployment name."""
-    return templates.TemplateResponse(
-        request, "index.html", {"model_name": ai_service.active_deployment}
+    runtime = current_runtime()
+    return runtime.templates.TemplateResponse(
+        request, "index.html", {"model_name": runtime.ai_service.active_deployment}
     )
 
 
-@app.get("/api/health")
+@router.get("/api/health")
 async def health():
     """Report whether the active AI connection is configured and name its deployment."""
+    runtime = current_runtime()
     return {
-        "configured": ai_service.configured,
-        "model": ai_service.active_deployment,
+        "configured": runtime.ai_service.configured,
+        "model": runtime.ai_service.active_deployment,
     }
 
 
-@app.get("/api/profiles")
+@router.get("/api/profiles")
 async def list_profiles():
     """Return connection profiles and the active selection without API keys."""
-    return profile_service.get_summary()
+    runtime = current_runtime()
+    return runtime.profile_service.get_summary()
 
 
-@app.post("/api/profiles")
+@router.post("/api/profiles")
 async def create_profile(payload: CreateProfileRequest):
     """Create a connection profile and return the refreshed profile summary."""
+    runtime = current_runtime()
     try:
-        profile = profile_service.create_profile(
+        profile = runtime.profile_service.create_profile(
             payload.name,
             payload.endpoint,
             payload.api_key,
@@ -781,18 +657,19 @@ async def create_profile(payload: CreateProfileRequest):
         raise HTTPException(
             status_code=400, detail="Could not create connection profile."
         )
-    return profile_service.get_summary()
+    return runtime.profile_service.get_summary()
 
 
-@app.put("/api/profiles/{profile_id}")
+@router.put("/api/profiles/{profile_id}")
 async def update_profile(profile_id: str, payload: UpdateProfileRequest):
     """Apply profile changes and return the refreshed profile summary."""
-    previous = profile_service.get_profile(profile_id)
+    runtime = current_runtime()
+    previous = runtime.profile_service.get_profile(profile_id)
     previous_settings = (
         previous.request_settings() if previous is not None else None
     )
     try:
-        updated = profile_service.update_profile(
+        updated = runtime.profile_service.update_profile(
             profile_id,
             name=payload.name,
             endpoint=payload.endpoint,
@@ -833,11 +710,10 @@ async def update_profile(profile_id: str, payload: UpdateProfileRequest):
             status_code=400, detail="Could not update connection profile."
         )
     if previous_settings != updated.request_settings():
-        memory_service.invalidate_policy(profile_id)
-    return profile_service.get_summary()
+        runtime.memory_service.invalidate_policy(profile_id)
+    return runtime.profile_service.get_summary()
 
 
-@app.exception_handler(ProfileStorageError)
 async def profile_storage_failure(_: Request, exc: ProfileStorageError):
     """Report a failed or conflicting save without echoing connection data."""
     conflict = exc.reason in {"conflict", "locked"}
@@ -847,40 +723,44 @@ async def profile_storage_failure(_: Request, exc: ProfileStorageError):
     }})
 
 
-@app.delete("/api/profiles/{profile_id}")
+@router.delete("/api/profiles/{profile_id}")
 async def delete_profile(profile_id: str):
     """Delete a connection profile or report that it does not exist."""
-    deleted = profile_service.delete_profile(profile_id)
+    runtime = current_runtime()
+    deleted = runtime.profile_service.delete_profile(profile_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Profile not found.")
-    memory_service.invalidate_policy(profile_id)
-    return profile_service.get_summary()
+    runtime.memory_service.invalidate_policy(profile_id)
+    return runtime.profile_service.get_summary()
 
 
-@app.post("/api/profiles/{profile_id}/active")
+@router.post("/api/profiles/{profile_id}/active")
 async def set_active_profile(profile_id: str):
     """Select an existing connection profile for subsequent requests."""
+    runtime = current_runtime()
     try:
-        profile_service.set_active_profile(profile_id)
+        runtime.profile_service.set_active_profile(profile_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    return profile_service.get_summary()
+    return runtime.profile_service.get_summary()
 
 
-@app.get("/api/conversations")
+@router.get("/api/conversations")
 async def conversations():
     """Return conversation summaries ordered by their latest update."""
-    items = conversation_manager.list()
+    runtime = current_runtime()
+    items = runtime.conversation_manager.list()
     for item in items:
-        conversation = conversation_manager.get(item["id"])
+        conversation = runtime.conversation_manager.get(item["id"])
         item.update(conversation_profile_selection(conversation))
     return items
 
 
-@app.post("/api/conversations")
+@router.post("/api/conversations")
 async def create_conversation():
     """Create and persist an empty conversation."""
-    conversation = conversation_manager.create()
+    runtime = current_runtime()
+    conversation = runtime.conversation_manager.create()
     return {
         **conversation.to_dict(), **conversation_profile_selection(conversation),
     }
@@ -888,8 +768,9 @@ async def create_conversation():
 
 def conversation_profile_selection(conversation) -> dict:
     """Initialize a durable choice without publishing uncommitted selection metadata."""
+    runtime = current_runtime()
     try:
-        return conversation_profiles.selection(conversation)
+        return runtime.conversation_profiles.selection(conversation)
     except OSError as exc:
         logger.error("Could not save conversation profile (error_type=%s)", type(exc).__name__)
         raise HTTPException(status_code=500, detail={
@@ -902,6 +783,7 @@ def resolve_conversation_profile(
     conversation, explicit_id: str | None, expected_revision: int | None = None,
 ) -> str:
     """Pin an explicit selection or the durable preference without a default fallback."""
+    runtime = current_runtime()
     selection = conversation_profile_selection(conversation)
     if (
         expected_revision is not None
@@ -921,28 +803,30 @@ def resolve_conversation_profile(
             "code": "conversation_profile_unavailable",
             "message": "Choose an available model profile for this conversation before sending a message.",
         })
-    return ai_service.resolve_profile_id(selected_id)
+    return runtime.ai_service.resolve_profile_id(selected_id)
 
 
-@app.get("/api/conversations/{conversation_id}/profile")
+@router.get("/api/conversations/{conversation_id}/profile")
 async def get_conversation_profile(conversation_id: str):
     """Read the next-response model selection without loading the full transcript."""
-    conversation = conversation_manager.get(conversation_id)
+    runtime = current_runtime()
+    conversation = runtime.conversation_manager.get(conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
     return conversation_profile_selection(conversation)
 
 
-@app.patch("/api/conversations/{conversation_id}/profile")
+@router.patch("/api/conversations/{conversation_id}/profile")
 async def select_conversation_profile(
     conversation_id: str, payload: ConversationProfileRequest,
 ):
     """Change the next response's saved model without invalidating active or paused work."""
-    conversation = conversation_manager.get(conversation_id)
+    runtime = current_runtime()
+    conversation = runtime.conversation_manager.get(conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
     try:
-        return conversation_profiles.select(
+        return runtime.conversation_profiles.select(
             conversation, payload.profile_id,
             expected_revision=payload.expected_profile_revision,
         )
@@ -962,9 +846,10 @@ async def select_conversation_profile(
 
 def response_display_metadata(run_id: str, conversation_id: str) -> dict:
     """Keep a saved answer readable when its independent accounting is unavailable."""
+    runtime = current_runtime()
     try:
-        return work_run_store.response_metadata(
-            run_id, conversation_id, call_usage_store,
+        return runtime.work_run_store.response_metadata(
+            run_id, conversation_id, runtime.call_usage_store,
         )
     except (WorkContextUnavailableError, sqlite3.Error):
         return {
@@ -973,10 +858,11 @@ def response_display_metadata(run_id: str, conversation_id: str) -> dict:
         }
 
 
-@app.get("/api/conversations/{conversation_id}")
+@router.get("/api/conversations/{conversation_id}")
 async def get_conversation(conversation_id: str):
     """Return a conversation with its complete transcript or report it missing."""
-    conversation = conversation_manager.get(conversation_id)
+    runtime = current_runtime()
+    conversation = runtime.conversation_manager.get(conversation_id)
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found.")
     selection = conversation_profile_selection(conversation)
@@ -989,20 +875,21 @@ async def get_conversation(conversation_id: str):
         message["response_metadata"] = response_display_metadata(
             message["run_id"], conversation_id,
         )
-    workspace = conversation_workspaces.for_conversation(conversation)
+    workspace = runtime.conversation_workspaces.for_conversation(conversation)
     data["workspace_available"] = await run_local(workspace.is_available)
     return data
 
 
-@app.websocket("/api/conversations/{conversation_id}/memory/updates")
+@router.websocket("/api/conversations/{conversation_id}/memory/updates")
 async def conversation_memory_updates(websocket: WebSocket, conversation_id: str):
     """Send background summary status for one conversation to a same-origin viewer."""
+    runtime = current_runtime()
     origin = websocket.headers.get("origin", "")
     if urlsplit(origin).netloc != websocket.headers.get("host"):
         await websocket.close(code=1008)
         return
     await websocket.accept()
-    conversation = conversation_manager.get(conversation_id)
+    conversation = runtime.conversation_manager.get(conversation_id)
     if conversation is None:
         await websocket.close(code=1008)
         return
@@ -1016,9 +903,9 @@ async def conversation_memory_updates(websocket: WebSocket, conversation_id: str
 
         tasks.start_soon(watch_disconnect)
         try:
-            async with aclosing(memory_service.background_updates.watch(conversation_id)) as updates:
+            async with aclosing(runtime.memory_service.background_updates.watch(conversation_id)) as updates:
                 async for phase in updates:
-                    if not conversation_manager.is_active(conversation):
+                    if not runtime.conversation_manager.is_active(conversation):
                         break
                     await websocket.send_json({"phase": phase})
         except WebSocketDisconnect:
@@ -1031,13 +918,14 @@ async def conversation_memory_updates(websocket: WebSocket, conversation_id: str
         pass
 
 
-@app.patch("/api/conversations/{conversation_id}")
+@router.patch("/api/conversations/{conversation_id}")
 async def rename_conversation(
     conversation_id: str, payload: RenameConversationRequest
 ):
     """Save a validated conversation title and return its summary."""
+    runtime = current_runtime()
     try:
-        conversation = conversation_manager.rename(
+        conversation = runtime.conversation_manager.rename(
             conversation_id, payload.title
         )
     except ValueError as exc:
@@ -1049,28 +937,31 @@ async def rename_conversation(
 
 def require_work_run(conversation_id: str, run_id: str) -> dict:
     """Require an existing conversation and its own run before returning saved work."""
-    if not conversation_manager.get(conversation_id):
+    runtime = current_runtime()
+    if not runtime.conversation_manager.get(conversation_id):
         raise HTTPException(status_code=404, detail="Conversation not found.")
     try:
-        return work_run_store.get(run_id, conversation_id)
+        return runtime.work_run_store.get(run_id, conversation_id)
     except WorkContextUnavailableError as exc:
         raise HTTPException(status_code=404, detail="Work run not found.") from exc
 
 
 def paused_work_metadata(conversation) -> dict | None:
     """Expose the unresolved pause independently of paged work history."""
-    run = work_run_store.paused_run(conversation.id)
+    runtime = current_runtime()
+    run = runtime.work_run_store.paused_run(conversation.id)
     if run is None:
         return None
     return {
-        **work_run_store.public_metadata(run, messages=conversation.messages),
-        "usage": work_run_store.usage(run["id"], call_usage_store),
+        **runtime.work_run_store.public_metadata(run, messages=conversation.messages),
+        "usage": runtime.work_run_store.usage(run["id"], runtime.call_usage_store),
     }
 
 
 def require_resolved_pause(conversation_id: str) -> None:
     """Protect a saved pause from new turns, regeneration, recovery, and message edits."""
-    run = work_run_store.paused_run(conversation_id)
+    runtime = current_runtime()
+    run = runtime.work_run_store.paused_run(conversation_id)
     if run is not None:
         raise HTTPException(status_code=409, detail={
             "code": "work_run_paused", "run_id": run["id"],
@@ -1080,9 +971,10 @@ def require_resolved_pause(conversation_id: str) -> None:
 
 def work_resume_configuration(app_settings=None) -> dict:
     """Fingerprint execution policy independently of the saved private model input."""
+    runtime = current_runtime()
     return {
         "version": 1,
-        "settings": (app_settings or settings_service.current).to_dict(),
+        "settings": (app_settings or runtime.settings_service.current).to_dict(),
         "tools": project_function_tools(),
         "resource_limits": asdict(ProjectReadLimits()),
     }
@@ -1093,11 +985,12 @@ def work_connection_fingerprint(
     legacy_name: str | None = None,
 ) -> str:
     """Compare current credentials and memory permission without persisting either."""
-    profile = profile_service.get_profile(profile_id)
+    runtime = current_runtime()
+    profile = runtime.profile_service.get_profile(profile_id)
     if profile is None:
         raise ContextChangedError("The saved connection is no longer available. Prepare a new request.")
     return connection_fingerprint(
-        profile, memory_service.capture_policy(profile_id),
+        profile, runtime.memory_service.capture_policy(profile_id),
         context=work_resume_configuration(),
         version=version, legacy_name=legacy_name,
     )
@@ -1116,11 +1009,12 @@ def work_profile_snapshot(profile: ConnectionProfile) -> dict:
 
 def require_resume_authority(run: dict, conversation, workspace, saved: dict | None = None) -> dict:
     """Reject changed branches, bindings, tools, connections, and memory permissions."""
+    runtime = current_runtime()
     snapshot = run.get("snapshot", {})
     if saved is None:
-        saved = work_run_store.resume_context(run["id"]) or {}
+        saved = runtime.work_run_store.resume_context(run["id"]) or {}
     binding = snapshot.get("workspace", {})
-    if (not conversation_manager.is_active(conversation)
+    if (not runtime.conversation_manager.is_active(conversation)
             or conversation.version != run["base_version"]
             or WorkRunStore.message_link(run, conversation.messages)["user_index"] is None
             or saved.get("version") != 1
@@ -1138,10 +1032,10 @@ def require_resume_authority(run: dict, conversation, workspace, saved: dict | N
             )
             != saved.get("connection_fingerprint")):
         raise ContextChangedError("The conversation, Workspace, connection, or input policy changed. Prepare a new request instead of resuming this run.")
-    for segment in work_run_store.execution_segments(run["id"]):
+    for segment in runtime.work_run_store.execution_segments(run["id"]):
         if segment.get("kind") == "initial" or segment.get("state", "committed") != "committed":
             continue
-        context = work_run_store.segment_authority(run["id"], segment["id"])
+        context = runtime.work_run_store.segment_authority(run["id"], segment["id"])
         profile = segment.get("profile", {})
         if (not context or work_connection_fingerprint(
                 profile.get("id"),
@@ -1152,54 +1046,57 @@ def require_resume_authority(run: dict, conversation, workspace, saved: dict | N
     return saved
 
 
-@app.post("/api/work-runs/{run_id}/pause")
+@router.post("/api/work-runs/{run_id}/pause")
 async def pause_work_run(run_id: str, payload: WorkRunControlRequest):
     """Request a safe boundary while allowing the current paid step to finish."""
+    runtime = current_runtime()
     run = require_work_run(payload.conversation_id, run_id)
     if not run.get("snapshot", {}).get("has_resume_context"):
         raise HTTPException(status_code=409, detail={
             "code": "pause_unavailable", "message": "A safe checkpoint is unavailable for this run. Stop remains available.",
         })
-    if not work_run_store.request_pause(run_id):
+    if not runtime.work_run_store.request_pause(run_id):
         raise HTTPException(status_code=409, detail="This run is no longer accepting a pause request.")
-    conversation = conversation_manager.get(payload.conversation_id)
-    return {"run": work_run_store.public_metadata(
-        work_run_store.get(run_id), messages=conversation.messages,
+    conversation = runtime.conversation_manager.get(payload.conversation_id)
+    return {"run": runtime.work_run_store.public_metadata(
+        runtime.work_run_store.get(run_id), messages=conversation.messages,
     )}
 
 
-@app.post("/api/work-runs/{run_id}/stop")
+@router.post("/api/work-runs/{run_id}/stop")
 async def stop_work_run(run_id: str, payload: WorkRunControlRequest):
     """Persist explicit Stop intent without releasing an active request's cleanup leases."""
+    runtime = current_runtime()
     run = require_work_run(payload.conversation_id, run_id)
     if run["status"] in ACTIVE_STATES | {"paused"}:
-        work_run_store.finish(run_id, "cancelled", reason="user_stopped")
-    conversation = conversation_manager.get(payload.conversation_id)
-    return {"run": work_run_store.public_metadata(
-        work_run_store.get(run_id), messages=conversation.messages,
-    ), "usage": work_run_store.usage(run_id, call_usage_store)}
+        runtime.work_run_store.finish(run_id, "cancelled", reason="user_stopped")
+    conversation = runtime.conversation_manager.get(payload.conversation_id)
+    return {"run": runtime.work_run_store.public_metadata(
+        runtime.work_run_store.get(run_id), messages=conversation.messages,
+    ), "usage": runtime.work_run_store.usage(run_id, runtime.call_usage_store)}
 
 
-@app.post("/api/work-runs/{run_id}/resume")
+@router.post("/api/work-runs/{run_id}/resume")
 async def resume_work_run(run_id: str, payload: WorkRunResumeRequest, request: Request = None):
     """Validate an explicit continuation before claiming any new tool or Provider work."""
+    runtime = current_runtime()
     operation = None
     try:
         run = require_work_run(payload.conversation_id, run_id)
-        conversation = conversation_manager.get(payload.conversation_id)
+        conversation = runtime.conversation_manager.get(payload.conversation_id)
         if run["status"] != "paused":
             raise HTTPException(status_code=409, detail="This run has no paused checkpoint to resume.")
         if payload.expected_conversation_version != conversation.version:
             raise ContextChangedError("Conversation changed. Reload before resuming saved work.")
-        workspace = conversation_workspaces.for_conversation(conversation)
+        workspace = runtime.conversation_workspaces.for_conversation(conversation)
         saved = require_resume_authority(run, conversation, workspace)
-        operation = context_recovery.begin(conversation.id)
+        operation = runtime.context_recovery.begin(conversation.id)
         operation.release_workspace = claim_workspace(workspace)
         upload_ids = [
             source["attachment_id"] for source in saved.get("attachment_sources", [])
             if source.get("source") == "upload"
         ]
-        operation.release_attachments = attachment_store.claim(upload_ids)
+        operation.release_attachments = runtime.attachment_store.claim(upload_ids)
 
         def validate_checkpoint():
             """Recheck local input identities without opening a Provider or MCP session."""
@@ -1207,15 +1104,15 @@ async def resume_work_run(run_id: str, payload: WorkRunResumeRequest, request: R
                 raise ContextChangedError("Workspace files changed while paused. Prepare a new request instead of resuming saved work.")
             if selected_files_fingerprint(
                 workspace, saved.get("selected_files", []),
-                max_total_bytes=attachment_service.MAX_TOTAL_BYTES,
+                max_total_bytes=runtime.attachment_service.MAX_TOTAL_BYTES,
             ) != saved.get("selected_files_fingerprint"):
                 raise ContextChangedError("Selected Workspace files changed while paused. Prepare a new request.")
-            attachment_store.validate_originals(upload_ids)
+            runtime.attachment_store.validate_originals(upload_ids)
 
         await until_disconnect(request, run_local, validate_checkpoint)
         require_resume_authority(run, conversation, workspace, saved)
         request_messages = conversation.messages
-        original_segment = work_run_store.current_segment(run_id)
+        original_segment = runtime.work_run_store.current_segment(run_id)
         original_profile = original_segment["profile"]
         profile_id = payload.target_profile_id or original_profile["id"]
         switching = profile_id != original_profile["id"]
@@ -1224,7 +1121,7 @@ async def resume_work_run(run_id: str, payload: WorkRunResumeRequest, request: R
             """Validate model intent only until claim, keeping later preferences independent."""
             if payload.target_profile_id is None:
                 return
-            latest = work_run_store.get(run_id, conversation.id)
+            latest = runtime.work_run_store.get(run_id, conversation.id)
             if (latest["status"] != "paused"
                     or latest.get("checkpoint_revision", 0) != payload.expected_checkpoint_revision
                     or latest["execution_revision"] != payload.expected_execution_revision
@@ -1236,23 +1133,23 @@ async def resume_work_run(run_id: str, payload: WorkRunResumeRequest, request: R
                 })
 
         target_selection()
-        profile = profile_service.get_profile(profile_id)
+        profile = runtime.profile_service.get_profile(profile_id)
         if profile is None or not profile.is_configured:
             raise HTTPException(status_code=409, detail={
                 "code": "handoff_target_unavailable",
                 "message": "The selected model connection is unavailable. The paused work is retained.",
             })
         profile = replace(profile, name=profile.name if switching else original_profile["name"])
-        request_memory = memory_service
+        request_memory = runtime.memory_service
         resume_memory_policy = request_memory.capture_policy(profile_id)
         source_memory_policies = {
             segment["profile"]["id"]: request_memory.capture_policy(segment["profile"]["id"])
-            for segment in work_run_store.execution_segments(run_id)
+            for segment in runtime.work_run_store.execution_segments(run_id)
             if segment.get("state", "committed") == "committed"
         }
         material = None
         limits = ExplorationLimits(**run["snapshot"].get("goals", {}))
-        active_saved = work_run_store.segment_context(run_id, original_segment["id"])
+        active_saved = runtime.work_run_store.segment_context(run_id, original_segment["id"])
         if not active_saved:
             raise ContextChangedError("The current model's saved input is unavailable. Prepare a new request.")
         target_fingerprint = work_connection_fingerprint(profile_id)
@@ -1269,8 +1166,8 @@ async def resume_work_run(run_id: str, payload: WorkRunResumeRequest, request: R
             })
         if switching:
             try:
-                material = work_run_store.handoff_material(run_id, conversation.id)
-                check_exploration_limits(work_run_store, run_id, call_usage_store, limits)
+                material = runtime.work_run_store.handoff_material(run_id, conversation.id)
+                check_exploration_limits(runtime.work_run_store, run_id, runtime.call_usage_store, limits)
             except (WorkContextUnavailableError, ExplorationError) as exc:
                 raise HTTPException(status_code=409, detail={
                     "code": getattr(exc, "code", "handoff_input_unavailable"),
@@ -1297,7 +1194,7 @@ async def resume_work_run(run_id: str, payload: WorkRunResumeRequest, request: R
                 })
         else:
             policy = ContextPolicy(**original_segment["context_policy"])
-        request_ai = ai_service.with_output_limit(policy.max_output_tokens).with_profile(profile)
+        request_ai = runtime.ai_service.with_output_limit(policy.max_output_tokens).with_profile(profile)
         background_tasks = BackgroundTasks()
 
         def authority():
@@ -1347,8 +1244,8 @@ async def resume_work_run(run_id: str, payload: WorkRunResumeRequest, request: R
                 target_selection()
                 try:
                     if switching:
-                        check_exploration_limits(work_run_store, run_id, call_usage_store, limits)
-                        claimed_run = work_run_store.claim_handoff(
+                        check_exploration_limits(runtime.work_run_store, run_id, runtime.call_usage_store, limits)
+                        claimed_run = runtime.work_run_store.claim_handoff(
                             run_id, material=material,
                             snapshot={"profile": work_profile_snapshot(profile),
                                       "context_policy": asdict(policy),
@@ -1356,15 +1253,15 @@ async def resume_work_run(run_id: str, payload: WorkRunResumeRequest, request: R
                             resume_context=active_saved,
                         )
                     else:
-                        claimed_run = work_run_store.claim_resume(run_id, expected_run=run)
+                        claimed_run = runtime.work_run_store.claim_resume(run_id, expected_run=run)
                 except ValueError:
                     raise ExplorationError(
                         "handoff_conflict", "The paused boundary changed before it could be claimed. Reload before resuming.",
                     ) from None
                 claimed = True
-                yield f"data: {json.dumps({'type': 'start', 'conversation_id': conversation.id, 'run_id': run_id, 'user_index': run['snapshot']['source_message']['user_index'], 'pause_available': True, 'active_elapsed_seconds': work_run_store.active_elapsed(run_id), 'run': work_run_store.public_metadata(work_run_store.get(run_id), messages=conversation.messages)})}\n\n"
+                yield f"data: {json.dumps({'type': 'start', 'conversation_id': conversation.id, 'run_id': run_id, 'user_index': run['snapshot']['source_message']['user_index'], 'pause_available': True, 'active_elapsed_seconds': runtime.work_run_store.active_elapsed(run_id), 'run': runtime.work_run_store.public_metadata(runtime.work_run_store.get(run_id), messages=conversation.messages)})}\n\n"
                 explorer = ProjectExplorer(
-                    request_ai, work_run_store, run_id, workspace,
+                    request_ai, runtime.work_run_store, run_id, workspace,
                     prepare_input=inputs, check_authority=authority, policy=policy,
                     visual_tokens=active_saved.get("visual_tokens", 0), limits=limits,
                     protected=project_protected_paths(), resumed=True,
@@ -1382,8 +1279,8 @@ async def resume_work_run(run_id: str, payload: WorkRunResumeRequest, request: R
                             continue
                         if event["type"] == "paused":
                             operation.close()
-                            event["run"] = work_run_store.public_metadata(
-                                work_run_store.get(run_id), messages=conversation.messages,
+                            event["run"] = runtime.work_run_store.public_metadata(
+                                runtime.work_run_store.get(run_id), messages=conversation.messages,
                             )
                         event["segment_id"] = explorer.segment_id
                         yield f"data: {json.dumps(event)}\n\n"
@@ -1392,8 +1289,8 @@ async def resume_work_run(run_id: str, payload: WorkRunResumeRequest, request: R
                 if not completed:
                     raise RuntimeError("Resumed work ended without a saved boundary.")
                 authority()
-                message = conversation_manager.adopt_run_reply(
-                    conversation, run_id, work_run_store,
+                message = runtime.conversation_manager.adopt_run_reply(
+                    conversation, run_id, runtime.work_run_store,
                     expected_messages=request_messages,
                     user_attachment_sources=saved.get("attachment_sources"),
                 )
@@ -1407,32 +1304,32 @@ async def resume_work_run(run_id: str, payload: WorkRunResumeRequest, request: R
                     "input_policy_blocked" if isinstance(exc, ContextBudgetExceeded) else "authority_changed"
                 )
                 error = exc.detail() if isinstance(exc, ProviderFailure) else {"code": code, "message": str(exc)}
-                current = work_run_store.get(run_id)
+                current = runtime.work_run_store.get(run_id)
                 same_boundary = all(current.get(key) == run.get(key) for key in (
                     "execution_segment_id", "execution_revision", "checkpoint_revision",
                 ))
                 if ((owns_claim(current) and current["status"] in ACTIVE_STATES)
                         or (not claimed and same_boundary
                             and isinstance(exc, ContextChangedError) and current["status"] == "paused")):
-                    work_run_store.finish(run_id, "stopped" if isinstance(exc, (ContextChangedError, ContextBudgetExceeded)) else "failed", reason=code)
-                work_run_store.record_failure(run_id, error)
-                yield f"data: {json.dumps({'type': 'error', **error, 'run_id': run_id, 'run_status': work_run_store.get(run_id)['status'], 'run_usage': work_run_store.usage(run_id, call_usage_store), 'run': work_run_store.public_metadata(work_run_store.get(run_id), messages=conversation.messages)})}\n\n"
+                    runtime.work_run_store.finish(run_id, "stopped" if isinstance(exc, (ContextChangedError, ContextBudgetExceeded)) else "failed", reason=code)
+                runtime.work_run_store.record_failure(run_id, error)
+                yield f"data: {json.dumps({'type': 'error', **error, 'run_id': run_id, 'run_status': runtime.work_run_store.get(run_id)['status'], 'run_usage': runtime.work_run_store.usage(run_id, runtime.call_usage_store), 'run': runtime.work_run_store.public_metadata(runtime.work_run_store.get(run_id), messages=conversation.messages)})}\n\n"
             except HTTPException as exc:
                 detail = exc.detail if isinstance(exc.detail, dict) else {
                     "code": "handoff_conflict", "message": str(exc.detail),
                 }
-                yield f"data: {json.dumps({'type': 'error', **detail, 'run_id': run_id, 'run_status': work_run_store.get(run_id)['status']})}\n\n"
+                yield f"data: {json.dumps({'type': 'error', **detail, 'run_id': run_id, 'run_status': runtime.work_run_store.get(run_id)['status']})}\n\n"
             except Exception as exc:
                 logger.error("Resumed work failed (error_type=%s)", type(exc).__name__)
-                current = work_run_store.get(run_id)
+                current = runtime.work_run_store.get(run_id)
                 if owns_claim(current) and current["status"] in ACTIVE_STATES:
-                    work_run_store.finish(run_id, "failed", reason="request_failed")
-                yield f"data: {json.dumps({'type': 'error', 'code': 'request_failed', 'message': 'Saved work could not finish. Recorded usage is retained.', 'run_id': run_id, 'run_status': work_run_store.get(run_id)['status']})}\n\n"
+                    runtime.work_run_store.finish(run_id, "failed", reason="request_failed")
+                yield f"data: {json.dumps({'type': 'error', 'code': 'request_failed', 'message': 'Saved work could not finish. Recorded usage is retained.', 'run_id': run_id, 'run_status': runtime.work_run_store.get(run_id)['status']})}\n\n"
             finally:
                 try:
-                    current = work_run_store.get(run_id)
+                    current = runtime.work_run_store.get(run_id)
                     if owns_claim(current) and current["status"] in ACTIVE_STATES:
-                        work_run_store.finish(run_id, "cancelled", reason="request_closed")
+                        runtime.work_run_store.finish(run_id, "cancelled", reason="request_closed")
                 except Exception as exc:
                     logger.error("Could not finalize resumed work (error_type=%s)", type(exc).__name__)
                 finally:
@@ -1446,7 +1343,7 @@ async def resume_work_run(run_id: str, payload: WorkRunResumeRequest, request: R
     except (ContextChangedError, RecoveryError, AttachmentError) as exc:
         if operation is not None:
             operation.close()
-        current = work_run_store.get(run_id) if "run" in locals() else None
+        current = runtime.work_run_store.get(run_id) if "run" in locals() else None
         same_boundary = current is not None and all(
             current.get(key) == run.get(key) for key in (
                 "execution_segment_id", "execution_revision", "checkpoint_revision",
@@ -1456,7 +1353,7 @@ async def resume_work_run(run_id: str, payload: WorkRunResumeRequest, request: R
                 and run["status"] == "paused"
                 and (conversation.version != run["base_version"]
                      or payload.expected_conversation_version == conversation.version)):
-            work_run_store.finish(run_id, "stopped", reason="resume_context_changed")
+            runtime.work_run_store.finish(run_id, "stopped", reason="resume_context_changed")
         raise HTTPException(status_code=getattr(exc, "status", getattr(exc, "status_code", 409)), detail={
             "code": "resume_context_changed", "message": str(exc),
         }) from None
@@ -1466,14 +1363,15 @@ async def resume_work_run(run_id: str, payload: WorkRunResumeRequest, request: R
         raise
 
 
-@app.get("/api/conversations/{conversation_id}/work-runs")
+@router.get("/api/conversations/{conversation_id}/work-runs")
 async def work_history(conversation_id: str, before: int | None = None):
     """Return lightweight saved work, including unsuccessful and replaced attempts."""
-    conversation = conversation_manager.get(conversation_id)
+    runtime = current_runtime()
+    conversation = runtime.conversation_manager.get(conversation_id)
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found.")
     try:
-        page = work_run_store.history(
+        page = runtime.work_run_store.history(
             conversation_id, before=before, messages=conversation.messages,
         )
     except ValueError as exc:
@@ -1483,54 +1381,57 @@ async def work_history(conversation_id: str, before: int | None = None):
     }
     for run in page["runs"]:
         run["adopted"] = run["id"] in adopted
-        run["usage"] = work_run_store.usage(run["id"], call_usage_store)
+        run["usage"] = runtime.work_run_store.usage(run["id"], runtime.call_usage_store)
     page["paused_run"] = paused_work_metadata(conversation)
     return page
 
 
-@app.get("/api/conversations/{conversation_id}/work-runs/{run_id}")
+@router.get("/api/conversations/{conversation_id}/work-runs/{run_id}")
 async def work_activity(conversation_id: str, run_id: str, offset: int = 0):
     """Return one bounded activity page without private provider reasoning or output."""
+    runtime = current_runtime()
     run = require_work_run(conversation_id, run_id)
-    conversation = conversation_manager.get(conversation_id)
+    conversation = runtime.conversation_manager.get(conversation_id)
     try:
-        page = work_run_store.activity(run_id, offset=offset)
+        page = runtime.work_run_store.activity(run_id, offset=offset)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     for step in page["steps"]:
         if step["kind"] == "model":
-            step["record"] = call_usage_store.get_record(step["call_id"])
+            step["record"] = runtime.call_usage_store.get_record(step["call_id"])
     return {
-        **page, "run": work_run_store.public_metadata(
+        **page, "run": runtime.work_run_store.public_metadata(
             run, messages=conversation.messages,
         ),
-        "usage": work_run_store.usage(run_id, call_usage_store),
+        "usage": runtime.work_run_store.usage(run_id, runtime.call_usage_store),
     }
 
 
-@app.get("/api/conversations/{conversation_id}/work-runs/{run_id}/evidence")
+@router.get("/api/conversations/{conversation_id}/work-runs/{run_id}/evidence")
 async def work_evidence(
     conversation_id: str, run_id: str, response_id: str, call_id: str,
     segment_id: str | None = Query(default=None, min_length=1),
 ):
     """Open exact persisted evidence without reading current files or starting tools."""
+    runtime = current_runtime()
     require_work_run(conversation_id, run_id)
     try:
-        return work_run_store.evidence(run_id, response_id, call_id, segment_id=segment_id)
+        return runtime.work_run_store.evidence(run_id, response_id, call_id, segment_id=segment_id)
     except WorkContextUnavailableError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@app.delete("/api/conversations/{conversation_id}")
+@router.delete("/api/conversations/{conversation_id}")
 async def delete_conversation(conversation_id: str):
     """Delete a conversation from memory and disk, reporting storage failures."""
-    conversation = conversation_manager.get(conversation_id)
+    runtime = current_runtime()
+    conversation = runtime.conversation_manager.get(conversation_id)
     candidates = {
         source["attachment_id"] for message in conversation.messages
         for source in message.attachment_sources if source["source"] == "upload"
     } if conversation else set()
     try:
-        deleted = conversation_manager.delete(conversation_id)
+        deleted = runtime.conversation_manager.delete(conversation_id)
     except OSError:
         logger.exception("Could not delete conversation: %s", conversation_id)
         raise HTTPException(
@@ -1538,22 +1439,23 @@ async def delete_conversation(conversation_id: str):
         )
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found.")
-    memory_service.background_updates.publish(conversation_id, "idle")
-    conversation_workspaces.forget(conversation_id)
-    context_recovery.forget_conversation(conversation_id)
-    work_run_store.forget_conversation(conversation_id)
+    runtime.memory_service.background_updates.publish(conversation_id, "idle")
+    runtime.conversation_workspaces.forget(conversation_id)
+    runtime.context_recovery.forget_conversation(conversation_id)
+    runtime.work_run_store.forget_conversation(conversation_id)
     await collect_attachments(candidates)
     return {"deleted": True}
 
 
-@app.patch("/api/conversations/{conversation_id}/messages/{message_index}")
+@router.patch("/api/conversations/{conversation_id}/messages/{message_index}")
 async def edit_message(
     conversation_id: str, message_index: int, payload: EditMessageRequest
 ):
     """Edit a user message and return the truncated conversation branch."""
+    runtime = current_runtime()
     require_resolved_pause(conversation_id)
     try:
-        conversation = conversation_manager.edit_user_message(
+        conversation = runtime.conversation_manager.edit_user_message(
             conversation_id, message_index, payload.content
         )
     except ValueError as exc:
@@ -1603,14 +1505,15 @@ def resolve_workspace(
     conversation_id: str | None = None, session_id: str | None = None,
 ) -> WorkspaceService:
     """Resolve explicit conversation or browser draft scope before interpreting paths."""
+    runtime = current_runtime()
     if conversation_id is not None:
-        conversation = conversation_manager.get(conversation_id)
+        conversation = runtime.conversation_manager.get(conversation_id)
         if conversation is None:
             raise HTTPException(status_code=404, detail="Conversation not found.")
-        return conversation_workspaces.for_conversation(conversation)
-    if session_id is None or session_id == workspace_service.session_id:
-        return workspace_service
-    draft = conversation_workspaces.draft(session_id)
+        return runtime.conversation_workspaces.for_conversation(conversation)
+    if session_id is None or session_id == runtime.workspace_service.session_id:
+        return runtime.workspace_service
+    draft = runtime.conversation_workspaces.draft(session_id)
     if draft is None:
         raise HTTPException(status_code=409, detail={
             "code": "workspace_draft_unavailable",
@@ -1622,9 +1525,11 @@ def resolve_workspace(
 
 
 def require_workspace_root(
-    root, revision: int | None = None, workspace: WorkspaceService = workspace_service,
+    root, revision: int | None = None, workspace: WorkspaceService | None = None,
 ) -> None:
     """Reject local results prepared for a workspace that is no longer selected."""
+    if workspace is None:
+        workspace = current_runtime().workspace_service
     if (
         workspace.root != root
         or (revision is not None and workspace.revision != revision)
@@ -1637,9 +1542,11 @@ def require_workspace_root(
 
 def require_workspace_revision(
     revision: int | None, session_id: str | None = None,
-    workspace: WorkspaceService = workspace_service,
+    workspace: WorkspaceService | None = None,
 ) -> None:
     """Reject stale browser references even after a folder is selected again."""
+    if workspace is None:
+        workspace = current_runtime().workspace_service
     require_workspace_root(workspace.root, revision, workspace)
     if session_id is not None and workspace.session_id != session_id:
         raise HTTPException(status_code=409, detail={
@@ -1664,22 +1571,26 @@ def require_selected_workspace(workspace: WorkspaceService) -> None:
 
 def claim_workspace(workspace: WorkspaceService):
     """Keep folder changes blocked until project work and its cleanup finish."""
+    runtime = current_runtime()
     token = object()
     if workspace.root is not None:
-        workspace_operations[token] = workspace.session_id
+        runtime.workspace_operations[token] = workspace.session_id
 
     def release() -> None:
         """Release an operation idempotently after streaming or local worker cleanup."""
-        workspace_operations.pop(token, None)
+        runtime.workspace_operations.pop(token, None)
 
     return release
 
 
-def require_workspace_idle(workspace: WorkspaceService = workspace_service) -> None:
+def require_workspace_idle(workspace: WorkspaceService | None = None) -> None:
     """Leave the selected folder intact while a project request still owns it."""
-    owner = conversation_workspaces.owner(workspace)
-    if workspace.session_id in workspace_operations.values() or (
-        owner is not None and context_recovery.is_busy(owner)
+    runtime = current_runtime()
+    if workspace is None:
+        workspace = runtime.workspace_service
+    owner = runtime.conversation_workspaces.owner(workspace)
+    if workspace.session_id in runtime.workspace_operations.values() or (
+        owner is not None and runtime.context_recovery.is_busy(owner)
     ):
         raise HTTPException(status_code=409, detail={
             "code": "workspace_request_in_progress",
@@ -1689,6 +1600,7 @@ def require_workspace_idle(workspace: WorkspaceService = workspace_service) -> N
 
 def workspace_payload(workspace: WorkspaceService, entries: list[dict] | None) -> dict:
     """Represent an unselected folder as null without a fallback path."""
+    runtime = current_runtime()
     payload = {
         "root": str(workspace.root) if workspace.root is not None else None,
         "revision": workspace.revision,
@@ -1699,27 +1611,28 @@ def workspace_payload(workspace: WorkspaceService, entries: list[dict] | None) -
     }
     if entries is None:
         payload["entries_loaded"] = False
-    owner = conversation_workspaces.owner(workspace)
+    owner = runtime.conversation_workspaces.owner(workspace)
     if owner is not None:
-        conversation = conversation_manager.get(owner)
+        conversation = runtime.conversation_manager.get(owner)
         if conversation is not None:
             payload["conversation_id"] = owner
             payload["conversation_version"] = conversation.version
     return payload
 
 
-@app.get("/api/chat/status")
+@router.get("/api/chat/status")
 async def chat_status(
     conversation_id: str | None = None, workspace_session_id: str | None = None,
 ):
     """Confirm disconnect cleanup and recover a draft's saved identity without filesystem work."""
+    runtime = current_runtime()
     workspace = resolve_workspace(conversation_id, workspace_session_id)
-    owner = conversation_workspaces.owner(workspace)
+    owner = runtime.conversation_workspaces.owner(workspace)
     if owner is not None:
-        await context_recovery.wait_for_idle(owner)
+        await runtime.context_recovery.wait_for_idle(owner)
     return {
         "conversation_id": owner,
-        "in_progress": owner is not None and context_recovery.is_busy(owner),
+        "in_progress": owner is not None and runtime.context_recovery.is_busy(owner),
     }
 
 
@@ -1737,23 +1650,15 @@ def build_workspace_structure(
 
 def project_protected_paths() -> list[Path]:
     """Use the same host runtime exclusions for automatic overview and explicit exploration."""
-    storage_root = settings.profiles_path.parent
+    runtime = current_runtime()
     paths = [
-        profile_service.storage_path, settings_service.storage_path,
-        settings.conversations_root, settings.logs_root,
-        ownership_path(storage_root), result_path(storage_root).parent,
-        getattr(
-            settings, "attachments_root",
-            settings.profiles_path.parent / "data" / "attachments",
-        ),
-        getattr(
-            settings, "work_runs_path",
-            settings.profiles_path.parent / "data" / "work_runs.sqlite3",
-        ),
+        runtime.profile_service.storage_path, runtime.settings_service.storage_path,
+        runtime.settings.conversations_root, runtime.settings.logs_root,
+        ownership_path(runtime.storage_root), result_path(runtime.storage_root).parent,
+        runtime.attachment_store.root, runtime.databases[WORK_RUNS],
     ]
-    maintenance = getattr(app.state, "storage_maintenance", None)
-    if maintenance is not None:
-        paths.append(maintenance.channel)
+    if runtime.maintenance is not None:
+        paths.append(runtime.maintenance.channel)
     return paths
 
 
@@ -1766,7 +1671,7 @@ def chat_uses_workspace(payload: ChatRequest) -> bool:
     )
 
 
-@app.get("/api/workspace")
+@router.get("/api/workspace")
 async def workspace_tree(
     request: Request = None, include_entries: bool = True,
     conversation_id: str | None = None, workspace_session_id: str | None = None,
@@ -1789,13 +1694,14 @@ async def workspace_tree(
     return {**workspace_payload(live_workspace, entries), "read_policy_status": policy_status}
 
 
-@app.post("/api/workspace")
+@router.post("/api/workspace")
 async def create_workspace_draft():
     """Create a separate folder-free browser draft without saving a blank chat."""
-    return workspace_payload(conversation_workspaces.create_draft(), None)
+    runtime = current_runtime()
+    return workspace_payload(runtime.conversation_workspaces.create_draft(), None)
 
 
-@app.post("/api/workspace/path-check", status_code=204)
+@router.post("/api/workspace/path-check", status_code=204)
 async def check_workspace_path(payload: WorkspacePathCheckRequest, request: Request):
     """Validate a host folder without listing files or publishing a selection."""
     try:
@@ -1804,11 +1710,12 @@ async def check_workspace_path(payload: WorkspacePathCheckRequest, request: Requ
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.put("/api/workspace/root")
+@router.put("/api/workspace/root")
 async def update_workspace_root(
     payload: WorkspaceRootRequest, request: Request = None
 ):
     """Select or disconnect a folder once all project requests have finished."""
+    runtime = current_runtime()
     live_workspace = resolve_workspace(
         payload.conversation_id, payload.workspace_session_id,
     )
@@ -1816,7 +1723,7 @@ async def update_workspace_root(
         payload.workspace_revision, payload.workspace_session_id, live_workspace,
     )
     require_workspace_idle(live_workspace)
-    owner = conversation_workspaces.owner(live_workspace)
+    owner = runtime.conversation_workspaces.owner(live_workspace)
     workspace = copy(live_workspace)
     previous_root = workspace.root
     previous_revision = workspace.revision
@@ -1845,11 +1752,11 @@ async def update_workspace_root(
     require_workspace_root(previous_root, previous_revision, live_workspace)
     require_workspace_idle(live_workspace)
     if owner is not None:
-        conversation = conversation_manager.get(owner)
+        conversation = runtime.conversation_manager.get(owner)
         if conversation is None:
             raise HTTPException(status_code=404, detail="Conversation not found.")
-        conversation_manager.set_workspace(
-            conversation, conversation_workspaces.binding(workspace),
+        runtime.conversation_manager.set_workspace(
+            conversation, runtime.conversation_workspaces.binding(workspace),
         )
     live_workspace.root = workspace.root
     live_workspace.revision = workspace.revision
@@ -1858,7 +1765,7 @@ async def update_workspace_root(
     return {**workspace_payload(live_workspace, entries), "read_policy_status": policy_status}
 
 
-@app.post("/api/workspace/structure")
+@router.post("/api/workspace/structure")
 async def preview_workspace_structure(
     payload: WorkspaceStructurePreviewRequest, request: Request = None,
 ):
@@ -1888,7 +1795,7 @@ async def preview_workspace_structure(
         release()
 
 
-@app.post("/api/workspace/context")
+@router.post("/api/workspace/context")
 async def preview_workspace_context(
     payload: WorkspaceContextPreviewRequest, request: Request = None,
 ):
@@ -1915,20 +1822,22 @@ async def preview_workspace_context(
         release()
 
 
-@app.websocket("/api/workspace/picker/{token}")
+@router.websocket("/api/workspace/picker/{token}")
 async def workspace_picker(websocket: WebSocket, token: UUID):
     """Relay native folder selection without changing its tab-owned lifecycle."""
+    runtime = current_runtime()
     await relay_native_picker(
-        websocket, token, folder_picker_service, "folder",
+        websocket, token, runtime.folder_picker_service, "folder",
         "Could not connect to folder picker. Enter the path manually.",
     )
 
 
-@app.websocket("/api/attachments/picker/{token}")
+@router.websocket("/api/attachments/picker/{token}")
 async def attachment_picker(websocket: WebSocket, token: UUID):
     """Add host-selected attachment copies without accepting browser-supplied paths."""
+    runtime = current_runtime()
     await relay_native_picker(
-        websocket, token, file_picker_service, "file",
+        websocket, token, runtime.file_picker_service, "file",
         "Could not connect to file picker. Try Choose files again.",
     )
 
@@ -2014,7 +1923,7 @@ async def relay_native_picker(
             pass
 
 
-@app.post("/api/read-file")
+@router.post("/api/read-file")
 async def read_file(payload: ReadFileRequest, request: Request = None):
     """Read a workspace text file and translate access failures into HTTP errors."""
     live_workspace = resolve_workspace(
@@ -2056,55 +1965,53 @@ async def read_file(payload: ReadFileRequest, request: Request = None):
 
 def application_settings_response() -> dict:
     """Return saved preferences, reset defaults, and separately enforced limits."""
+    runtime = current_runtime()
     return {
-        "settings": settings_service.current.to_dict(),
-        "defaults": settings_service.defaults.to_dict(),
+        "settings": runtime.settings_service.current.to_dict(),
+        "defaults": runtime.settings_service.defaults.to_dict(),
         "local_attachment_limits": {
-            name: getattr(attachment_service, name)
+            name: getattr(runtime.attachment_service, name)
             for name in vars(AttachmentService) if name.startswith("MAX_")
         },
         "provider_limits": {"enforcement": "provider"},
-        "summary_policy": memory_service.summary_policy(),
+        "summary_policy": runtime.memory_service.summary_policy(),
         "applies_to": "new_requests",
     }
 
 
-@app.get("/api/settings")
+@router.get("/api/settings")
 async def get_application_settings():
     """Expose application preferences for future Settings GUI integration."""
     return application_settings_response()
 
 
-@app.get("/api/storage/diagnostics")
+@router.get("/api/storage/diagnostics")
 async def storage_diagnostics(request: Request):
     """Check the configured stores and save a separate copy of the resulting report."""
-    if storage_check_lock.locked():
+    runtime = current_runtime()
+    if runtime.storage_check_lock.locked():
         return JSONResponse(status_code=409, headers={"Cache-Control": "no-store"}, content={"detail": {
             "code": "storage_check_in_progress", "message": "A storage check is already running. Try again shortly.",
         }})
-    async with storage_check_lock:
+    async with runtime.storage_check_lock:
         report = await until_disconnect(
             request, run_local, inspect_live_storage,
-            settings_path=getattr(settings, "app_settings_path", settings.profiles_path.with_name("settings.json")),
-            profiles_path=settings.profiles_path,
-            conversations_path=settings.conversations_root,
-            databases={
-                WORK_RUNS: getattr(settings, "work_runs_path", settings.profiles_path.parent / WORK_RUNS),
-                MANIFEST: attachment_store.root / "manifest.sqlite3",
-                CALL_USAGE: settings.logs_root / "usage_calls.sqlite3",
-                SUMMARY_USAGE: settings.logs_root / "summary_usage.sqlite3",
-            },
+            settings_path=runtime.settings.app_settings_path,
+            profiles_path=runtime.settings.profiles_path,
+            conversations_path=runtime.settings.conversations_root,
+            databases=runtime.databases,
         )
-        result = await run_local(save_basic_check, settings.profiles_path.parent, report)
+        result = await run_local(save_basic_check, runtime.storage_root, report)
     return JSONResponse({**report, "id": result["id"], "finished_at": result["finished_at"],
                          "saved": result["saved"]}, headers={"Cache-Control": "no-store"})
 
 
-@app.get("/api/storage/maintenance")
-async def storage_maintenance_status(request: Request):
+@router.get("/api/storage/maintenance")
+async def storage_maintenance_status():
     """Return the maintenance capability and latest saved outcomes."""
-    maintenance = getattr(request.app.state, "storage_maintenance", None)
-    root = settings.profiles_path.parent
+    runtime = current_runtime()
+    maintenance = runtime.maintenance
+    root = runtime.storage_root
     basic = await run_local(load_check_result, result_path(root, scope="basic"), scope="basic")
     deep = (await run_local(maintenance.status) if maintenance is not None else
             await run_local(load_check_result, result_path(root), scope="deep"))
@@ -2115,13 +2022,13 @@ async def storage_maintenance_status(request: Request):
     }, headers={"Cache-Control": "no-store"})
 
 
-@app.post("/api/storage/maintenance")
+@router.post("/api/storage/maintenance")
 async def start_storage_maintenance(request: Request):
     """Accept one fixed offline check from the local Settings interface."""
     if (request.url.hostname not in {"localhost", "127.0.0.1"}
             or request.headers.get("x-helios-maintenance") != "deep-check"):
         raise HTTPException(status_code=403, detail="Start the deep check from local Helios Settings.")
-    maintenance = getattr(request.app.state, "storage_maintenance", None)
+    maintenance = current_runtime().maintenance
     if maintenance is None:
         raise HTTPException(status_code=409, detail="Deep checks require the Helios managed launcher.")
     if maintenance.pending is not None:
@@ -2133,12 +2040,12 @@ async def start_storage_maintenance(request: Request):
     return JSONResponse(job, status_code=202, headers={"Cache-Control": "no-store"})
 
 
-@app.put("/api/settings")
+@router.put("/api/settings")
 async def update_application_settings(payload: UpdateSettingsRequest):
     """Persist an update before publishing a new immutable request policy."""
-    global attachment_service, ai_service, context_budget, memory_service
+    runtime = current_runtime()
     try:
-        candidate = settings_service.prepare_update(
+        candidate = runtime.settings_service.prepare_update(
             payload.model_dump(exclude_unset=True)
         )
         new_budget = ContextBudget(
@@ -2147,10 +2054,10 @@ async def update_application_settings(payload: UpdateSettingsRequest):
             reserve_output=False,
         )
         new_attachments = AttachmentService(
-            workspace_service, limits=candidate.attachment_limits(), store=attachment_store,
+            runtime.workspace_service, limits=candidate.attachment_limits(), store=runtime.attachment_store,
         )
-        new_ai = ai_service.with_output_limit(candidate.context_output_reserve)
-        new_memory = memory_service.with_settings(
+        new_ai = runtime.ai_service.with_output_limit(candidate.context_output_reserve)
+        new_memory = runtime.memory_service.with_settings(
             new_ai, new_budget,
             candidate.summary_trigger_tokens, candidate.keep_recent_tokens,
             memory_generation_enabled=candidate.memory_generation_enabled,
@@ -2159,9 +2066,9 @@ async def update_application_settings(payload: UpdateSettingsRequest):
         )
         changed = {
             name for name, value in candidate.to_dict().items()
-            if value != getattr(settings_service.current, name)
+            if value != getattr(runtime.settings_service.current, name)
         }
-        settings_service.save(candidate)
+        runtime.settings_service.save(candidate)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={
             "code": "settings_invalid", "message": str(exc),
@@ -2180,7 +2087,7 @@ async def update_application_settings(payload: UpdateSettingsRequest):
         preserve_generation=changed <= {"memory_background_enabled"},
         preserve_use=changed <= {"memory_generation_enabled", "memory_background_enabled"},
     )
-    attachment_service, ai_service, context_budget, memory_service = (
+    runtime.attachment_service, runtime.ai_service, runtime.context_budget, runtime.memory_service = (
         new_attachments, new_ai, new_budget, new_memory,
     )
     return application_settings_response()
@@ -2209,16 +2116,17 @@ def resolve_context_policy(
     profile_data: ConnectionProfile | None = None,
 ) -> ContextPolicy:
     """Resolve defaults and optional profile settings without contacting the provider."""
+    runtime = current_runtime()
     profile = profile_data or (
-        profile_service.get_profile(profile_id)
-        if profile_id else profile_service.get_active_profile()
+        runtime.profile_service.get_profile(profile_id)
+        if profile_id else runtime.profile_service.get_active_profile()
     )
     if profile_id and profile is None:
         raise HTTPException(status_code=404, detail="Profile not found.")
-    current = app_settings or settings_service.current
+    current = app_settings or runtime.settings_service.current
     try:
         return ContextPolicy.resolve(
-            profile or ConnectionProfile(), budget or context_budget,
+            profile or ConnectionProfile(), budget or runtime.context_budget,
             default_mode or current.context_preflight_mode,
             mode, input_budget, input_budget_mode=input_budget_mode,
             default_input_budget_mode=current.context_input_budget_mode,
@@ -2230,8 +2138,9 @@ def resolve_context_policy(
 
 def context_policy_response(profile: ConnectionProfile | None) -> dict:
     """Describe the effective policy and its sources against saved app settings."""
+    runtime = current_runtime()
     candidate = profile or ConnectionProfile()
-    current = settings_service.current
+    current = runtime.settings_service.current
     policy = resolve_context_policy(app_settings=current, profile_data=candidate)
     output_source = "provider_default"
     if policy.max_output_tokens is not None:
@@ -2256,9 +2165,9 @@ def context_policy_response(profile: ConnectionProfile | None) -> dict:
         "max_output_tokens": policy.max_output_tokens,
         "output_limit_source": output_source,
         "declared_model_max_output_tokens": policy.declared_model_max_output_tokens,
-        "summary_policy": memory_service.describe_summary_policy(profile),
+        "summary_policy": runtime.memory_service.describe_summary_policy(profile),
         "local_attachment_limits": {
-            name: getattr(attachment_service, name)
+            name: getattr(runtime.attachment_service, name)
             for name in vars(AttachmentService) if name.startswith("MAX_")
         },
     }
@@ -2266,21 +2175,22 @@ def context_policy_response(profile: ConnectionProfile | None) -> dict:
 
 def context_policy_profile(profile_id: str | None) -> ConnectionProfile | None:
     """Look up an explicitly named profile without substituting the default."""
+    runtime = current_runtime()
     if not profile_id:
-        return profile_service.get_active_profile()
-    profile = profile_service.get_profile(profile_id)
+        return runtime.profile_service.get_active_profile()
+    profile = runtime.profile_service.get_profile(profile_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found.")
     return profile
 
 
-@app.get("/api/context-policy")
+@router.get("/api/context-policy")
 async def context_policy_settings(profile_id: str | None = None):
     """Expose the selected profile's saved policy and local resource limits."""
     return context_policy_response(context_policy_profile(profile_id))
 
 
-@app.post("/api/context-policy/preview")
+@router.post("/api/context-policy/preview")
 async def preview_context_policy(payload: ProfileContextPreviewRequest):
     """Resolve a draft profile without saving settings or accessing a provider."""
     base = context_policy_profile(payload.profile_id) if payload.profile_id else None
@@ -2294,7 +2204,6 @@ async def preview_context_policy(payload: ProfileContextPreviewRequest):
     return context_policy_response(candidate)
 
 
-@app.exception_handler(AttachmentError)
 async def attachment_error_response(_: Request, exc: AttachmentError):
     """Return source errors without exposing original bytes or internal paths."""
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail()})
@@ -2312,13 +2221,14 @@ async def attachment_storage_work(request, action, *args):
         ) from None
 
 
-@app.post("/api/attachments/uploads", status_code=201)
+@router.post("/api/attachments/uploads", status_code=201)
 async def upload_attachment(
     request: Request, filename: str = Query(min_length=1, max_length=255),
 ):
     """Receive bounded raw bytes and publish only a fully validated reusable original."""
-    service = copy(attachment_service)
-    upload = attachment_store.stage(
+    runtime = current_runtime()
+    service = copy(runtime.attachment_service)
+    upload = runtime.attachment_store.stage(
         filename, min(service.MAX_FILE_BYTES, service.MAX_TOTAL_BYTES),
     )
     length = request.headers.get("content-length")
@@ -2351,51 +2261,56 @@ async def upload_attachment(
             await run_local(upload.abort, discard=not accepted)
 
 
-@app.get("/api/attachments/uploads")
+@router.get("/api/attachments/uploads")
 async def list_uploaded_attachments(request: Request = None):
     """List retained originals for reuse without loading their contents."""
-    return {"uploads": await attachment_storage_work(request, attachment_store.list)}
+    runtime = current_runtime()
+    return {"uploads": await attachment_storage_work(request, runtime.attachment_store.list)}
 
 
-@app.put("/api/attachments/drafts/{draft_id}")
+@router.put("/api/attachments/drafts/{draft_id}")
 async def retain_attachment_draft(
     draft_id: UUID, payload: AttachmentDraftRequest, request: Request = None,
 ):
     """Renew a tab's selected copies or release them after removal or discard."""
+    runtime = current_runtime()
     await attachment_storage_work(
-        request, attachment_store.replace_draft, str(draft_id),
+        request, runtime.attachment_store.replace_draft, str(draft_id),
         [str(identity) for identity in payload.attachment_ids],
         [str(identity) for identity in payload.released_attachment_ids],
     )
     return {"retained": True}
 
 
-@app.get("/api/attachments/uploads/{attachment_id}")
+@router.get("/api/attachments/uploads/{attachment_id}")
 async def get_uploaded_attachment(attachment_id: UUID, request: Request = None):
     """Return one live upload's metadata using an opaque identifier."""
-    return await attachment_storage_work(request, attachment_store.get, str(attachment_id))
+    runtime = current_runtime()
+    return await attachment_storage_work(request, runtime.attachment_store.get, str(attachment_id))
 
 
-@app.delete("/api/attachments/uploads/{attachment_id}")
+@router.delete("/api/attachments/uploads/{attachment_id}")
 async def delete_uploaded_attachment(attachment_id: UUID, request: Request = None):
     """Delete an unreferenced copy; conversations, drafts, and requests retain theirs."""
-    await attachment_storage_work(request, attachment_store.delete, str(attachment_id))
-    context_recovery.invalidate_attachment(str(attachment_id))
+    runtime = current_runtime()
+    await attachment_storage_work(request, runtime.attachment_store.delete, str(attachment_id))
+    runtime.context_recovery.invalidate_attachment(str(attachment_id))
     return {"deleted": True}
 
 
-@app.post("/api/attachments/inspect")
+@router.post("/api/attachments/inspect")
 async def inspect_attachments(
     payload: AttachmentSelectionRequest, request: Request = None
 ):
     """Validate local attachments without provider calls or returning binary contents."""
-    request_attachments = copy(attachment_service)
+    runtime = current_runtime()
+    request_attachments = copy(runtime.attachment_service)
     live_workspace = resolve_workspace(
         payload.conversation_id, payload.workspace_session_id,
     )
     request_attachments.workspace = copy(live_workspace)
-    request_budget = context_budget
-    request_settings = settings_service.current
+    request_budget = runtime.context_budget
+    request_settings = runtime.settings_service.current
     sources = [
         WorkspaceAttachment(source="workspace", path=path) for path in payload.paths
     ] + payload.attachment_sources
@@ -2465,29 +2380,30 @@ def chat_preparation_error(exc: Exception) -> HTTPException:
     )
 
 
-@app.post("/api/chat")
+@router.post("/api/chat")
 async def chat(payload: ChatRequest, request: Request = None):
     """Claim one conversation and honor explicit, one-use recovery authorization."""
+    runtime = current_runtime()
     operation = None
     requested_profile_id = payload.profile_id
     stream_preparation = payload.stream_preparation
     try:
         operation_id = str(payload.operation_id) if payload.operation_id else None
         ticket = (
-            context_recovery.get(str(payload.recovery_id))
+            runtime.context_recovery.get(str(payload.recovery_id))
             if payload.recovery_id else None
         )
         if ticket is not None:
             data = ticket.data
             conversation = data["conversation"]
             if (
-                not conversation_manager.is_active(conversation)
+                not runtime.conversation_manager.is_active(conversation)
                 or conversation.messages is not data["messages"]
                 or conversation.version != data["version"]
                 or not data["memory"].policy_is_current(data["summary_policy"])
             ):
                 raise RecoveryError("The conversation or connection policy changed after this failure. Review the current input and send a new request.")
-            live_workspace = conversation_workspaces.for_conversation(conversation)
+            live_workspace = runtime.conversation_workspaces.for_conversation(conversation)
             if data.get("workspace_root") is not None:
                 require_workspace_root(
                     data["workspace_root"], data["workspace_revision"],
@@ -2515,16 +2431,16 @@ async def chat(payload: ChatRequest, request: Request = None):
             if chat_uses_workspace(payload):
                 require_selected_workspace(live_workspace)
             conversation = (
-                conversation_manager.get(payload.conversation_id or "")
+                runtime.conversation_manager.get(payload.conversation_id or "")
                 if payload.conversation_id is not None or payload.regenerate_message_index is not None
                 else None
             )
-            draft = conversation_workspaces.draft(live_workspace.session_id)
+            draft = runtime.conversation_workspaces.draft(live_workspace.session_id)
             if (
                 conversation is None and payload.conversation_id is None
                 and draft is not None and draft.conversation_id is not None
             ):
-                conversation = conversation_manager.get(draft.conversation_id)
+                conversation = runtime.conversation_manager.get(draft.conversation_id)
             if conversation is None and (
                 payload.conversation_id is not None
                 or payload.regenerate_message_index is not None
@@ -2542,12 +2458,12 @@ async def chat(payload: ChatRequest, request: Request = None):
                         "code": "conversation_profile_changed",
                         "message": "A new conversation has no saved model revision. Review the selected model and try again.",
                     })
-                request_profile_id = ai_service.resolve_profile_id(payload.profile_id)
-                conversation = conversation_workspaces.adopt(
+                request_profile_id = runtime.ai_service.resolve_profile_id(payload.profile_id)
+                conversation = runtime.conversation_workspaces.adopt(
                     live_workspace, profile_id=request_profile_id,
                 )
             payload = payload.model_copy(update={"profile_id": request_profile_id})
-            live_workspace = conversation_workspaces.for_conversation(conversation)
+            live_workspace = runtime.conversation_workspaces.for_conversation(conversation)
             index = payload.regenerate_message_index
             if (
                 index is not None and index < len(conversation.messages)
@@ -2574,13 +2490,13 @@ async def chat(payload: ChatRequest, request: Request = None):
                 )
                 require_selected_workspace(live_workspace)
         require_resolved_pause(conversation.id)
-        operation = context_recovery.begin(
+        operation = runtime.context_recovery.begin(
             conversation.id, ticket=ticket,
             operation_id=operation_id,
         )
         if ticket is None and requested_profile_id is not None:
             try:
-                conversation_manager.set_profile(
+                runtime.conversation_manager.set_profile(
                     conversation, request_profile_id,
                     expected_revision=payload.expected_profile_revision,
                 )
@@ -2602,10 +2518,10 @@ async def chat(payload: ChatRequest, request: Request = None):
             str(source.attachment_id) for source in payload.attachment_sources or []
             if source.source == "upload"
         ]
-        operation.release_attachments = attachment_store.claim(upload_ids)
+        operation.release_attachments = runtime.attachment_store.claim(upload_ids)
         if ticket is not None and upload_ids:
             await until_disconnect(
-                request, run_local, attachment_store.validate_originals, upload_ids,
+                request, run_local, runtime.attachment_store.validate_originals, upload_ids,
             )
         if stream_preparation:
             async def prepare_with_progress(progress: MemoryPreparation):
@@ -2635,12 +2551,13 @@ async def prepare_chat(
     progress: MemoryPreparation | None = None,
 ):
     """Prepare a versioned conversation turn and return its server-sent response stream."""
+    runtime = current_runtime()
     ticket = operation.ticket
     data = ticket.data if ticket is not None else None
-    request_ai = data["ai"] if data else ai_service
-    request_memory = data["memory"] if data else memory_service
-    request_attachments = copy(attachment_service)
-    live_workspace = conversation_workspaces.for_conversation(conversation)
+    request_ai = data["ai"] if data else runtime.ai_service
+    request_memory = data["memory"] if data else runtime.memory_service
+    request_attachments = copy(runtime.attachment_service)
+    live_workspace = runtime.conversation_workspaces.for_conversation(conversation)
     request_workspace = copy(live_workspace)
     workspace_bound = (
         data.get("workspace_bound", data.get("workspace_root") is not None)
@@ -2649,8 +2566,8 @@ async def prepare_chat(
         )
     )
     request_attachments.workspace = request_workspace
-    request_budget = context_budget
-    request_settings = settings_service.current
+    request_budget = runtime.context_budget
+    request_settings = runtime.settings_service.current
     resume_workspace_fingerprint = None
     resume_selected_fingerprint = None
     resume_selected_files = (
@@ -2684,7 +2601,7 @@ async def prepare_chat(
     )
     profile_id = request_ai.resolve_profile_id(payload.profile_id)
     pinned_profile = (
-        data["profile"] if data else profile_service.get_profile(profile_id)
+        data["profile"] if data else runtime.profile_service.get_profile(profile_id)
     )
     pinned_profile = replace(pinned_profile) if pinned_profile is not None else None
     request_memory_policy = (
@@ -2790,7 +2707,7 @@ async def prepare_chat(
         )
     )
     if (
-        not conversation_manager.is_active(conversation)
+        not runtime.conversation_manager.is_active(conversation)
         or conversation.messages is not request_messages
     ):
         raise HTTPException(status_code=409, detail="Conversation changed while preparing input. Please retry.")
@@ -2812,7 +2729,7 @@ async def prepare_chat(
     )
     exploration_tools = project_function_tools() if payload.explore_project else None
     try:
-        original_context = PromptBuilder(work_run_store, conversation.id).build(
+        original_context = PromptBuilder(runtime.work_run_store, conversation.id).build(
             [replace(message) for message in request_messages[:history_end]],
             user_prompt, workspace_context,
             attachment_content=attachments.content or None,
@@ -2899,7 +2816,7 @@ async def prepare_chat(
         """Bypass revoked memory immediately before submitting an unsent reply."""
         nonlocal context_assessment, using_original_context
         if (
-            not conversation_manager.is_active(conversation)
+            not runtime.conversation_manager.is_active(conversation)
             or conversation.messages is not turn_messages
         ):
             raise ContextChangedError("Conversation changed before the request was sent. Please retry.")
@@ -2919,7 +2836,7 @@ async def prepare_chat(
         request_ai = request_ai.with_profile(pinned_profile, prepare_reply=current_inputs)
     await anyio.lowlevel.checkpoint()
     if payload.regenerate_message_index is None:
-        user_message = conversation_manager.add_message(
+        user_message = runtime.conversation_manager.add_message(
             conversation, "user", user_prompt, attachment_sources=saved_attachment_sources,
         )
     else:
@@ -2942,7 +2859,7 @@ async def prepare_chat(
 
         def exploration_authority() -> None:
             """Stop stale authority and prevent using responses derived from revoked memory."""
-            if (not conversation_manager.is_active(conversation)
+            if (not runtime.conversation_manager.is_active(conversation)
                     or conversation.messages is not turn_messages
                     or conversation.version != turn_version):
                 raise ContextChangedError("Conversation changed during exploration. Start a new request.")
@@ -2950,7 +2867,7 @@ async def prepare_chat(
                     or live_workspace.revision != request_workspace.revision
                     or live_workspace.session_id != request_workspace.session_id):
                 raise ContextChangedError("Workspace changed during exploration. Start a new request.")
-            if ((memory_submitted or (run_id is not None and work_run_store.pause_requested(run_id)))
+            if ((memory_submitted or (run_id is not None and runtime.work_run_store.pause_requested(run_id)))
                     and not request_memory.memory_use_is_current(request_memory_policy)):
                 raise ContextChangedError("Conversation memory permission changed during exploration. Start a new request.")
 
@@ -2975,12 +2892,12 @@ async def prepare_chat(
                 recorded = stop_run(status, error.get("code", "request_failed"))
                 if recorded:
                     try:
-                        work_run_store.record_failure(run_id, error)
+                        runtime.work_run_store.record_failure(run_id, error)
                     except Exception as exc:
                         logger.warning("Could not retain work feedback (error_type=%s)", type(exc).__name__)
                 try:
-                    run_status = work_run_store.get(run_id)["status"] if recorded else "unavailable"
-                    run_usage = work_run_store.usage(run_id, call_usage_store)
+                    run_status = runtime.work_run_store.get(run_id)["status"] if recorded else "unavailable"
+                    run_usage = runtime.work_run_store.usage(run_id, runtime.call_usage_store)
                 except Exception:
                     run_status, run_usage = "unavailable", None
                 error = {**error, "run_id": run_id,
@@ -2990,8 +2907,8 @@ async def prepare_chat(
         def stop_run(status: str, reason: str) -> bool:
             """Release request ownership even if terminal run storage is unavailable."""
             try:
-                if work_run_store.get(run_id)["status"] in ACTIVE_STATES:
-                    work_run_store.finish(run_id, status, reason=reason)
+                if runtime.work_run_store.get(run_id)["status"] in ACTIVE_STATES:
+                    runtime.work_run_store.finish(run_id, status, reason=reason)
                 return True
             except Exception as exc:
                 logger.error("Could not finalize work run (error_type=%s)", type(exc).__name__)
@@ -3030,7 +2947,7 @@ async def prepare_chat(
                     if payload.regenerate_message_index is not None
                     else len(turn_messages) - 1
                 )
-                run_id = work_run_store.create(
+                run_id = runtime.work_run_store.create(
                     conversation.id, turn_version,
                     kind="regeneration" if payload.regenerate_message_index is not None else "explore",
                     user_index=payload.regenerate_message_index,
@@ -3086,9 +3003,9 @@ async def prepare_chat(
                 start_event["run_id"] = run_id
                 start_event["user_index"] = source_user_index
                 start_event["pause_available"] = bool(resume_workspace_fingerprint)
-                start_event["active_elapsed_seconds"] = work_run_store.active_elapsed(run_id)
-                start_event["run"] = work_run_store.public_metadata(
-                    work_run_store.get(run_id), messages=conversation.messages,
+                start_event["active_elapsed_seconds"] = runtime.work_run_store.active_elapsed(run_id)
+                start_event["run"] = runtime.work_run_store.public_metadata(
+                    runtime.work_run_store.get(run_id), messages=conversation.messages,
                 )
             yield f"data: {json.dumps(start_event)}\n\n"
             if attachments.metadata:
@@ -3104,7 +3021,7 @@ async def prepare_chat(
                     yield notice
             if run_id is not None:
                 explorer = ProjectExplorer(
-                    request_ai, work_run_store, run_id, live_workspace,
+                    request_ai, runtime.work_run_store, run_id, live_workspace,
                     prepare_input=exploration_input,
                     check_authority=exploration_authority, policy=policy,
                     visual_tokens=attachments.visual_tokens,
@@ -3136,8 +3053,8 @@ async def prepare_chat(
                         continue
                     elif event["type"] == "paused":
                         operation.close()
-                        event["run"] = work_run_store.public_metadata(
-                            work_run_store.get(run_id), messages=conversation.messages,
+                        event["run"] = runtime.work_run_store.public_metadata(
+                            runtime.work_run_store.get(run_id), messages=conversation.messages,
                         )
                     if run_id is not None:
                         event["segment_id"] = explorer.segment_id
@@ -3187,8 +3104,8 @@ async def prepare_chat(
 
             if run_id is not None:
                 exploration_authority()
-                saved_message = conversation_manager.adopt_run_reply(
-                    conversation, run_id, work_run_store,
+                saved_message = runtime.conversation_manager.adopt_run_reply(
+                    conversation, run_id, runtime.work_run_store,
                     expected_messages=turn_messages,
                     user_attachment_sources=saved_attachment_sources,
                 )
@@ -3197,11 +3114,11 @@ async def prepare_chat(
                     raise ContextChangedError(
                         "Conversation changed during generation. Please retry."
                     )
-                saved_message = conversation_manager.add_message(
+                saved_message = runtime.conversation_manager.add_message(
                     conversation, "assistant", answer, **msg_kwargs
                 )
             else:
-                saved_message = conversation_manager.replace_reply(
+                saved_message = runtime.conversation_manager.replace_reply(
                     conversation,
                     payload.regenerate_message_index,
                     answer,
@@ -3249,7 +3166,7 @@ async def prepare_chat(
                 try:
                     if (
                         conversation.messages is not turn_messages
-                        or not conversation_manager.is_active(conversation)
+                        or not runtime.conversation_manager.is_active(conversation)
                         or not request_memory.policy_is_current(recovery_policy)
                     ):
                         raise ContextChangedError("The conversation or policy changed after this request.")
@@ -3267,7 +3184,7 @@ async def prepare_chat(
                         if payload.regenerate_message_index is not None
                         else len(turn_messages) - 1
                     )
-                    recovery_id = context_recovery.issue({
+                    recovery_id = runtime.context_recovery.issue({
                         "conversation": conversation, "messages": turn_messages,
                         "version": conversation.version, "user_index": user_index,
                         "prompt": user_prompt, "profile_id": profile_id,
@@ -3289,7 +3206,7 @@ async def prepare_chat(
                             else "Selected connection"
                         ),
                         "summary_call_limit": request_budget.max_summary_calls,
-                        "expires_in_seconds": context_recovery.ttl,
+                        "expires_in_seconds": runtime.context_recovery.ttl,
                         "replaces_following": user_index + 1 < len(turn_messages),
                         "user_index": user_index,
                     }
@@ -3478,3 +3395,23 @@ class ChatPreparationResponse(ChatStreamingResponse):
             async for packet in self.body_iterator:
                 await send_packet(packet)
         await send({"type": "http.response.body", "body": b"", "more_body": False})
+
+
+def create_app(settings: Settings, *, maintenance: MaintenanceSession | None = None) -> FastAPI:
+    """Configure an independent app whose stores open only during ASGI startup."""
+    application = FastAPI(
+        title="Helios BYOK AI Assistant", version="0.4.1-alpha", lifespan=lifespan,
+    )
+    application.state.settings = settings
+    application.state.storage_maintenance = maintenance
+    application.add_middleware(RuntimeMiddleware)
+    application.add_exception_handler(ProfileStorageError, profile_storage_failure)
+    application.add_exception_handler(AttachmentError, attachment_error_response)
+    application.include_router(router)
+    # Serve WOFF2 consistently when the host does not register its MIME type.
+    mimetypes.add_type("font/woff2", ".woff2")
+    application.mount("/static", StaticFiles(directory=settings.static_root), name="static")
+    return application
+
+
+app = create_app(default_settings)

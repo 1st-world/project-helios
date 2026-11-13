@@ -25,6 +25,7 @@ from services.work_run_store import WORK_RUN_SCHEMA_VERSION
 
 
 PROBLEMS = {"invalid_data", "unsupported_version", "missing_reference"}
+MAX_ATTENTION_FINDINGS = 50
 SQLITE_TABLES = {
     WORK_RUNS: {"work_metadata", "work_runs", "model_steps", "tool_steps"},
     MANIFEST: {"uploads", "store_metadata"},
@@ -499,6 +500,22 @@ def inspect_storage(root: Path, *, deep: bool = False) -> list[Finding]:
             scan.database(name)
     scan.compare_references(references)
     return scan.findings
+
+
+def storage_report(findings: list[Finding], *, scope: str) -> dict:
+    """Summarize basic or deep findings for Settings while bounding attention details."""
+    problems = [item for item in findings if item.status in PROBLEMS]
+    review = [item for item in findings if item.status == "review"]
+    deferred = [item for item in findings if item.status == "unavailable"]
+    attention = problems + deferred + review
+    routine = [item for item in findings if item.status not in PROBLEMS | {"review", "unavailable"}]
+    return {
+        "scope": scope,
+        "complete": not deferred,
+        "summary": {"problems": len(problems), "review": len(review), "deferred": len(deferred)},
+        "findings": [asdict(item) for item in attention[:MAX_ATTENTION_FINDINGS] + routine],
+        "omitted_findings": max(0, len(attention) - MAX_ATTENTION_FINDINGS),
+    }
 
 
 def main(argv: list[str] | None = None) -> int:

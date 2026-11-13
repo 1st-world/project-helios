@@ -16,10 +16,14 @@ class SummaryUsageStore:
         if path is not None:
             path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(str(path) if path else ":memory:")
-        self.connection.execute(
-            "CREATE TABLE IF NOT EXISTS summary_usage (id TEXT PRIMARY KEY, data TEXT NOT NULL)"
-        )
-        self.connection.commit()
+        try:
+            with self.connection:
+                self.connection.execute(
+                    "CREATE TABLE IF NOT EXISTS summary_usage (id TEXT PRIMARY KEY, data TEXT NOT NULL)"
+                )
+        except BaseException:
+            self.connection.close()
+            raise
         self.recording_errors = 0
 
     def record(self, **data: object) -> None:

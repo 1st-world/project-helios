@@ -12,9 +12,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Thread
 
-from config import PROJECT_ROOT
-from services.live_storage_diagnostics import storage_report
-from services.storage_diagnostics import inspect_storage
+from config import PROJECT_ROOT, Settings
+from services.storage_diagnostics import inspect_storage, storage_report
 from services.storage_maintenance import (
     MaintenanceSession, StorageInUse, own_storage, read_job, result_path, write_job,
 )
@@ -93,26 +92,20 @@ def run_managed(root: Path, port: int) -> int:
 def _serve_worker(root: Path, channel: Path, port: int) -> int:
     """Run one isolated server child and gracefully stop if its launcher exits."""
     import uvicorn
-    import config
+    from app import create_app
 
-    if root != PROJECT_ROOT:
-        config.settings = replace(config.settings, profiles_path=root / "profiles.json",
-                                  conversations_root=root / "conversation", logs_root=root / "logs")
-    from app import app, conversation_workspaces
-
-    drafts_file = channel / "drafts.json"
-    drafts = read_job(drafts_file)
-    if drafts is not None:
-        conversation_workspaces.restore_drafts(drafts.get("drafts"))
-    drafts_file.unlink(missing_ok=True)
-
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, timeout_graceful_shutdown=None))
+    settings = replace(Settings(), profiles_path=root / "profiles.json",
+                       conversations_root=root / "conversation", logs_root=root / "logs")
 
     def request_exit() -> None:
         """Let Uvicorn drain existing responses and background work."""
         server.should_exit = True
 
-    app.state.storage_maintenance = MaintenanceSession(channel, root, request_exit)
+    maintenance = MaintenanceSession(channel, root, request_exit)
+    app = create_app(settings, maintenance=maintenance)
+    server = uvicorn.Server(uvicorn.Config(
+        app, host="127.0.0.1", port=port, lifespan="on", timeout_graceful_shutdown=None,
+    ))
 
     def watch_launcher(loop: asyncio.AbstractEventLoop) -> None:
         """Use pipe closure as a portable parent-death signal without polling."""

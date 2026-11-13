@@ -43,6 +43,14 @@ class CallUsageStore:
         if path is not None:
             path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(str(path) if path else ":memory:")
+        try:
+            self._initialize()
+        except BaseException:
+            self.connection.close()
+            raise
+
+    def _initialize(self) -> None:
+        """Prepare the schema and recover interrupted calls before exposing the ledger."""
         self.connection.executescript(
             "CREATE TABLE IF NOT EXISTS usage_calls ("
             "id TEXT PRIMARY KEY, conversation_id TEXT, kind TEXT NOT NULL, "

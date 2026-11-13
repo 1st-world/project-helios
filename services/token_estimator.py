@@ -5,6 +5,9 @@ An explicit setup command may download the public vocabulary.
 
 import argparse
 import hashlib
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import lru_cache
 from pathlib import Path
 from urllib.request import urlopen
@@ -21,6 +24,7 @@ VOCABULARY_URL = (
 VOCABULARY_SHA256 = (
     "446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d"
 )
+_tokenizer_path = ContextVar[Path | None]("helios_tokenizer_path", default=None)
 # Use tiktoken 0.12's o200k_base pattern with locally verified vocabulary bytes.
 PATTERN = "|".join(
     (
@@ -55,9 +59,24 @@ def _encoding(path: str) -> tiktoken.Encoding | None:
         return None
 
 
+@contextmanager
+def use_tokenizer_path(path: Path) -> Iterator[None]:
+    """Use the app's configured vocabulary for the current request."""
+    token = _tokenizer_path.set(path)
+    try:
+        yield
+    finally:
+        _tokenizer_path.reset(token)
+
+
+def _local_encoding() -> tiktoken.Encoding | None:
+    """Resolve the request's vocabulary or the standalone tool default."""
+    return _encoding(str((_tokenizer_path.get() or settings.tokenizer_path).resolve()))
+
+
 def text_tokens(text: str) -> int:
     """Count the local encoding or use a UTF-8 byte heuristic without a model guarantee."""
-    encoding = _encoding(str(settings.tokenizer_path.resolve()))
+    encoding = _local_encoding()
     if encoding:
         return len(encoding.encode_ordinary(text))
     return len(text.encode("utf-8"))
@@ -67,7 +86,7 @@ def estimation_method() -> str:
     """Name the local method without claiming exact provider request tokenization."""
     return (
         "o200k_base_with_approximate_framing"
-        if _encoding(str(settings.tokenizer_path.resolve()))
+        if _local_encoding()
         else "utf8_byte_heuristic_with_approximate_framing"
     )
 

@@ -151,6 +151,13 @@ class MaintenanceSession:
         self.request_exit()
         return job
 
+    def take_drafts(self) -> list[dict]:
+        """Load the previous worker's draft bindings once."""
+        path = self.channel / "drafts.json"
+        handoff = read_job(path)
+        path.unlink(missing_ok=True)
+        return handoff.get("drafts", []) if handoff is not None else []
+
     def mark_drained(self, drafts: list[dict]) -> None:
         """Hand off unsaved Workspace bindings and acknowledge completed shutdown."""
         write_job(self.channel / "drafts.json", {"id": self.pending["id"], "drafts": drafts})

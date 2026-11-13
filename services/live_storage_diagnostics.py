@@ -1,17 +1,12 @@
-"""Check configured live stores independently and prepare a bounded Settings report."""
+"""Check configured live stores independently and return the basic Settings report."""
 
-from dataclasses import asdict
 from pathlib import Path
 
 from services.json_storage import SCHEMA_VERSION
 from services.local_work import check_local_cancelled
 from services.profile_service import ProfileService
 from services.settings_service import SETTINGS_SCHEMA_VERSION, SettingsService
-from services.storage_diagnostics import PROBLEMS, StorageScan
-from services.storage_references import Finding
-
-
-MAX_ATTENTION_FINDINGS = 50
+from services.storage_diagnostics import StorageScan, storage_report
 
 
 def _scan_for(path: Path) -> StorageScan:
@@ -50,19 +45,3 @@ def inspect_live_storage(
         findings.extend(scan.findings)
 
     return storage_report(findings, scope="basic")
-
-
-def storage_report(findings: list[Finding], *, scope: str) -> dict:
-    """Summarize findings for Settings while retaining bounded attention details."""
-    problems = [item for item in findings if item.status in PROBLEMS]
-    review = [item for item in findings if item.status == "review"]
-    deferred = [item for item in findings if item.status == "unavailable"]
-    attention = problems + deferred + review
-    routine = [item for item in findings if item.status not in PROBLEMS | {"review", "unavailable"}]
-    return {
-        "scope": scope,
-        "complete": not deferred,
-        "summary": {"problems": len(problems), "review": len(review), "deferred": len(deferred)},
-        "findings": [asdict(item) for item in attention[:MAX_ATTENTION_FINDINGS] + routine],
-        "omitted_findings": max(0, len(attention) - MAX_ATTENTION_FINDINGS),
-    }

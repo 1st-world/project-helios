@@ -18,8 +18,9 @@ Technical reference for Helios `0.4.1-alpha`: implementation boundaries, local d
 
 | Path | Responsibility |
 | --- | --- |
-| `app.py` | Web pages and APIs, service wiring, and request/stream lifecycle. |
-| `services/managed_server.py` | Server process supervision and offline checks requested from Settings. |
+| `app.py` | Entry points, routes, and the ASGI lifespan for application resources. |
+| `services/managed_server.py` | Starts and supervises the Uvicorn worker and runs offline maintenance between workers. |
+| `services/app_runtime.py` | Builds each app's services and binds requests to that app's configuration. |
 | `models/` | Profile, app settings, conversation, and message models. |
 | `services/` | Responses calls, input policies, summaries, attachments, Workspace, persistence, and usage. |
 | `templates/index.html` | Web UI structure. |
@@ -29,11 +30,13 @@ Follow [AGENTS.md](../../AGENTS.md) for development guidelines. The [frontend as
 
 Use `“name”` when UI prose or action text refers directly to a specific model, profile or conversation. Frontend copy uses `nameInText` from `static/ui.js`. Standalone labels, chips, list entries and values separated by a label or parentheses remain unquoted. Generic guidance, states, counts, times and prices keep their usual formatting; stored values are not changed.
 
-For automatic reload during development, run Uvicorn directly. This mode supports basic checks in Settings. To run deep checks from Settings, use the [managed launcher](#checks-from-settings).
+`python app.py` starts the managed launcher. The worker passes its settings and maintenance session to `create_app()`. For automatic reload during development, run Uvicorn directly. `app:app` serves the default instance from the same factory and supports basic checks in Settings. The [managed launcher](#checks-from-settings) also supports deep checks from Settings.
 
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn app:app --reload --host 127.0.0.1 --port 8000
 ```
+
+The factory registers routes and mounts static assets. During ASGI startup, the app acquires the storage lock before initializing services. During shutdown, it stops its background tasks and closes picker sessions, Provider clients, and databases before releasing the lock. Tests and other code that call the ASGI app directly must run its lifespan.
 
 Provider request construction keeps app guidance in `instructions`. Workspace context, file bodies selected through legacy path fields, and applicable conversation memory become JSON source data in the first `user` input. Unsummarized original history and saved tool calls/results follow, with the current question last. New attachment labels and their text or native content immediately follow that question. Empty memory or a summary outside the current history's coverage never replaces original messages.
 
@@ -86,7 +89,9 @@ Work records do not expire automatically and remain after conversation deletion.
 
 #### Checks from Settings
 
-`python app.py` starts a launcher that runs a Uvicorn worker on loopback. A confirmed deep check lets active requests finish before the worker exits. The launcher takes the same storage lock used by the server, runs the offline check, saves the result, and starts a new worker on the same port.
+A confirmed deep check lets active requests finish before the loopback worker exits. Once the worker confirms that its stores have closed, the launcher takes the storage lock, runs the offline check, saves the result, and starts a new worker on the same port. The new worker restores the draft Workspace selections from the maintenance handoff.
+
+The live basic check uses the configured paths for each store. It shares the inspection logic and Settings report format in `services/storage_diagnostics.py` with the offline deep check.
 
 Check results are separate from the stores they inspect. The latest result of each type is saved in `.cache/storage-maintenance/` as `last-basic-check.json` and `last-deep-check.json`. The deep check file retains the full findings. The launcher prints its path before starting the new worker so the result remains accessible if startup fails.
 

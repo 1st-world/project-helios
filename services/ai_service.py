@@ -132,12 +132,10 @@ class AIService:
         return snapshot
 
     async def close(self) -> None:
-        """Closes all cached client connections when the application shuts down."""
+        """Close cached clients and stores for a standalone service."""
         try:
-            for cached in self._clients.values():
-                await cached["client"].close()
+            await self.close_clients()
         finally:
-            self._clients.clear()
             try:
                 self.summary_usage_store.close()
             finally:
@@ -145,6 +143,14 @@ class AIService:
                     self.call_usage_store.close()
                 finally:
                     self.work_run_store.close()
+
+    async def close_clients(self) -> None:
+        """Close shared Provider clients while the app lifespan owns the stores."""
+        try:
+            for cached in self._clients.values():
+                await cached["client"].close()
+        finally:
+            self._clients.clear()
 
     def with_run(
         self, run_id: str, *,
