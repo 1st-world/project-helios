@@ -115,6 +115,8 @@ python -m services.storage_diagnostics --root "./helios-backup" --deep --json
 
 ### 오프라인 첨부 복구
 
+[관리 실행기의 미리보기 API](api.ko-kr.md#첨부-복구-미리보기)는 아래 명령과 같은 복구 로직을 사용합니다. 워커가 종료된 뒤 저장소 잠금을 잡고 선택한 백업을 검증하며, 최신 미리보기를 `.cache/storage-maintenance/last-recovery-preview.json`에 별도로 저장한 뒤 서버를 다시 띄웁니다. 미리보기 결과에는 첨부별 결과와 개수가 남습니다. 오프라인 저장소를 미리 보거나 복구 사본을 만들 때는 독립 실행 명령을 사용합니다.
+
 Helios를 종료한 뒤 `--root`에 손상된 저장소, `--backup`에 백업 폴더를 지정해 복구를 미리 봅니다. 백업 첨부는 원래의 `data/attachments/<UUID>.blob` 경로에 있어야 합니다. 미리보기에는 누락되거나 손상된 활성 사본과 각 백업이 원본 저장소 매니페스트의 크기·SHA-256에 일치하는지가 나옵니다. 두 입력 폴더는 읽기 전용으로 엽니다.
 
 ```bash

@@ -52,6 +52,12 @@ Send `POST /api/storage/maintenance` to `localhost` or `127.0.0.1` with the `X-H
 
 Both report types include `scope` (`basic` or `deep`), `complete`, and a `summary` with `problems`, `review`, and `deferred` counts. Each finding has `path`, `status`, `code`, and `message`. Paths are relative, and `omitted_findings` counts attention items beyond the first 50 returned. `complete` is false if any check was deferred. See [standalone diagnostics](architecture.md#standalone-diagnostics) for the offline check scope.
 
+### Preview attachment recovery
+
+Send `POST /api/storage/recovery/preview` to `localhost` or `127.0.0.1` with the `X-Helios-Maintenance: recovery-preview` header and a JSON body containing `backup_path`. Use the absolute path of an existing backup folder on the server, separate from the active storage folder. The managed launcher returns an `id` with `status: "pending"` and HTTP `202`. It verifies the backup after a clean shutdown and restarts on the same port. A deep check and a recovery preview share one offline job slot. The response is HTTP `400` for an invalid folder, `403` for a failed host or header requirement, and `409` if the launcher is unavailable or an offline job is already pending.
+
+`GET /api/storage/recovery/preview` returns `available` and `job`. A pending job contains its `id` and `status`. A finished job also includes `finished_at` and either a `report` or a failure `code` and `message`. The report includes `verified` and `unresolved` totals, up to 50 attachment rows, and `omitted_attachments`. Rows show the relative blob `path`, the source `problem`, the `backup` status, and `size_bytes` from the manifest. `job` is `null` when there is no valid preview. See [offline attachment recovery](architecture.md#offline-attachment-recovery) for the copy workflow.
+
 ## Conversation model selection API
 
 Conversation JSON stores the next response's `profile_id` and an independent `profile_revision`. Credentials and connection settings remain in the shared profile registry. A new conversation captures the active profile at creation; later active-profile changes do not retarget it. Saving a model choice leaves the transcript `version`, memory, Workspace, messages and conversation recency unchanged.

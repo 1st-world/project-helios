@@ -97,8 +97,10 @@ from services.profile_service import (
 from services.provider_errors import ConnectionConfigurationError, ProviderFailure
 from services.settings_service import SettingsStorageError
 from services.storage_maintenance import (
-    MaintenanceSession, load_check_result, own_storage, ownership_path, result_path, save_basic_check,
+    RECOVERY_PREVIEW, MaintenanceBusy, MaintenanceSession, load_check_result, load_recovery_preview,
+    own_storage, ownership_path, result_path, save_basic_check,
 )
+from services.storage_recovery import RecoveryError as StorageRecoveryError, resolve_recovery_backup
 from services.storage_references import WORK_RUNS
 from services.token_estimator import estimation_metadata
 from services.workspace_service import WorkspaceAccessError, WorkspaceService
@@ -351,6 +353,13 @@ class UpdateSettingsRequest(BaseModel):
     attachment_max_sheet_cells: int | None = Field(
         default=None, ge=1, strict=True
     )
+
+
+class RecoveryPreviewRequest(BaseModel):
+    """Accept the selected local backup folder for an attachment recovery preview."""
+
+    model_config = ConfigDict(extra="forbid")
+    backup_path: str = Field(min_length=1, max_length=4096)
 
 
 class WorkspaceStructureRequest(BaseModel):
@@ -2022,21 +2031,60 @@ async def storage_maintenance_status():
     }, headers={"Cache-Control": "no-store"})
 
 
+def is_local_maintenance_request(request: Request, operation: str) -> bool:
+    """Require a loopback host and the operation's explicit maintenance header."""
+    return (request.url.hostname in {"localhost", "127.0.0.1"}
+            and request.headers.get("x-helios-maintenance") == operation)
+
+
 @router.post("/api/storage/maintenance")
 async def start_storage_maintenance(request: Request):
     """Accept one fixed offline check from the local Settings interface."""
-    if (request.url.hostname not in {"localhost", "127.0.0.1"}
-            or request.headers.get("x-helios-maintenance") != "deep-check"):
+    if not is_local_maintenance_request(request, "deep-check"):
         raise HTTPException(status_code=403, detail="Start the deep check from local Helios Settings.")
     maintenance = current_runtime().maintenance
     if maintenance is None:
         raise HTTPException(status_code=409, detail="Deep checks require the Helios managed launcher.")
-    if maintenance.pending is not None:
-        raise HTTPException(status_code=409, detail="A deep check is already scheduled.")
     try:
         job = maintenance.queue_check()
+    except MaintenanceBusy as error:
+        raise HTTPException(status_code=409, detail=str(error)) from None
     except OSError:
         raise HTTPException(status_code=500, detail="Could not schedule the deep check. Try again.") from None
+    return JSONResponse(job, status_code=202, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/api/storage/recovery/preview")
+async def storage_recovery_preview_status():
+    """Return the latest saved attachment preview or its current ticket."""
+    runtime = current_runtime()
+    maintenance = runtime.maintenance
+    job = (await run_local(maintenance.recovery_preview_status) if maintenance is not None else
+           await run_local(load_recovery_preview, runtime.storage_root))
+    return JSONResponse({"available": maintenance is not None, "job": job},
+                        headers={"Cache-Control": "no-store"})
+
+
+@router.post("/api/storage/recovery/preview")
+async def start_storage_recovery_preview(request: Request, payload: RecoveryPreviewRequest):
+    """Schedule a read-only attachment recovery preview on the managed launcher."""
+    if not is_local_maintenance_request(request, RECOVERY_PREVIEW):
+        raise HTTPException(status_code=403, detail="Start the recovery preview from local Helios.")
+    runtime = current_runtime()
+    maintenance = runtime.maintenance
+    if maintenance is None:
+        raise HTTPException(status_code=409, detail="Recovery previews require the Helios managed launcher.")
+    try:
+        backup = await until_disconnect(
+            request, run_local, resolve_recovery_backup, runtime.storage_root, payload.backup_path,
+        )
+        job = maintenance.queue_recovery_preview(backup)
+    except StorageRecoveryError as error:
+        raise HTTPException(status_code=400, detail={"code": error.code, "message": str(error)}) from None
+    except MaintenanceBusy as error:
+        raise HTTPException(status_code=409, detail=str(error)) from None
+    except OSError:
+        raise HTTPException(status_code=500, detail="Could not schedule the recovery preview. Try again.") from None
     return JSONResponse(job, status_code=202, headers={"Cache-Control": "no-store"})
 
 

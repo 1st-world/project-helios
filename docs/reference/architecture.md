@@ -115,6 +115,8 @@ Exit code `0` means the check finished without a blocking finding. Code `1` mean
 
 ### Offline attachment recovery
 
+The [managed preview API](api.md#preview-attachment-recovery) uses the same recovery planner as the command below. It drains the worker, verifies the selected backup under the storage lock, saves the latest preview separately as `.cache/storage-maintenance/last-recovery-preview.json`, and starts a new worker. The saved preview contains attachment results and counts. Use the standalone command to preview an offline store or create a recovered copy.
+
 Close Helios and preview recovery with `--root` pointing to the damaged store and `--backup` pointing to a saved copy. Keep each backup attachment at its original `data/attachments/<UUID>.blob` path. The preview reports missing or damaged active copies and whether each backup matches the size and SHA-256 in the source manifest. It reads both inputs without modifying them.
 
 ```bash

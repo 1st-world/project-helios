@@ -52,6 +52,12 @@ Microsoft의 [Foundry REST 참조](https://learn.microsoft.com/en-us/rest/api/mi
 
 두 검사 결과에는 `scope`(`basic` 또는 `deep`), `complete`, `problems`·`review`·`deferred` 건수를 담은 `summary`가 들어갑니다. `findings`의 각 항목은 상대 경로 `path`와 `status`, `code`, `message`를 담습니다. `omitted_findings`는 처음 50건 이후 응답에서 생략한 문제·보류·검토 항목 수입니다. 보류된 검사가 있으면 `complete`는 `false`입니다. 오프라인 검사 범위는 [독립 실행 진단](architecture.ko-kr.md#독립-실행-진단)을 참고하세요.
 
+### 첨부 복구 미리보기
+
+`localhost` 또는 `127.0.0.1`에 `X-Helios-Maintenance: recovery-preview` 헤더와 `backup_path`가 포함된 JSON 본문을 붙여 `POST /api/storage/recovery/preview`를 보냅니다. 서버에서 접근 가능한 기존 백업 폴더의 절대 경로를 지정합니다. 백업 폴더는 현재 저장소와 달라야 합니다. 관리 실행기로 시작한 서버는 HTTP `202`와 작업의 `id`, `status: "pending"`을 반환합니다. 실행기는 워커가 정상 종료된 뒤 백업을 검증하고 같은 포트에 서버를 다시 띄웁니다. 심층 검사와 복구 미리보기는 한 번에 하나만 예약할 수 있습니다. 잘못된 폴더에는 HTTP `400`, 호스트나 헤더 조건을 충족하지 못하면 `403`, 관리 실행기를 사용할 수 없거나 이미 대기 중인 오프라인 작업이 있으면 `409`를 반환합니다.
+
+`GET /api/storage/recovery/preview`는 `available`과 `job`을 반환합니다. 대기 중인 작업에는 `id`와 `status`가 들어갑니다. 작업이 끝나면 `finished_at`과 함께 완료 시 `report`를, 실패 시 `code`와 `message`를 반환합니다. 보고서에는 검증된 항목과 미해결 항목의 합계인 `verified`와 `unresolved`, 최대 50개의 첨부 항목, 생략된 항목 수인 `omitted_attachments`가 들어갑니다. 각 항목에는 사본의 상대 `path`, 원본의 `problem`, `backup` 상태와 매니페스트의 `size_bytes`가 들어갑니다. 유효한 결과가 없으면 `job`은 `null`입니다. 사본에 복구하는 절차는 [오프라인 첨부 복구](architecture.ko-kr.md#오프라인-첨부-복구)를 참고하세요.
+
 ## 대화별 모델 선택 API
 
 대화 JSON은 다음 응답에 사용할 `profile_id`와 독립적인 `profile_revision`을 저장합니다. 자격 증명과 연결 설정은 프로필 저장소에서 공유하며 대화에 복제하지 않습니다. 새 대화는 생성 시점의 활성 프로필을 초깃값으로 저장합니다. 이후 활성 프로필 변경은 기존 선택에 영향을 주지 않습니다. 모델 선택 저장은 본문 `version`·메모리·Workspace·메시지·대화 정렬 시각을 바꾸지 않습니다.

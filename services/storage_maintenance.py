@@ -1,4 +1,4 @@
-"""Coordinate storage ownership and a single deep-check job across server restarts."""
+"""Coordinate storage ownership and one offline job across server restarts."""
 
 import json
 import os
@@ -10,6 +10,10 @@ from tempfile import NamedTemporaryFile
 from typing import Literal
 from uuid import UUID, uuid4
 
+from pydantic import ValidationError
+
+from services.storage_recovery import RecoveryPreviewReport
+
 if os.name == "nt":
     import msvcrt
 else:
@@ -18,6 +22,13 @@ else:
 
 class StorageInUse(RuntimeError):
     """Report a store already owned by a cooperating Helios process."""
+
+
+class MaintenanceBusy(RuntimeError):
+    """Report that a worker has already accepted an offline operation."""
+
+
+RECOVERY_PREVIEW = "recovery-preview"
 
 
 def ownership_path(root: Path) -> Path:
@@ -69,9 +80,10 @@ def read_job(path: Path) -> dict | None:
     return None
 
 
-def result_path(root: Path, *, scope: Literal["basic", "deep"] = "deep") -> Path:
-    """Locate the latest report of the selected check type."""
-    filename = "last-basic-check.json" if scope == "basic" else "last-deep-check.json"
+def result_path(root: Path, *, scope: Literal["basic", "deep", "recovery-preview"] = "deep") -> Path:
+    """Locate the latest report of the selected maintenance operation."""
+    filename = {"basic": "last-basic-check.json", "deep": "last-deep-check.json",
+                RECOVERY_PREVIEW: "last-recovery-preview.json"}[scope]
     return root / ".cache" / "storage-maintenance" / filename
 
 
@@ -95,8 +107,8 @@ def _valid_report(report: object, scope: Literal["basic", "deep"]) -> bool:
     return counts_valid and rows_valid
 
 
-def check_result(job: dict | None, *, scope: Literal["basic", "deep"]) -> dict | None:
-    """Return a valid saved outcome for Settings."""
+def _finished_outcome(job: dict | None) -> dict | None:
+    """Return the public identity, state, and timestamp of a saved result."""
     if not job:
         return None
     try:
@@ -106,8 +118,15 @@ def check_result(job: dict | None, *, scope: Literal["basic", "deep"]) -> dict |
         timestamp = finished.astimezone(timezone.utc).isoformat()
     except (TypeError, ValueError, OverflowError):
         return None
-    status = job.get("status")
-    result = {"id": job["id"], "status": status, "finished_at": timestamp}
+    return {"id": job["id"], "status": job.get("status"), "finished_at": timestamp}
+
+
+def check_result(job: dict | None, *, scope: Literal["basic", "deep"]) -> dict | None:
+    """Return a valid saved check outcome for Settings."""
+    result = _finished_outcome(job)
+    if job is None or result is None:
+        return None
+    status = result["status"]
     if status == "completed" and _valid_report(job.get("report"), scope):
         return {**result, "report": job["report"]}
     if scope == "deep" and status == "failed" and isinstance(job.get("message"), str) and job["message"].strip():
@@ -118,6 +137,25 @@ def check_result(job: dict | None, *, scope: Literal["basic", "deep"]) -> dict |
 def load_check_result(path: Path, *, scope: Literal["basic", "deep"]) -> dict | None:
     """Read the saved result and treat a missing or malformed file as no history."""
     return check_result(read_job(path), scope=scope)
+
+
+def load_recovery_preview(root: Path) -> dict | None:
+    """Return the latest validated preview without exposing private job parameters."""
+    job = read_job(result_path(root, scope=RECOVERY_PREVIEW))
+    result = _finished_outcome(job)
+    if job is None or result is None or job.get("operation") != RECOVERY_PREVIEW:
+        return None
+    if result["status"] == "completed":
+        try:
+            report = RecoveryPreviewReport.model_validate(job.get("report"))
+        except ValidationError:
+            return None
+        return {**result, "report": report.model_dump()}
+    if result["status"] == "failed":
+        code, message = job.get("code"), job.get("message")
+        if isinstance(code, str) and code and isinstance(message, str) and message.strip():
+            return {**result, "code": code, "message": message}
+    return None
 
 
 def save_basic_check(root: Path, report: dict) -> dict:
@@ -134,20 +172,31 @@ def save_basic_check(root: Path, report: dict) -> dict:
 
 
 class MaintenanceSession:
-    """Publish one fixed deep-check request and expose its result to Settings."""
+    """Publish one offline job and expose its result to Settings."""
 
     def __init__(self, channel: Path, root: Path, request_exit: Callable[[], None]) -> None:
         """Connect a server process to its owning launcher."""
         self.channel = channel
-        self.result_file = result_path(root)
+        self.root = root
         self.request_exit = request_exit
         self.pending: dict | None = None
 
     def queue_check(self) -> dict:
-        """Record the request before beginning graceful shutdown."""
+        """Queue a deep check and return its public ticket."""
+        return self._queue()
+
+    def queue_recovery_preview(self, backup: Path) -> dict:
+        """Queue an attachment preview for one resolved backup folder."""
+        return self._queue(operation=RECOVERY_PREVIEW, backup_path=str(backup))
+
+    def _queue(self, **parameters: str) -> dict:
+        """Publish one job before requesting shutdown and return only its ticket."""
+        if self.pending is not None:
+            raise MaintenanceBusy("Storage maintenance is already scheduled.")
         job = {"id": str(uuid4()), "status": "pending"}
-        write_job(self.channel / "request.json", job)
-        self.pending = job
+        request = {**job, **parameters}
+        write_job(self.channel / "request.json", request)
+        self.pending = request
         self.request_exit()
         return job
 
@@ -164,8 +213,24 @@ class MaintenanceSession:
         write_job(self.channel / "drained.json", self.pending)
 
     def status(self) -> dict | None:
-        """Return this process's queued job or the most recent saved result."""
-        if self.pending is not None:
-            return self.pending
-        result = load_check_result(self.result_file, scope="deep")
-        return self.pending if self.pending is not None else result
+        """Return the queued deep check or its latest saved result."""
+        pending = self._pending_ticket(None)
+        if pending is not None:
+            return pending
+        saved = load_check_result(result_path(self.root), scope="deep")
+        return self._pending_ticket(None) or saved
+
+    def recovery_preview_status(self) -> dict | None:
+        """Return the queued recovery preview or its latest saved result."""
+        pending = self._pending_ticket(RECOVERY_PREVIEW)
+        if pending is not None:
+            return pending
+        saved = load_recovery_preview(self.root)
+        return self._pending_ticket(RECOVERY_PREVIEW) or saved
+
+    def _pending_ticket(self, operation: str | None) -> dict | None:
+        """Project a pending job without returning its private parameters."""
+        pending = self.pending
+        if pending is not None and pending.get("operation") == operation:
+            return {"id": pending["id"], "status": pending["status"]}
+        return None

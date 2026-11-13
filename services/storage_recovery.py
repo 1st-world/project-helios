@@ -11,8 +11,10 @@ import stat
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import BinaryIO
+from typing import Annotated, BinaryIO, Literal
 from uuid import uuid4
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from config import PROJECT_ROOT
 from services.project_access import ProjectReadError, final_handle_path, is_link, signature
@@ -29,6 +31,8 @@ ATTACHMENT_PROBLEMS = {
     "upload_size_mismatch": "The stored copy has the wrong size.",
     "upload_hash_mismatch": "The stored copy has the wrong SHA-256 hash.",
 }
+MAX_PREVIEW_ATTACHMENTS = 50
+PreviewCount = Annotated[int, Field(ge=0)]
 
 
 class RecoveryError(RuntimeError):
@@ -80,6 +84,52 @@ class RecoveryPlan:
     def ready(self) -> tuple[AttachmentRecovery, ...]:
         """Select repairs whose backups matched the manifest."""
         return tuple(item for item in self.attachments if item.backup_status == "verified")
+
+
+class RecoveryPreviewAttachment(BaseModel):
+    """Expose only bounded, root-relative attachment metadata in saved previews."""
+
+    model_config = ConfigDict(strict=True)
+    path: str = Field(pattern=rf"^{ATTACHMENTS}/[0-9a-f-]{{36}}\.blob$")
+    problem: Literal["upload_copy_missing", "upload_size_mismatch", "upload_hash_mismatch"]
+    backup: Literal["verified", "missing", "mismatch", "unavailable"]
+    size_bytes: PreviewCount
+
+
+class RecoveryPreviewReport(BaseModel):
+    """Keep the overall counts and the first attachment results for Settings."""
+
+    model_config = ConfigDict(strict=True)
+    verified: PreviewCount
+    unresolved: PreviewCount
+    attachments: list[RecoveryPreviewAttachment] = Field(max_length=MAX_PREVIEW_ATTACHMENTS)
+    omitted_attachments: PreviewCount
+
+
+def recovery_preview_report(plan: RecoveryPlan) -> dict:
+    """Project a recovery plan without storing source or backup paths or hashes."""
+    total = len(plan.attachments)
+    verified = len(plan.ready)
+    return {
+        "verified": verified,
+        "unresolved": total - verified,
+        "attachments": [item.report() for item in plan.attachments[:MAX_PREVIEW_ATTACHMENTS]],
+        "omitted_attachments": max(0, total - MAX_PREVIEW_ATTACHMENTS),
+    }
+
+
+def resolve_recovery_backup(root: Path, path: str) -> Path:
+    """Resolve a user-selected backup folder distinct from the active store."""
+    try:
+        backup = Path(path)
+        if "\x00" in path or not backup.is_absolute():
+            raise ValueError
+        backup = backup.resolve(strict=True)
+        if not backup.is_dir() or backup == root.resolve():
+            raise ValueError
+    except (OSError, RuntimeError, ValueError):
+        raise RecoveryError("invalid_backup_dir", "Choose an existing backup folder separate from the active storage folder.") from None
+    return backup
 
 
 def _stamp(path: Path, *, directory: bool = False) -> Stamp | None:
