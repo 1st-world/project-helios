@@ -212,7 +212,15 @@ Open **Settings → Storage** and choose a check.
 - **Run basic check** inspects settings, profiles, conversations, and individual databases while Helios is open. Select **Stop check** to cancel it.
 - **Run deep check** also verifies attachment contents and links across stores when Helios was started with `python app.py`. After you confirm, Helios finishes active requests, stops the server for the check, and restarts. Keep the browser tab open to see the result.
 
-The results identify problems, checks that were deferred, and the relative location of each finding. Helios saves the latest outcome of each check type. Settings shows the most recent valid result and its check time in the interface timezone, including after a browser refresh or server restart. With no valid saved result, Settings shows the check controls.
+**Basic check** and **Deep check** each show their status and latest check time in the interface timezone. Expand a row with findings to review problems, deferred checks, and affected paths. Saved reports remain available after a browser refresh or server restart.
+
+### Attachment recovery
+
+When a storage check finds missing or damaged attachment copies, select **Attachment recovery** in Storage diagnostics. Use **Browse** to choose a Helios backup folder on the server computer, or enter its absolute path. Select **Preview recovery** to verify the available backups through a managed restart. **Recovery preview** shows the progress and result. Expand **Attachment details** to review verified and unresolved copies. This control stays disabled while the preview runs or when a completed preview has no findings. Use **Back** to choose another backup.
+
+If the preview finds a verified backup, choose an existing **Output folder** outside the active storage and backup folders. Select **Create recovery copy**, then confirm with **Create copy** to restart Helios. The recovery verifies the preview again and applies the repairs to a separate copy. Helios reopens with the active storage and shows the copy's path and **Verification details**. Run a new preview if its inputs change.
+
+You can close the dialog after starting either operation. The same button in Storage diagnostics reads **View recovery progress** while a job runs, or **View recovery result** when only a previous result can be viewed. Starting recovery from Settings requires the managed launcher (`python app.py`) and a check that identifies a candidate. If recovery is available after a full page reload, choose the same backup folder and select **Use saved preview** to continue.
 
 If Helios cannot start, see [standalone diagnostics](architecture.md#standalone-diagnostics) and [offline attachment recovery](architecture.md#offline-attachment-recovery).
 

@@ -48,9 +48,9 @@ Microsoft의 [Foundry REST 참조](https://learn.microsoft.com/en-us/rest/api/mi
 
 ### 저장된 결과 조회
 
-`GET /api/storage/maintenance`는 관리 실행기를 통한 심층 검사 지원 여부를 `available`에, 최신 기본 검사 결과를 `basic`에, 대기 중인 심층 검사 또는 그 최신 결과를 `job`에 반환합니다. 저장된 결과에는 `id`, `status`, `finished_at`과 함께 완료 시 `report`, 실패 시 `message`가 들어갑니다. 유효한 저장 결과가 없는 필드는 `null`입니다.
+`GET /api/storage/maintenance`는 관리 실행기를 통한 심층 검사 지원 여부를 `available`에, 최신 기본 검사 결과를 `basic`에, 대기 중인 심층 검사 또는 그 최신 결과를 `job`에 반환합니다. 저장된 결과에는 `id`, `status`, `finished_at`과 함께 완료 시 `report`, 실패 시 `message`가 들어갑니다. 루프백 요청에는 `recovery_preview`와 `recovery_copy`로 해당 복구 상태도 반환합니다. 유효한 결과가 없는 필드는 `null`입니다.
 
-두 검사 결과에는 `scope`(`basic` 또는 `deep`), `complete`, `problems`·`review`·`deferred` 건수를 담은 `summary`가 들어갑니다. `findings`의 각 항목은 상대 경로 `path`와 `status`, `code`, `message`를 담습니다. `omitted_findings`는 처음 50건 이후 응답에서 생략한 문제·보류·검토 항목 수입니다. 보류된 검사가 있으면 `complete`는 `false`입니다. 오프라인 검사 범위는 [독립 실행 진단](architecture.ko-kr.md#독립-실행-진단)을 참고하세요.
+두 검사 결과에는 `scope`(`basic` 또는 `deep`), `complete`, `problems`·`review`·`deferred` 건수를 담은 `summary`가 들어갑니다. `findings`의 각 항목은 상대 경로 `path`와 `status`, `code`, `message`를 담습니다. `omitted_findings`는 처음 50건 이후 응답에서 생략한 문제·보류·검토 항목 수입니다. 새 결과의 `has_attachment_recovery_candidates`는 생략된 항목을 포함한 전체 결과에서 첨부 복구 대상이 있는지 나타냅니다. 이전 결과에는 이 필드가 없을 수 있습니다. 보류된 검사가 있으면 `complete`는 `false`입니다. 오프라인 검사 범위는 [독립 실행 진단](architecture.ko-kr.md#독립-실행-진단)을 참고하세요.
 
 ### 첨부 복구 미리보기
 
@@ -58,11 +58,15 @@ Microsoft의 [Foundry REST 참조](https://learn.microsoft.com/en-us/rest/api/mi
 
 `GET /api/storage/recovery/preview`는 `available`과 `job`을 반환합니다. 대기 중인 작업에는 `id`와 `status`가 들어갑니다. 작업이 끝나면 `finished_at`과 함께 완료 시 `report`를, 실패 시 `code`와 `message`를 반환합니다. 완료한 미리보기에는 검증된 복원 항목과 적용에 필요한 확인 데이터가 있는지 나타내는 `can_apply`도 포함합니다. 적용 기능이 추가되기 전에 저장한 미리보기도 조회할 수 있습니다. 보고서에는 검증된 항목과 미해결 항목의 합계인 `verified`와 `unresolved`, 최대 50개의 첨부 항목, 생략된 항목 수인 `omitted_attachments`가 들어갑니다. 각 항목에는 사본의 상대 `path`, 원본의 `problem`, `backup` 상태와 매니페스트의 `size_bytes`가 들어갑니다. 유효한 결과가 없으면 `job`은 `null`입니다.
 
+선택한 폴더가 저장된 미리보기의 백업과 일치하는지 확인하려면 루프백 주소에 `X-Helios-Maintenance: recovery-preview-backup` 헤더와 `preview_id`, `backup_path`를 보내 `POST /api/storage/recovery/preview/backup`을 호출합니다. 일치하면 HTTP `204`를 반환합니다. 이 확인에는 관리 실행기가 필요하며 유지보수 작업을 예약하지 않습니다.
+
 ### 복구 사본 만들기
 
 미리보기를 검토한 뒤 루프백 주소에 `X-Helios-Maintenance: recovery-apply` 헤더를 붙여 `POST /api/storage/recovery/apply`를 보냅니다. JSON 본문에는 최신 완료 미리보기의 `preview_id`, 미리보기에서 선택한 `backup_path`, 두 입력 폴더 바깥에 있는 기존 폴더의 절대 경로 `output_dir`를 지정합니다. 예약하면 HTTP `202`와 새 작업 ID를 반환합니다. 잘못된 폴더에는 HTTP `400`, 호스트나 헤더 조건을 충족하지 못하면 `403`을 반환합니다. 관리 실행기를 사용할 수 없거나 이미 대기 중인 작업이 있을 때, 미리보기가 유효하지 않거나 백업 폴더가 다를 때, 복원할 항목이 없거나 같은 미리보기와 위치의 복구 폴더가 이미 있을 때는 `409`를 반환합니다.
 
 서버가 종료되면 실행기가 미리보기 당시의 첨부 복구 입력과 결과 폴더를 다시 확인합니다. 복구 계획이 바뀌었으면 새로 미리보기를 실행합니다. 복구가 성공하면 검증한 `helios-recovered-<하이픈을 뺀 미리보기 UUID>` 폴더를 만들고, 원래 저장소를 사용하는 서버를 다시 띄웁니다. 루프백 주소로 `GET /api/storage/recovery/apply`를 호출하면 미리보기와 같은 상태 구조를 반환합니다. 완료 보고서에는 `preview_id`, 생성된 폴더 경로 `output`, 복원된 첨부와 미해결 첨부의 수인 `restored`와 `unresolved`, 심층 검사 형식의 `diagnostics`가 들어갑니다. 저장소 사본의 범위는 [오프라인 첨부 복구](architecture.ko-kr.md#오프라인-첨부-복구)를 참고하세요.
+
+Storage의 네이티브 폴더 선택은 `/api/storage/recovery/picker/{token}`을 사용합니다. 탭에서 생성한 UUID로 루프백의 동일 출처 WebSocket에 연결합니다. `{"action":"start"}`로 선택창을 열고 `{"action":"cancel"}`로 선택을 취소합니다. 호스트 선택창이 선택한 `path`를 반환하며 Workspace 선택은 그대로 유지됩니다.
 
 ## 대화별 모델 선택 API
 

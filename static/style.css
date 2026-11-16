@@ -3033,7 +3033,7 @@ textarea::placeholder {
   margin-top: 20px;
 }
 .preferences-dialog .settings-panel-heading,
-.preferences-dialog .settings-disclosure-header {
+:is(.preferences-dialog, .storage-recovery-dialog) .settings-disclosure-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3054,7 +3054,7 @@ textarea::placeholder {
   overflow-wrap: anywhere;
 }
 .preferences-dialog .settings-group-body,
-.preferences-dialog .settings-disclosure-body {
+:is(.preferences-dialog, .storage-recovery-dialog) .settings-disclosure-body {
   min-width: 0;
   padding: var(--settings-content-spacing);
   border-top: 1px solid var(--border);
@@ -3080,6 +3080,9 @@ textarea::placeholder {
 .preferences-dialog #settings-storage .settings-panel-heading {
   flex-wrap: wrap;
 }
+.preferences-dialog #settings-storage .storage-diagnostics > .settings-group-body {
+  padding-top: 0;
+}
 .preferences-dialog #settings-storage .storage-check-actions {
   display: flex;
   align-items: center;
@@ -3089,85 +3092,93 @@ textarea::placeholder {
 .preferences-dialog #settings-storage #run-storage-check [hidden] {
   display: none;
 }
-.preferences-dialog #settings-storage #storage-check-status {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-status {
+  align-items: flex-start;
+  gap: 4px;
   margin: 0;
   color: var(--text-sub);
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
+  overflow-wrap: anywhere;
 }
-.preferences-dialog #settings-storage #storage-check-status:not(:empty) {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-status:not(:empty) {
   display: flex;
   margin-top: 12px;
 }
-.preferences-dialog #settings-storage #storage-check-time {
-  margin: 4px 0 0;
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) :is(.storage-result-time, .storage-result-omitted) {
+  color: var(--text-muted);
+  font-weight: var(--font-weight-regular);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
 }
-.preferences-dialog #settings-storage .storage-finding-status {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-result-time {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-finding-status {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
   gap: 4px;
   color: var(--text-muted);
 }
-.preferences-dialog #settings-storage .storage-finding-icon {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) :is(.storage-status-icon, .storage-finding-icon) {
   display: grid;
+  flex: none;
   place-items: center;
   height: 1lh;
 }
-.preferences-dialog #settings-storage #storage-check-status {
-  align-items: center;
-  gap: 4px;
-}
-.preferences-dialog #settings-storage :is(#storage-check-status, .storage-finding-icon) > svg {
-  flex-shrink: 0;
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) :is(.storage-status-icon, .storage-finding-icon) > svg {
   width: 11px;
   height: 11px;
   color: var(--storage-status-icon-color, var(--text-muted));
 }
-.preferences-dialog #settings-storage #storage-check-status[data-tone="running"] > svg {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-status[data-tone="running"] .storage-status-icon > svg {
   animation: status-icon-spin calc(var(--motion-duration) * 5) linear infinite;
 }
-.preferences-dialog #settings-storage #storage-check-status[data-tone="success"],
-.preferences-dialog #settings-storage .storage-finding-status[data-status="ok"] {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-status[data-tone="success"],
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-finding-status[data-status="ok"] {
   --storage-status-icon-color: var(--success);
 
   color: var(--success-text);
 }
-.preferences-dialog #settings-storage #storage-check-status[data-tone="warning"],
-.preferences-dialog #settings-storage .storage-finding-status:is([data-status="review"], [data-status="unavailable"]) {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-status[data-tone="warning"],
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-finding-status:is([data-status="review"], [data-status="unavailable"]) {
   --storage-status-icon-color: var(--warning);
 
   color: var(--warning-text);
 }
-.preferences-dialog #settings-storage #storage-check-status[data-tone="error"],
-.preferences-dialog #settings-storage .storage-finding-status:is([data-status="invalid_data"], [data-status="unsupported_version"], [data-status="missing_reference"]) {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-status[data-tone="error"],
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-finding-status:is([data-status="invalid_data"], [data-status="unsupported_version"], [data-status="missing_reference"]) {
   --storage-status-icon-color: var(--danger);
 
   color: var(--danger-text);
 }
-.preferences-dialog #settings-storage #storage-check-results {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-result-list {
   max-height: min(280px, 38dvh);
   margin-top: 12px;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+.preferences-dialog #settings-storage .storage-result-list {
   border-block: 1px solid var(--border);
 }
-.preferences-dialog #settings-storage #storage-check-results:focus-visible {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-result-list:focus-visible {
   outline: 2px solid var(--border-focus);
   outline-offset: -2px;
 }
-.preferences-dialog #settings-storage #storage-check-results ul {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-result-list ul {
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.preferences-dialog #settings-storage #storage-check-results li {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-result-list li {
   padding: 10px 8px;
 }
-.preferences-dialog #settings-storage #storage-check-results li + li {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-result-list li + li {
   border-top: 1px solid var(--border);
 }
-.preferences-dialog #settings-storage #storage-check-results li > div {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-result-list li > div {
   display: grid;
   grid-template-columns: minmax(0, 1fr) fit-content(55%);
   align-items: start;
@@ -3176,22 +3187,239 @@ textarea::placeholder {
   line-height: var(--line-height-meta);
   overflow-wrap: anywhere;
 }
-.preferences-dialog #settings-storage #storage-check-results .storage-finding-status {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-result-list .storage-finding-status {
   min-width: 0;
 }
-.preferences-dialog #settings-storage #storage-check-results code {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-result-list code {
   min-width: 0;
   color: var(--text-main);
 }
-.preferences-dialog #settings-storage #storage-check-results li p {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-result-list li p {
   margin: 4px 0 0;
   color: var(--text-muted);
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
   overflow-wrap: anywhere;
 }
-.preferences-dialog #settings-storage #storage-check-omitted {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-result-omitted {
   margin: 8px 0 0;
+}
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-result-action {
+  margin-top: 12px;
+}
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-result-action[hidden] {
+  display: none;
+}
+.preferences-dialog #settings-storage .storage-check-report {
+  --storage-check-outer-padding: 6px;
+
+  padding-block: var(--storage-check-outer-padding);
+}
+.preferences-dialog #settings-storage .storage-check-report + .storage-check-report {
+  border-top: 1px solid var(--border);
+}
+.preferences-dialog #settings-storage .storage-check-report > .settings-subgroup-disclosure {
+  border-top: 0;
+}
+.preferences-dialog #settings-storage .storage-check-report :is(.storage-check-placeholder, .settings-disclosure-header) {
+  padding-block: calc(var(--settings-content-spacing) - var(--storage-check-outer-padding));
+}
+.preferences-dialog #settings-storage .storage-check-report .settings-disclosure-header {
+  align-items: flex-start;
+}
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-check-heading {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 5px;
+}
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-check-summary {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: 4px 12px;
+}
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-check-summary > :is(.storage-status, .storage-result-time) {
+  margin: 0;
+}
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-check-summary > .storage-status[data-tone="info"] {
+  color: var(--text-muted);
+}
+.preferences-dialog #settings-storage .storage-check-report .settings-disclosure-body {
+  padding-block: var(--storage-check-outer-padding) calc(var(--settings-content-spacing) - var(--storage-check-outer-padding));
+}
+
+.preferences-dialog #settings-storage .storage-recovery-overview {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding-top: var(--settings-content-spacing);
+  border-top: 1px solid var(--border);
+}
+.preferences-dialog #settings-storage .storage-recovery-overview .storage-recovery-summary {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.preferences-dialog #settings-storage .storage-recovery-overview .storage-recovery-summary:has(.storage-status:empty):has(time:empty) {
+  display: none;
+}
+.preferences-dialog #settings-storage .storage-recovery-overview .storage-status {
+  margin: 0;
+}
+.storage-recovery-dialog {
+  --settings-content-spacing: 16px;
+
+  width: var(--dialog-width-compact);
+  max-height: var(--dialog-height-max);
+  overflow: hidden;
+}
+.storage-recovery-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.storage-recovery-dialog > .dialog-heading,
+.storage-recovery-dialog > .storage-recovery-footer {
+  flex: none;
+}
+.storage-recovery-dialog :is(.dialog-heading h2, .storage-recovery-step-title)[tabindex="-1"]:focus {
+  outline: none;
+}
+.storage-recovery-dialog .storage-recovery-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.storage-recovery-dialog .storage-recovery-body:has(+ .storage-recovery-footer:not([hidden])) {
+  padding-bottom: var(--settings-content-spacing);
+}
+.storage-recovery-dialog > .storage-recovery-footer {
+  flex-wrap: wrap;
+  margin-top: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.storage-recovery-dialog .storage-recovery-footer > #back-storage-recovery {
+  flex-shrink: 0;
+  margin-inline-end: auto;
+  white-space: nowrap;
+}
+.storage-recovery-dialog .storage-recovery-footer button {
+  min-width: 0;
+  min-height: 32px;
+  height: auto;
+  max-width: 100%;
+  padding-block: 4px;
+  overflow-wrap: anywhere;
+}
+.storage-recovery-dialog .storage-recovery-footer svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.storage-recovery-dialog #storage-recovery-setup:not([hidden]) {
+  display: grid;
+  gap: var(--settings-content-spacing);
+}
+.storage-recovery-dialog .storage-recovery-step {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+.storage-recovery-dialog .storage-recovery-step-heading {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 10px var(--settings-content-spacing);
+  gap: 12px;
+}
+.storage-recovery-dialog .storage-recovery-step-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-main);
+  font-size: var(--font-size-title-section);
+  font-weight: var(--font-weight-heading);
+  line-height: var(--line-height-heading);
+  overflow-wrap: anywhere;
+}
+.storage-recovery-dialog .storage-recovery-step-heading .quiet-btn {
+  flex: none;
+  height: 28px;
+  margin-inline-start: auto;
+}
+.storage-recovery-dialog .storage-recovery-step-body {
+  margin: 0;
+  padding: var(--settings-content-spacing);
+  border-top: 1px solid var(--border);
+}
+.storage-recovery-dialog .storage-recovery-details {
+  margin-top: var(--settings-content-spacing);
+}
+.storage-recovery-dialog .storage-recovery-details .settings-disclosure-header[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.storage-recovery-dialog .storage-recovery-details .settings-disclosure-header[aria-disabled="true"]:hover {
+  background: transparent;
+}
+.storage-recovery-dialog .storage-recovery-details > .settings-disclosure-body {
+  padding-block: 0;
+}
+.storage-recovery-dialog .storage-check-summary:has(> .field-hint:not([hidden])) {
+  row-gap: 8px;
+}
+.storage-recovery-dialog .storage-check-summary > .field-hint {
+  flex-basis: 100%;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.storage-recovery-dialog #storage-recovery-submit-status {
+  margin-top: 0;
+}
+.storage-recovery-dialog #storage-recovery-submit-status:not(:empty) {
+  margin-bottom: var(--settings-content-spacing);
+}
+.storage-recovery-dialog .storage-recovery-field label {
+  display: block;
+  margin: 0;
+  color: var(--text-sub);
+  font-size: var(--font-size-control);
+  font-weight: var(--font-weight-label);
+  line-height: var(--line-height-control);
+}
+.storage-recovery-dialog .storage-recovery-field input {
+  width: 100%;
+  min-width: 0;
+  margin-top: 8px;
+}
+.storage-recovery-dialog .storage-recovery-field input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+.storage-recovery-dialog .storage-recovery-field > .field-error {
+  margin-top: 4px;
+}
+.storage-recovery-dialog .storage-recovery-step-body > .field-hint {
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+}
+.storage-recovery-dialog #storage-recovery-copy-output code {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-main);
+  white-space: normal;
+}
+.storage-recovery-dialog [hidden],
+.storage-recovery-dialog .storage-recovery-footer > button[hidden] {
+  display: none;
 }
 
 .preferences-dialog .settings-policy-summary {
@@ -3306,7 +3534,8 @@ textarea::placeholder {
 
 /* Include padding and borders explicitly because native select line boxes differ from text inputs. */
 .preferences-dialog input:not([type="checkbox"]):not([type="hidden"]):not(#azure-long-threshold),
-.preferences-dialog select {
+.preferences-dialog select,
+.storage-recovery-dialog .storage-recovery-field input {
   height: calc(var(--font-size-control) * var(--line-height-input) + 20px);
   min-height: 36px;
   line-height: var(--line-height-input);
@@ -3319,7 +3548,7 @@ textarea::placeholder {
 .preferences-dialog .settings-group.settings-disclosure[open] {
   border-color: var(--border-strong);
 }
-.preferences-dialog .settings-disclosure-header {
+:is(.preferences-dialog, .storage-recovery-dialog) .settings-disclosure-header {
   min-height: 44px;
   gap: 8px;
   list-style: none;
@@ -3327,17 +3556,17 @@ textarea::placeholder {
   transition: background-color var(--motion-duration-fast) var(--motion-easing-default);
   user-select: none;
 }
-.preferences-dialog .settings-disclosure-header::-webkit-details-marker {
+:is(.preferences-dialog, .storage-recovery-dialog) .settings-disclosure-header::-webkit-details-marker {
   display: none;
 }
-.preferences-dialog .settings-disclosure-header:hover {
+:is(.preferences-dialog, .storage-recovery-dialog) .settings-disclosure-header:hover {
   background: var(--bg-element-hover);
 }
-.preferences-dialog .settings-disclosure-header:focus-visible {
+:is(.preferences-dialog, .storage-recovery-dialog) .settings-disclosure-header:focus-visible {
   outline: 2px solid var(--border-focus);
   outline-offset: -2px;
 }
-.preferences-dialog .settings-disclosure-title {
+:is(.preferences-dialog, .storage-recovery-dialog) .settings-disclosure-title {
   display: flex;
   flex: 1;
   align-items: center;
@@ -3346,6 +3575,7 @@ textarea::placeholder {
   gap: 6px;
   color: var(--text-sub);
   font-weight: var(--font-weight-heading);
+  font-size: var(--font-size-title-group);
   line-height: var(--line-height-heading);
   overflow-wrap: anywhere;
 }
@@ -3353,37 +3583,34 @@ textarea::placeholder {
   color: var(--text-main);
   font-size: var(--font-size-title-section);
 }
-.preferences-dialog h4.settings-disclosure-title {
-  font-size: var(--font-size-title-group);
-}
-.preferences-dialog .settings-disclosure-title > svg,
-.preferences-dialog .settings-disclosure-chevron {
+:is(.preferences-dialog, .storage-recovery-dialog) .settings-disclosure-title > svg,
+:is(.preferences-dialog, .storage-recovery-dialog) .settings-disclosure-chevron {
   flex: none;
   width: 14px;
   height: 14px;
 }
-.preferences-dialog .settings-disclosure-title > svg {
+:is(.preferences-dialog, .storage-recovery-dialog) .settings-disclosure-title > svg {
   color: var(--accent);
 }
-.preferences-dialog .settings-disclosure-chevron {
+:is(.preferences-dialog, .storage-recovery-dialog) .settings-disclosure-chevron {
   color: var(--text-muted);
   transition: transform var(--motion-duration) var(--motion-easing);
 }
-.preferences-dialog .settings-disclosure[open]:not([data-expanded="false"]) > summary .settings-disclosure-chevron {
+:is(.preferences-dialog, .storage-recovery-dialog) .settings-disclosure[open]:not([data-expanded="false"]) > summary .settings-disclosure-chevron {
   transform: rotate(180deg);
 }
-.preferences-dialog .settings-disclosure .settings-disclosure-body > :first-child {
+:is(.preferences-dialog, .storage-recovery-dialog) .settings-disclosure .settings-disclosure-body > :first-child {
   margin-top: 0;
 }
-.preferences-dialog .settings-subgroup-disclosure {
+:is(.preferences-dialog, .storage-recovery-dialog) .settings-subgroup-disclosure {
   min-width: 0;
   border-top: 1px solid var(--border);
 }
-.preferences-dialog .settings-subgroup-disclosure > .settings-disclosure-header {
+:is(.preferences-dialog, .storage-recovery-dialog) .settings-subgroup-disclosure > .settings-disclosure-header {
   padding-right: 0;
   padding-left: 0;
 }
-.preferences-dialog .settings-subgroup-disclosure > .settings-disclosure-body {
+:is(.preferences-dialog, .storage-recovery-dialog) .settings-subgroup-disclosure > .settings-disclosure-body {
   padding-right: 0;
   padding-left: 0;
   border-top: 0;
@@ -4264,11 +4491,13 @@ textarea::placeholder {
   opacity: 0.45;
 }
 .preferences-dialog .quiet-btn,
-.preferences-dialog .default-profile-badge {
+.preferences-dialog .default-profile-badge,
+.storage-recovery-dialog .quiet-btn {
   height: 28px;
   font-size: var(--font-size-control);
 }
-.preferences-dialog .quiet-btn > svg {
+.preferences-dialog .quiet-btn > svg,
+.storage-recovery-dialog .quiet-btn > svg {
   flex: none;
 }
 
@@ -5237,6 +5466,13 @@ button svg,
 }
 
 @media (max-width: 520px) {
+  .storage-recovery-dialog > .storage-recovery-footer {
+    align-items: stretch;
+    flex-wrap: nowrap;
+  }
+  .storage-recovery-dialog .storage-recovery-footer > button {
+    padding-inline: 8px;
+  }
   .work-tools-settings .work-tools-setting {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -5342,11 +5578,11 @@ button svg,
   .preferences-dialog .settings-usage-metrics {
     grid-template-columns: 1fr;
   }
-  .preferences-dialog .settings-disclosure-header {
+  :is(.preferences-dialog, .storage-recovery-dialog) .settings-disclosure-header {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
   }
-  .preferences-dialog .settings-disclosure-chevron {
+  :is(.preferences-dialog, .storage-recovery-dialog) .settings-disclosure-chevron {
     grid-row: 1;
     grid-column: 2;
   }
@@ -5436,11 +5672,13 @@ button svg,
   .response-progress .response-progress-indicator,
   .composer-conversation-notices [data-tone="progress"] [data-notice-icon="progress"],
   .composer-conversation-notices [data-tone="success"] [data-notice-icon="success"],
-  .preferences-dialog #settings-storage #storage-check-status[data-tone="running"] > svg,
+  :is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-status[data-tone="running"] .storage-status-icon > svg,
   .preferences-dialog [data-field-control] [aria-invalid="true"],
   .work-tools-settings [data-field-control] [aria-invalid="true"],
   .action-dialog,
   .action-dialog::backdrop,
+  .storage-recovery-dialog,
+  .storage-recovery-dialog::backdrop,
   .work-tools-settings,
   .work-tools-settings::backdrop,
   .exploration-evidence,
@@ -5459,8 +5697,8 @@ button svg,
   .tools-popover .work-tool-switch::before,
   .workspace-manager .workspace-exclusion-switch,
   .workspace-manager .workspace-exclusion-switch::before,
-  .preferences-dialog .settings-disclosure-header,
-  .preferences-dialog .settings-disclosure-chevron,
+  :is(.preferences-dialog, .storage-recovery-dialog) .settings-disclosure-header,
+  :is(.preferences-dialog, .storage-recovery-dialog) .settings-disclosure-chevron,
   .preferences-dialog .pricing-accordion-status,
   .workspace-manager .workspace-disclosure-header,
   .workspace-manager .workspace-disclosure-chevron,

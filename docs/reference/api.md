@@ -48,9 +48,9 @@ Send `POST /api/storage/maintenance` to `localhost` or `127.0.0.1` with the `X-H
 
 ### Read saved results
 
-`GET /api/storage/maintenance` returns `available` for managed deep-check support, `basic` for the latest saved basic check, and `job` for a pending deep check or the latest saved deep result. A saved outcome includes `id`, `status`, and `finished_at`, plus a `report` when completed or a `message` when failed. Fields for missing or invalid outcomes are `null`.
+`GET /api/storage/maintenance` returns `available` for managed deep-check support, `basic` for the latest saved basic check, and `job` for a pending deep check or the latest saved deep result. A saved outcome includes `id`, `status`, and `finished_at`, plus a `report` when completed or a `message` when failed. Loopback requests also return `recovery_preview` and `recovery_copy` with the corresponding recovery outcomes. Fields for missing or invalid outcomes are `null`.
 
-Both report types include `scope` (`basic` or `deep`), `complete`, and a `summary` with `problems`, `review`, and `deferred` counts. Each finding has `path`, `status`, `code`, and `message`. Paths are relative, and `omitted_findings` counts attention items beyond the first 50 returned. `complete` is false if any check was deferred. See [standalone diagnostics](architecture.md#standalone-diagnostics) for the offline check scope.
+Both report types include `scope` (`basic` or `deep`), `complete`, and a `summary` with `problems`, `review`, and `deferred` counts. Each finding has `path`, `status`, `code`, and `message`. Paths are relative, and `omitted_findings` counts attention items beyond the first 50 returned. New reports include `has_attachment_recovery_candidates`, which considers all findings, including omitted rows. Older reports may omit this field. `complete` is false if any check was deferred. See [standalone diagnostics](architecture.md#standalone-diagnostics) for the offline check scope.
 
 ### Preview attachment recovery
 
@@ -58,11 +58,15 @@ Send `POST /api/storage/recovery/preview` to `localhost` or `127.0.0.1` with the
 
 `GET /api/storage/recovery/preview` returns `available` and `job`. A pending job contains its `id` and `status`. A finished job also includes `finished_at` and either a `report` or a failure `code` and `message`. Completed previews include `can_apply`, which requires at least one verified repair and confirmation data. Previews saved before apply support can still be read. The report includes `verified` and `unresolved` totals, up to 50 attachment rows, and `omitted_attachments`. Rows show the relative blob `path`, the source `problem`, the `backup` status, and `size_bytes` from the manifest. `job` is `null` when there is no valid preview.
 
+To check whether the selected folder belongs to a saved preview, send `POST /api/storage/recovery/preview/backup` on loopback with `X-Helios-Maintenance: recovery-preview-backup` and the saved `preview_id` and selected `backup_path`. A match returns HTTP `204`. This check requires the managed launcher and leaves maintenance unscheduled.
+
 ### Create a recovery copy
 
 After reviewing the preview, send `POST /api/storage/recovery/apply` on loopback with the `X-Helios-Maintenance: recovery-apply` header. The JSON body requires the latest completed `preview_id`, the same `backup_path`, and an absolute `output_dir` pointing to an existing directory outside the source and backup trees. An accepted request returns HTTP `202` with a new job ID. A rejected request returns HTTP `400` for an invalid directory, `403` for a failed host or header requirement, or `409` for unavailable managed launch, a busy job slot, a missing or incompatible preview, a different backup selection, no verified repairs, or an existing recovery folder for that preview and output location.
 
 After shutdown, the launcher rechecks the reviewed attachment inputs and the selected output directory. If the plan has changed, run a new preview. A successful apply publishes a verified `helios-recovered-<preview UUID without hyphens>` folder and restarts the app with its current storage. `GET /api/storage/recovery/apply` on loopback uses the same status envelope as preview. The completed report contains `preview_id`, the published `output` path, `restored` and `unresolved` attachment counts, and `diagnostics` in the deep check format. See [offline attachment recovery](architecture.md#offline-attachment-recovery) for the storage copy details.
+
+The Storage panel uses `/api/storage/recovery/picker/{token}` for native folder selection. Connect over a same-origin WebSocket on loopback with a tab-generated UUID. Send `{"action":"start"}` to open the picker or `{"action":"cancel"}` to stop it. The selected `path` comes from the host picker and leaves the Workspace selection unchanged.
 
 ## Conversation model selection API
 

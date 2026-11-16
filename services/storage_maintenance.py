@@ -96,6 +96,8 @@ def _valid_report(report: object, scope: Literal["basic", "deep"]) -> bool:
     """Check the saved report fields the Settings view needs to render."""
     if not isinstance(report, dict) or report.get("scope") != scope or type(report.get("complete")) is not bool:
         return False
+    if type(report.get("has_attachment_recovery_candidates", False)) is not bool:
+        return False
     summary = report.get("summary")
     findings = report.get("findings")
     omitted = report.get("omitted_findings")
@@ -219,10 +221,15 @@ def require_recovery_confirmation(root: Path, preview_id: UUID, backup: Path) ->
     return confirmation
 
 
+def resolve_preview_backup(root: Path, preview_id: UUID, backup_path: str) -> tuple[Path, str]:
+    """Resolve the chosen backup folder and confirm it belongs to the saved preview."""
+    backup = resolve_recovery_backup(root, backup_path)
+    return backup, require_recovery_confirmation(root, preview_id, backup)
+
+
 def prepare_recovery_copy(root: Path, preview_id: UUID, backup_path: str, output_dir: str) -> dict:
     """Validate a copy request without writing to a selected directory."""
-    backup = resolve_recovery_backup(root, backup_path)
-    confirmation = require_recovery_confirmation(root, preview_id, backup)
+    backup, confirmation = resolve_preview_backup(root, preview_id, backup_path)
     if "\x00" in output_dir or not Path(output_dir).is_absolute():
         raise RecoveryError("invalid_output_dir", "Choose an absolute path to an existing output directory.")
     parent, identity = resolve_recovery_output(root.resolve(), backup, Path(output_dir))

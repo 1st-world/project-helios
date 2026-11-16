@@ -384,20 +384,55 @@
     </section>
 
     <section id="settings-storage" class="settings-panel" role="tabpanel" aria-labelledby="settings-storage-tab" tabindex="0" hidden>
-      <section class="settings-group" aria-labelledby="storage-diagnostics-title">
+      <section class="settings-group storage-diagnostics" aria-labelledby="storage-diagnostics-title">
         <div class="settings-panel-heading">
-          <h3 id="storage-diagnostics-title">Storage diagnostics</h3>
+          <div class="dialog-section-title"><h3 id="storage-diagnostics-title">Storage diagnostics</h3><button class="help-popover-trigger" type="button" popovertarget="settings-help-storage" aria-controls="settings-help-storage" aria-expanded="false" aria-label="About storage diagnostics" title="About storage diagnostics"><i data-lucide="info" aria-hidden="true"></i></button></div>
           <div class="storage-check-actions">
             <button id="run-storage-check" class="quiet-btn" type="button"><i data-lucide="search-check" data-storage-action="check" aria-hidden="true"></i><i data-lucide="square" data-storage-action="stop" aria-hidden="true" hidden></i><span>Run basic check</span></button>
-            <button id="run-storage-deep-check" class="quiet-btn" type="button" title="Available with the Helios managed launcher" disabled><i data-lucide="hard-drive" aria-hidden="true"></i><span>Run deep check</span></button>
+            <button id="run-storage-deep-check" class="quiet-btn" type="button" disabled><i data-lucide="hard-drive" aria-hidden="true"></i><span>Run deep check</span></button>
           </div>
         </div>
         <div class="settings-group-body">
-          <p class="field-hint">A basic check inspects saved settings, profiles, conversations, and individual databases. A deep check also verifies attachment contents and links across stores.</p>
-          <p id="storage-check-status" role="status" aria-atomic="true"></p>
-          <p id="storage-check-time" class="field-hint" hidden><span></span> <time></time></p>
-          <div id="storage-check-results" tabindex="0" role="region" aria-label="Storage diagnostic results" hidden><ul></ul></div>
-          <p id="storage-check-omitted" class="field-hint" hidden></p>
+          <section id="storage-basic-report" class="storage-check-report" aria-labelledby="storage-basic-report-title">
+            <div class="storage-check-placeholder">
+              <span class="storage-check-heading">
+                <span id="storage-basic-report-title" class="settings-disclosure-title">Basic check</span>
+                <span id="storage-basic-report-summary" class="storage-check-summary">
+                  <span data-check-status class="storage-status" role="status" aria-atomic="true"></span>
+                  <span data-check-time class="storage-result-time" hidden><span></span> <time></time></span>
+                </span>
+              </span>
+            </div>
+            <details class="settings-disclosure settings-subgroup-disclosure" hidden>
+              <summary class="settings-disclosure-header" aria-labelledby="storage-basic-report-title" aria-describedby="storage-basic-report-summary"><i class="settings-disclosure-chevron" data-lucide="chevron-down" aria-hidden="true"></i></summary>
+              <div class="settings-disclosure-body">
+                <div class="storage-result-list" tabindex="0" role="region" aria-label="Basic check findings" hidden><ul></ul></div>
+                <p class="storage-result-omitted" hidden></p>
+              </div>
+            </details>
+          </section>
+          <section id="storage-deep-report" class="storage-check-report" aria-labelledby="storage-deep-report-title">
+            <div class="storage-check-placeholder">
+              <span class="storage-check-heading">
+                <span id="storage-deep-report-title" class="settings-disclosure-title">Deep check</span>
+                <span id="storage-deep-report-summary" class="storage-check-summary">
+                  <span data-check-status class="storage-status" role="status" aria-atomic="true"></span>
+                  <span data-check-time class="storage-result-time" hidden><span></span> <time></time></span>
+                </span>
+              </span>
+            </div>
+            <details class="settings-disclosure settings-subgroup-disclosure" hidden>
+              <summary class="settings-disclosure-header" aria-labelledby="storage-deep-report-title" aria-describedby="storage-deep-report-summary"><i class="settings-disclosure-chevron" data-lucide="chevron-down" aria-hidden="true"></i></summary>
+              <div class="settings-disclosure-body">
+                <div class="storage-result-list" tabindex="0" role="region" aria-label="Deep check findings" hidden><ul></ul></div>
+                <p class="storage-result-omitted" hidden></p>
+              </div>
+            </details>
+          </section>
+          <div class="storage-recovery-overview">
+            <div class="storage-recovery-summary"><p id="storage-recovery-overview-status" class="storage-status" role="status" aria-atomic="true"></p><p id="storage-recovery-overview-time" class="storage-result-time" hidden><span></span> <time></time></p></div>
+            <button id="review-attachment-recovery" class="quiet-btn" type="button" aria-haspopup="dialog" aria-controls="storage-recovery-dialog" disabled><i data-lucide="database-backup" aria-hidden="true"></i><span>Attachment recovery</span></button>
+          </div>
         </div>
       </section>
     </section>
@@ -905,6 +940,12 @@
         </div>
       </section>
     </section>
+    <div id="settings-help-storage" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="settings-help-storage-title" hidden>
+      <h4 id="settings-help-storage-title">Storage diagnostics</h4>
+      <p>Basic checks inspect saved settings, profiles, conversations, and databases while Helios is running.</p>
+      <p>Deep checks also verify attachment contents and links across stores. The managed launcher (<code>python app.py</code>) runs deep checks and attachment recovery during a restart.</p>
+      <p>A check must find missing or damaged attachment copies before recovery can start.</p>
+    </div>
     <div id="settings-help-memory" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="settings-help-memory-title" hidden>
       <h4 id="settings-help-memory-title">Memory summaries</h4>
       <p>Memory carries forward a compact record of earlier goals, decisions and constraints. Original messages stay intact.</p>
@@ -929,6 +970,81 @@
     <div id="settings-help-usage" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="settings-help-usage-title" hidden>
       <h4 id="settings-help-usage-title">Recorded usage</h4>
       <p>Totals and call history share the filters and include regeneration, memory summaries, and unsuccessful calls. Costs use the rates saved with each call.</p>
+    </div>
+  </dialog>
+
+  <dialog id="storage-recovery-dialog" class="settings-dialog storage-recovery-dialog" aria-labelledby="storage-recovery-title">
+    <div class="dialog-heading"><div><i data-lucide="database-backup" aria-hidden="true"></i><h2 id="storage-recovery-title" tabindex="-1">Attachment recovery</h2></div><button id="close-storage-recovery" class="dialog-close" type="button" aria-label="Close attachment recovery"><i data-lucide="x" aria-hidden="true"></i></button></div>
+    <div class="storage-recovery-body">
+      <div class="info-callout"><i data-lucide="info" aria-hidden="true"></i><p>Restore attachments from a Helios backup into a separate copy. Your current storage stays unchanged.</p></div>
+      <p id="storage-recovery-submit-status" class="storage-status" role="alert"></p>
+      <div id="storage-recovery-setup">
+        <section id="storage-recovery-backup-step" class="storage-recovery-step" aria-labelledby="storage-recovery-backup-title">
+          <div class="storage-recovery-step-heading">
+            <h3 id="storage-recovery-backup-title" class="storage-recovery-step-title">Backup folder</h3>
+            <button id="browse-storage-recovery-backup" class="quiet-btn" type="button" aria-label="Browse for backup folder" disabled><i data-lucide="folder-open" aria-hidden="true"></i><span>Browse</span></button>
+          </div>
+          <div class="storage-recovery-step-body">
+            <div class="storage-recovery-field" data-field-row data-field-control>
+              <label for="storage-recovery-backup">Folder path</label>
+              <input id="storage-recovery-backup" type="text" maxlength="4096" autocomplete="off" spellcheck="false" aria-describedby="storage-recovery-backup-help" disabled>
+            </div>
+            <p id="storage-recovery-backup-help" class="field-hint">Running a preview restarts Helios after active requests finish.</p>
+            <p id="storage-recovery-backup-picker-status" class="storage-status" role="status" aria-atomic="true"></p>
+          </div>
+        </section>
+        <section id="storage-recovery-preview-view" class="storage-recovery-step" aria-labelledby="storage-recovery-preview-title" hidden>
+          <div class="storage-recovery-step-heading"><h3 id="storage-recovery-preview-title" class="storage-recovery-step-title" tabindex="-1">Recovery preview</h3></div>
+          <div class="storage-recovery-step-body">
+            <div id="storage-recovery-preview-summary" class="storage-check-summary">
+              <p id="storage-recovery-preview-status" class="storage-status" role="status" aria-atomic="true"></p>
+              <p id="storage-recovery-preview-time" class="storage-result-time" hidden><span></span> <time></time></p>
+              <p id="storage-recovery-preview-note" class="field-hint" hidden></p>
+            </div>
+            <p id="storage-recovery-approval" class="field-hint" hidden>To continue with this preview, go back and select the same backup folder.</p>
+            <details id="storage-recovery-preview-details" class="settings-disclosure settings-subgroup-disclosure storage-recovery-details" hidden>
+              <summary class="settings-disclosure-header"><h4 class="settings-disclosure-title"><i data-lucide="list-checks" aria-hidden="true"></i>Attachment details</h4><i class="settings-disclosure-chevron" data-lucide="chevron-down" aria-hidden="true"></i></summary>
+              <div class="settings-disclosure-body"><div id="storage-recovery-preview-results" class="storage-result-list" tabindex="0" role="region" aria-label="Attachment preview results" hidden><ul></ul></div><p id="storage-recovery-preview-omitted" class="storage-result-omitted" hidden></p></div>
+            </details>
+          </div>
+        </section>
+        <section id="storage-recovery-output-step" class="storage-recovery-step" aria-labelledby="storage-recovery-output-title" hidden>
+          <div class="storage-recovery-step-heading">
+            <h3 id="storage-recovery-output-title" class="storage-recovery-step-title">Output folder</h3>
+            <button id="browse-storage-recovery-output" class="quiet-btn" type="button" aria-label="Browse for output folder" disabled><i data-lucide="folder-open" aria-hidden="true"></i><span>Browse</span></button>
+          </div>
+          <div class="storage-recovery-step-body">
+            <div class="storage-recovery-field" data-field-row data-field-control>
+              <label for="storage-recovery-output">Folder path</label>
+              <input id="storage-recovery-output" type="text" maxlength="4096" autocomplete="off" spellcheck="false" aria-describedby="storage-recovery-output-help" disabled>
+            </div>
+            <p id="storage-recovery-output-help" class="field-hint">Choose an existing folder outside the active storage and backup folders.</p>
+            <p id="storage-recovery-output-picker-status" class="storage-status" role="status" aria-atomic="true"></p>
+          </div>
+        </section>
+      </div>
+      <section id="storage-recovery-copy-view" class="storage-recovery-step" aria-labelledby="storage-recovery-copy-title" hidden>
+        <div class="storage-recovery-step-heading"><h3 id="storage-recovery-copy-title" class="storage-recovery-step-title" tabindex="-1">Recovery copy</h3></div>
+        <div class="storage-recovery-step-body">
+          <div class="storage-check-summary">
+            <p id="storage-recovery-copy-status" class="storage-status" role="status" aria-atomic="true"></p>
+            <p id="storage-recovery-copy-time" class="storage-result-time" hidden><span></span> <time></time></p>
+            <p id="storage-recovery-copy-note" class="field-hint" hidden></p>
+          </div>
+          <p id="storage-recovery-copy-output" class="field-hint" hidden>Saved to <code></code></p>
+          <details id="storage-recovery-copy-details" class="settings-disclosure settings-subgroup-disclosure storage-recovery-details" hidden>
+            <summary class="settings-disclosure-header"><h4 class="settings-disclosure-title"><i data-lucide="list-checks" aria-hidden="true"></i>Verification details</h4><i class="settings-disclosure-chevron" data-lucide="chevron-down" aria-hidden="true"></i></summary>
+            <div class="settings-disclosure-body"><div id="storage-recovery-copy-results" class="storage-result-list" tabindex="0" role="region" aria-label="Recovery copy diagnostic results" hidden><ul></ul></div><p id="storage-recovery-copy-omitted" class="storage-result-omitted" hidden></p></div>
+          </details>
+          <button id="restart-storage-recovery" class="quiet-btn storage-result-action" type="button" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i><span>Start a new preview</span></button>
+        </div>
+      </section>
+    </div>
+    <div class="dialog-actions storage-recovery-footer" hidden>
+      <button id="back-storage-recovery" class="quiet" type="button" hidden><i data-lucide="arrow-left" aria-hidden="true"></i><span>Back</span></button>
+      <button id="use-storage-recovery-preview" class="quiet" type="button" disabled hidden><i data-lucide="history" aria-hidden="true"></i><span>Use saved preview</span></button>
+      <button id="preview-storage-recovery" class="primary-btn" type="button" disabled hidden><i data-lucide="scan-search" aria-hidden="true"></i><span>Preview recovery</span></button>
+      <button id="create-storage-recovery-copy" class="primary-btn" type="button" hidden disabled><i data-lucide="copy-plus" aria-hidden="true"></i><span>Create recovery copy</span></button>
     </div>
   </dialog>
 

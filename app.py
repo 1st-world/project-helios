@@ -27,7 +27,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from starlette.requests import ClientDisconnect
@@ -99,7 +99,7 @@ from services.settings_service import SettingsStorageError
 from services.storage_maintenance import (
     RECOVERY_APPLY, RECOVERY_PREVIEW, MaintenanceBusy, MaintenanceSession, RecoveryOperation,
     load_check_result, load_recovery_result, own_storage, ownership_path,
-    prepare_recovery_copy, result_path, save_basic_check,
+    prepare_recovery_copy, resolve_preview_backup, result_path, save_basic_check,
 )
 from services.storage_recovery import RecoveryError as StorageRecoveryError, resolve_recovery_backup
 from services.storage_references import WORK_RUNS
@@ -363,10 +363,15 @@ class RecoveryPreviewRequest(BaseModel):
     backup_path: str = Field(min_length=1, max_length=4096)
 
 
-class RecoveryCopyRequest(RecoveryPreviewRequest):
-    """Apply one reviewed preview into a selected output directory."""
+class RecoverySelectionRequest(RecoveryPreviewRequest):
+    """Identify the saved preview to use with the selected backup folder."""
 
     preview_id: UUID
+
+
+class RecoveryCopyRequest(RecoverySelectionRequest):
+    """Apply one reviewed preview into a selected output directory."""
+
     output_dir: str = Field(min_length=1, max_length=4096)
 
 
@@ -1859,11 +1864,25 @@ async def attachment_picker(websocket: WebSocket, token: UUID):
     )
 
 
+@router.websocket("/api/storage/recovery/picker/{token}")
+async def storage_recovery_picker(websocket: WebSocket, token: UUID):
+    """Choose a local recovery folder without changing the current Workspace."""
+    runtime = current_runtime()
+    if (websocket.url.hostname not in {"localhost", "127.0.0.1"}
+            or runtime.maintenance is None or runtime.maintenance.pending is not None):
+        await websocket.close(code=1008)
+        return
+    await relay_native_picker(
+        websocket, token, runtime.folder_picker_service, "folder",
+        "Could not connect to the folder picker. Enter the path manually.", workspace_scoped=False,
+    )
+
+
 async def relay_native_picker(
     websocket: WebSocket, token: UUID, service: FolderPickerService,
-    label: str, connection_error: str,
+    label: str, connection_error: str, *, workspace_scoped: bool = True,
 ):
-    """Relay same-origin picker sessions using the selected conversation's start folder."""
+    """Relay same-origin picker sessions with optional Workspace directory context."""
     # Reject cross-origin pages before allowing access to native dialogs.
     origin = websocket.headers.get("origin", "")
     if urlsplit(origin).netloc != websocket.headers.get("host"):
@@ -1871,14 +1890,14 @@ async def relay_native_picker(
         return
     await websocket.accept()
     session = None
-    key = str(token)
+    key = str(token) if workspace_scoped else f"storage-recovery:{token}"
     try:
         command = await asyncio.wait_for(websocket.receive_json(), timeout=10)
         if command.get("action") not in {"start", "resume"}:
             await websocket.close(code=1008)
             return
         initial_dir = ""
-        if command["action"] == "start":
+        if command["action"] == "start" and workspace_scoped:
             picker_workspace = resolve_workspace(
                 command.get("conversation_id"), command.get("workspace_session_id"),
             )
@@ -2024,7 +2043,7 @@ async def storage_diagnostics(request: Request):
 
 
 @router.get("/api/storage/maintenance")
-async def storage_maintenance_status():
+async def storage_maintenance_status(request: Request):
     """Return the maintenance capability and latest saved outcomes."""
     runtime = current_runtime()
     maintenance = runtime.maintenance
@@ -2032,10 +2051,16 @@ async def storage_maintenance_status():
     basic = await run_local(load_check_result, result_path(root, scope="basic"), scope="basic")
     deep = (await run_local(maintenance.status) if maintenance is not None else
             await run_local(load_check_result, result_path(root), scope="deep"))
+    recovery = {}
+    if request.url.hostname in {"localhost", "127.0.0.1"}:
+        for key, operation in (("recovery_preview", RECOVERY_PREVIEW), ("recovery_copy", RECOVERY_APPLY)):
+            recovery[key] = (await run_local(maintenance.recovery_status, operation) if maintenance is not None else
+                             await run_local(load_recovery_result, root, operation))
     return JSONResponse({
         "available": maintenance is not None,
         "job": deep,
         "basic": basic,
+        **recovery,
     }, headers={"Cache-Control": "no-store"})
 
 
@@ -2107,6 +2132,24 @@ async def start_storage_recovery_preview(request: Request, payload: RecoveryPrev
     except OSError:
         raise HTTPException(status_code=500, detail="Could not schedule the recovery preview. Try again.") from None
     return JSONResponse(job, status_code=202, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/api/storage/recovery/preview/backup", status_code=204)
+async def check_storage_recovery_backup(request: Request, payload: RecoverySelectionRequest):
+    """Check whether a selected folder matches the saved preview without scheduling maintenance."""
+    if not is_local_maintenance_request(request, "recovery-preview-backup"):
+        raise HTTPException(status_code=403, detail="Check the backup folder from local Helios.")
+    runtime = current_runtime()
+    if runtime.maintenance is None or runtime.maintenance.pending is not None:
+        raise HTTPException(status_code=409, detail="Attachment recovery is unavailable.")
+    try:
+        await until_disconnect(
+            request, run_local, resolve_preview_backup, runtime.storage_root, payload.preview_id, payload.backup_path,
+        )
+    except StorageRecoveryError as error:
+        status = 400 if error.code == "invalid_backup_dir" else 409
+        raise HTTPException(status_code=status, detail={"code": error.code, "message": str(error)}) from None
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/api/storage/recovery/apply")

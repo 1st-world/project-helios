@@ -25,6 +25,7 @@ from services.work_run_store import WORK_RUN_SCHEMA_VERSION
 
 
 PROBLEMS = {"invalid_data", "unsupported_version", "missing_reference"}
+ATTACHMENT_RECOVERY_CODES = {"upload_copy_missing", "upload_size_mismatch", "upload_hash_mismatch"}
 MAX_ATTENTION_FINDINGS = 50
 SQLITE_TABLES = {
     WORK_RUNS: {"work_metadata", "work_runs", "model_steps", "tool_steps"},
@@ -512,6 +513,7 @@ def storage_report(findings: list[Finding], *, scope: str) -> dict:
     return {
         "scope": scope,
         "complete": not deferred,
+        "has_attachment_recovery_candidates": any(item.code in ATTACHMENT_RECOVERY_CODES for item in problems),
         "summary": {"problems": len(problems), "review": len(review), "deferred": len(deferred)},
         "findings": [asdict(item) for item in attention[:MAX_ATTENTION_FINDINGS] + routine],
         "omitted_findings": max(0, len(attention) - MAX_ATTENTION_FINDINGS),

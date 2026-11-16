@@ -23,9 +23,9 @@ export function bindDialogBackdrop(dialog, onDismiss) {
   dialog.addEventListener('pointercancel', () => { backdropPointer = null; });
 }
 
-export function showActionDialog({ title, description, confirmLabel, cancelLabel = 'Cancel', danger = false, field = null, onConfirm = () => {} }) {
+export function showActionDialog({ title, description, confirmLabel, cancelLabel = 'Cancel', danger = false, field = null, signal, onConfirm = () => {} }) {
   // Ignore duplicate requests while a decision or its action is still pending.
-  if (activeDialog) return Promise.resolve(false);
+  if (activeDialog || signal?.aborted) return Promise.resolve(false);
   const opener = document.activeElement;
   const dialog = document.createElement('dialog');
   activeDialog = dialog;
@@ -78,6 +78,7 @@ export function showActionDialog({ title, description, confirmLabel, cancelLabel
   }
 
   cancel.onclick = dismiss;
+  signal?.addEventListener('abort', dismiss, { once: true });
   bindDialogBackdrop(dialog, dismiss);
   dialog.addEventListener('cancel', event => {
     event.preventDefault();
@@ -116,6 +117,7 @@ export function showActionDialog({ title, description, confirmLabel, cancelLabel
   };
   const result = new Promise(resolve => {
     dialog.addEventListener('close', () => {
+      signal?.removeEventListener('abort', dismiss);
       dialog.remove();
       activeDialog = null;
       if (opener?.isConnected && !opener.disabled) opener.focus({ preventScroll: true });
