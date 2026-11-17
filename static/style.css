@@ -3204,12 +3204,6 @@ textarea::placeholder {
 :is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-result-omitted {
   margin: 8px 0 0;
 }
-:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-result-action {
-  margin-top: 12px;
-}
-:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-result-action[hidden] {
-  display: none;
-}
 .preferences-dialog #settings-storage .storage-check-report {
   --storage-check-outer-padding: 6px;
 
@@ -3263,11 +3257,16 @@ textarea::placeholder {
   flex: 1 1 240px;
   min-width: 0;
 }
-.preferences-dialog #settings-storage .storage-recovery-overview .storage-recovery-summary:has(.storage-status:empty):has(time:empty) {
-  display: none;
-}
-.preferences-dialog #settings-storage .storage-recovery-overview .storage-status {
+.preferences-dialog #settings-storage .storage-recovery-overview :is(.storage-status, .storage-recovery-record-location) {
   margin: 0;
+}
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-recovery-record-location code {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.preferences-dialog #settings-storage .storage-recovery-overview :is(.storage-status:not(:empty), .storage-result-time:not([hidden])) ~ .storage-recovery-record-location {
+  margin-top: 8px;
 }
 .storage-recovery-dialog {
   --settings-content-spacing: 16px;

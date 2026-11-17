@@ -40,7 +40,7 @@ function setButtonPresentation(button, label, iconName) {
   refreshIcons(button);
 }
 
-export function initializeStorageRecovery(settingsDialog, queueMaintenance, refreshMaintenance) {
+export function initializeStorageRecovery(settingsDialog, queueMaintenance, refreshMaintenance, acknowledgeResult) {
   const dialog = $('#storage-recovery-dialog');
   const entry = $('#review-attachment-recovery');
   const heading = $('#storage-recovery-title');
@@ -64,6 +64,7 @@ export function initializeStorageRecovery(settingsDialog, queueMaintenance, refr
   const usePreviewButton = $('#use-storage-recovery-preview');
   const approval = $('#storage-recovery-approval');
   const copyOutput = $('#storage-recovery-copy-output');
+  const copyRecord = $('#storage-recovery-copy-record');
   const pickers = [backup, output].map(field => ({ field, button: $(`#browse-${field.id}`), status: $(`#${field.id}-picker-status`) }));
   const followProgress = 'You can close this dialog and follow progress in Storage.';
   const views = {
@@ -91,23 +92,35 @@ export function initializeStorageRecovery(settingsDialog, queueMaintenance, refr
   let reviewed = null;
   let backupCheck = null;
   let copyConfirmation = null;
-  let showSetup = false;
-  let choosingBackup = false;
+  let choosingBackup = true;
   let discardedPreviewId = null;
+  let shownResult = null;
   let submitError = '';
   let submitField = null;
   let waitingForRestart = false;
   let statusUnavailable = false;
 
-  function currentPreview() {
-    const preview = state?.recovery_preview;
-    return preview?.id !== discardedPreviewId && preview?.status !== 'pending' ? preview : null;
+  function recentResult() {
+    const ticket = activity.recoveryResult;
+    const view = views[ticket?.kind];
+    if (!view || !state || !Object.hasOwn(state, view.field)) return null;
+    const job = state[view.field];
+    if (ticket.missing) return { ...ticket, job: null };
+    if (job?.id !== ticket.id || !job.finished_at || Date.parse(activity.lastCheckAt) > Date.parse(job.finished_at)) return null;
+    return { ...ticket, job };
   }
 
-  function latestRecovery() {
-    const preview = state?.recovery_preview?.finished_at ? state.recovery_preview : null;
+  function currentPreview() {
+    const recent = recentResult();
+    if (recent?.kind === PREVIEW && !choosingBackup) return recent.job;
+    const preview = state?.recovery_preview;
+    return canRecover() && preview?.can_apply && preview.id !== discardedPreviewId && !needsNewPreview(preview) ? preview : null;
+  }
+
+  function needsNewPreview(preview) {
     const copy = state?.recovery_copy;
-    return copy?.finished_at && (!preview || Date.parse(copy.finished_at) >= Date.parse(preview.finished_at)) ? copy : preview;
+    return copy?.status === 'failed' && freshPreviewErrors.has(copy.code)
+      && Date.parse(copy.finished_at) >= Date.parse(preview.finished_at);
   }
 
   function recoveryInProgress() {
@@ -116,7 +129,8 @@ export function initializeStorageRecovery(settingsDialog, queueMaintenance, refr
   }
 
   function canRetryOutput() {
-    return ['output_changed', 'invalid_output_dir'].includes(state?.recovery_copy?.code) && currentPreview()?.can_apply;
+    const copy = recentResult()?.job;
+    return ['output_changed', 'invalid_output_dir'].includes(copy?.code) && currentPreview()?.can_apply;
   }
 
   function canRecover() {
@@ -169,7 +183,7 @@ export function initializeStorageRecovery(settingsDialog, queueMaintenance, refr
 
   function updateResultNote(kind, job, working, unavailableReason) {
     const view = views[kind];
-    const hasResult = job?.finished_at && activity.missing !== kind && (kind !== PREVIEW || !isCleanPreview(job));
+    const hasResult = job?.finished_at && (kind !== PREVIEW || !isCleanPreview(job));
     const message = working === kind ? view.progressNote : hasResult ? unavailableReason : '';
     view.note.hidden = !message;
     setText(view.note, message);
@@ -179,25 +193,19 @@ export function initializeStorageRecovery(settingsDialog, queueMaintenance, refr
     const available = canRecover();
     const enabled = available && !activity.busy;
     const preview = currentPreview();
-    const copy = state?.recovery_copy;
     const selected = backup.value.trim();
-    const outdated = copy?.status === 'failed' && freshPreviewErrors.has(copy.code)
-      && Date.parse(copy.finished_at) >= Date.parse(preview?.finished_at);
     const working = recoveryInProgress();
-    const latest = latestRecovery();
-    const missingResult = activity.missing === PREVIEW || activity.missing === APPLY;
-    const viewingResult = !working && !enabled && Boolean(latest || missingResult);
+    const recent = recentResult();
     const unavailableReason = available || working ? '' : recoveryUnavailableMessage();
-    entry.disabled = !(enabled || working || viewingResult);
+    entry.disabled = !(enabled || working || recent);
     entry.title = entry.disabled ? (available ? 'A storage check is in progress.' : unavailableReason) : '';
     if (working) setButtonPresentation(entry, 'View recovery progress', 'activity');
-    else if (viewingResult) setButtonPresentation(entry, 'View recovery result', 'file-text');
+    else if (recent) setButtonPresentation(entry, 'View recovery result', 'file-text');
     else setButtonPresentation(entry, 'Attachment recovery', 'database-backup');
-    const showingCopy = working === APPLY || activity.missing === APPLY && !showSetup
-      || !working && !showSetup && latest === copy && Boolean(copy);
-    const previewShowing = Boolean(working === PREVIEW || !choosingBackup && (preview || activity.missing === PREVIEW));
+    const showingCopy = working === APPLY || (!working && recent?.kind === APPLY);
+    const previewShowing = working === PREVIEW || !working && !choosingBackup && Boolean(preview || recent?.kind === PREVIEW);
     const canGoBack = available && previewShowing && !working && !showingCopy;
-    const canApply = preview?.can_apply && activity.missing !== PREVIEW && !outdated;
+    const canApply = preview?.can_apply && !needsNewPreview(preview);
     const canCheckBackup = available && canApply && Boolean(selected);
     if (!canCheckBackup) cancelBackupCheck();
     const canChooseOutput = canCheckBackup && backupMatchesPreview(preview, selected);
@@ -207,18 +215,18 @@ export function initializeStorageRecovery(settingsDialog, queueMaintenance, refr
     outputStep.hidden = !previewShowing || !canChooseOutput || working === PREVIEW;
     previewView.view.hidden = !previewShowing;
     updateResultNote(PREVIEW, preview, working, unavailableReason);
-    updateResultNote(APPLY, copy, working, unavailableReason);
+    updateResultNote(APPLY, recent?.kind === APPLY ? recent.job : null, working, unavailableReason);
     backButton.hidden = !canGoBack && !working;
     backButton.disabled = Boolean(working);
     const showingBackup = !setup.hidden && !backupStep.hidden;
     previewButton.hidden = !showingBackup && working !== PREVIEW;
-    usePreviewButton.hidden = !showingBackup;
+    usePreviewButton.hidden = !showingBackup || !canApply;
     createCopyButton.hidden = working !== APPLY && (setup.hidden || outputStep.hidden);
-    footer.hidden = [...footer.children].every(child => child.hidden);
     approval.hidden = !previewShowing || !available || working === PREVIEW || !canApply || canChooseOutput;
     restartButton.hidden = !showingCopy || Boolean(working) || !available;
     restartButton.disabled = !enabled;
     setText(restartLabel, canRetryOutput() ? 'Choose another output folder' : 'Start a new preview');
+    footer.hidden = [...footer.children].every(child => child.hidden);
     previewButton.disabled = previewButton.hidden || !enabled || Boolean(picker) || !selected;
     usePreviewButton.disabled = usePreviewButton.hidden || !enabled || Boolean(picker) || !canChooseOutput;
     createCopyButton.disabled = createCopyButton.hidden || !enabled || Boolean(picker) || !output.value.trim();
@@ -311,17 +319,18 @@ export function initializeStorageRecovery(settingsDialog, queueMaintenance, refr
 
   function render(kind) {
     const view = views[kind];
-    const job = kind === PREVIEW ? currentPreview() : state?.[view.field];
+    const recent = recentResult();
+    const job = kind === PREVIEW ? currentPreview() : recent?.kind === APPLY ? recent.job : null;
     const available = canRecover();
     const running = recoveryInProgress() === kind;
-    const missing = activity.missing === kind;
+    const missing = recent?.kind === kind && recent.missing;
     const key = running ? `pending:${activity.pending?.id || 'scheduling'}:${waitingForRestart}` : missing ? 'missing' : `${job?.id || ''}:${available}`;
     if (key === view.key) return;
     view.key = key;
     view.disclosure.finish(false);
     setStorageTime(view.time, job?.status === 'failed' ? 'Attempt ended' : view.timeLabel,
       running || missing ? null : job?.finished_at);
-    if (kind === APPLY) copyOutput.hidden = true;
+    if (kind === APPLY) copyOutput.hidden = copyRecord.hidden = true;
     if (running || missing || !job || job.status !== 'completed') {
       view.details.hidden = !running;
       view.summary.setAttribute('aria-disabled', 'true');
@@ -347,7 +356,7 @@ export function initializeStorageRecovery(settingsDialog, queueMaintenance, refr
       const summary = `Copy created. ${report.restored} restored · ${report.unresolved} unresolved.`;
       setStorageStatus(view.status, summary, warning ? 'warning' : 'success');
       setText(copyOutput.querySelector('code'), report.output);
-      copyOutput.hidden = false;
+      copyOutput.hidden = copyRecord.hidden = false;
       showStorageResults(view.results, view.omitted, report.diagnostics.findings, report.diagnostics.omitted_findings);
     }
     const hasDetails = !view.results.hidden || !view.omitted.hidden;
@@ -366,13 +375,14 @@ export function initializeStorageRecovery(settingsDialog, queueMaintenance, refr
 
   function renderOverview() {
     const working = recoveryInProgress();
-    const job = latestRecovery();
-    setStorageTime(overviewTime, 'Last recovery update', working ? null : job?.finished_at);
+    const recent = recentResult();
+    const job = recent?.job;
+    setStorageTime(overviewTime, 'Finished', working ? null : job?.finished_at);
     if (working) setStorageStatus(overviewStatus, progressText(working, true), 'running');
-    else if ([PREVIEW, APPLY].includes(activity.missing)) setStorageStatus(overviewStatus, 'Recovery report unavailable.', 'error');
+    else if (recent?.missing) setStorageStatus(overviewStatus, 'Recovery report unavailable.', 'error');
     else if (submitError) setStorageStatus(overviewStatus, 'Could not start attachment recovery.', 'error');
     else if (job?.status === 'failed') setStorageStatus(overviewStatus, 'Attachment recovery needs review.', 'error');
-    else if (job === state?.recovery_copy && job?.report) {
+    else if (recent?.kind === APPLY && job?.report) {
       const { restored, unresolved } = job.report;
       setStorageStatus(overviewStatus, `Recovery copy created. ${restored} restored · ${unresolved} unresolved.`, unresolved ? 'warning' : 'success');
     } else if (job?.report) {
@@ -394,9 +404,13 @@ export function initializeStorageRecovery(settingsDialog, queueMaintenance, refr
     render(PREVIEW);
     render(APPLY);
     updateControls();
+    const recent = recentResult();
+    const working = recoveryInProgress();
+    if (dialog.open) shownResult = !working && (recent?.kind === APPLY || recent?.kind === PREVIEW && !choosingBackup) ? recent : null;
     const error = submitField ? '' : submitError;
-    const busy = activity.busy && !recoveryInProgress() ? 'A storage check is in progress.' : '';
-    setStorageStatus(submitStatus, error || busy, error ? 'error' : 'running');
+    const busy = activity.busy && !working ? 'A storage check is in progress.' : '';
+    const unavailable = !working && !recent && !canRecover() ? recoveryUnavailableMessage() : '';
+    setStorageStatus(submitStatus, error || busy || unavailable, error ? 'error' : busy ? 'running' : 'info');
     if (dialog.open && !wasShowingPreview && !setup.hidden && !previewStep.hidden) {
       body.scrollTop = 0;
       previewTitle.focus({ preventScroll: true });
@@ -416,7 +430,6 @@ export function initializeStorageRecovery(settingsDialog, queueMaintenance, refr
         discardedPreviewId = null;
         choosingBackup = false;
       }
-      showSetup = false;
     } catch (error) {
       submitError = error.message;
       if (['invalid_backup_dir', 'backup_changed'].includes(error.code)) {
@@ -480,12 +493,13 @@ export function initializeStorageRecovery(settingsDialog, queueMaintenance, refr
     choosingBackup = true;
     submitError = '';
     submitField = null;
+    const recent = recentResult();
+    if (recent?.kind === PREVIEW) acknowledgeResult(recent);
     renderDialog();
     body.scrollTop = 0;
     (backup.disabled ? heading : backup).focus({ preventScroll: true });
   });
   restartButton.addEventListener('click', () => {
-    showSetup = true;
     const chooseOutput = canRetryOutput();
     choosingBackup = !chooseOutput || !backup.value.trim();
     if (chooseOutput) output.value = '';
@@ -493,6 +507,8 @@ export function initializeStorageRecovery(settingsDialog, queueMaintenance, refr
     submitError = '';
     submitField = null;
     validation.reset();
+    const recent = recentResult();
+    if (recent?.kind === APPLY) acknowledgeResult(recent);
     renderDialog();
     (chooseOutput && !outputStep.hidden ? output : backup).focus();
   });
@@ -508,11 +524,7 @@ export function initializeStorageRecovery(settingsDialog, queueMaintenance, refr
   $('#close-storage-recovery').addEventListener('click', dismiss);
   entry.addEventListener('click', () => {
     if (entry.disabled || dialog.open || !settingsDialog.open) return;
-    if (!recoveryInProgress() && (!canRecover() || activity.busy)) {
-      showSetup = false;
-      choosingBackup = false;
-      discardedPreviewId = null;
-    }
+    choosingBackup = !recoveryInProgress() && recentResult()?.kind !== PREVIEW;
     dialog.showModal();
     renderDialog();
     (recoveryInProgress() ? currentHeading() : heading).focus({ preventScroll: true });
@@ -529,6 +541,8 @@ export function initializeStorageRecovery(settingsDialog, queueMaintenance, refr
     stopPicker(true);
     cancelBackupCheck();
     for (const view of Object.values(views)) view.disclosure.finish();
+    if (shownResult) acknowledgeResult(shownResult);
+    shownResult = null;
     if (settingsDialog.open && entry.getClientRects().length) {
       (entry.disabled ? $('#settings-storage-tab') : entry).focus({ preventScroll: true });
     }
@@ -552,15 +566,12 @@ export function initializeStorageRecovery(settingsDialog, queueMaintenance, refr
         statusUnavailable = false;
         if (!canRecover()) {
           stopPicker(true);
-          showSetup = false;
-          choosingBackup = false;
           discardedPreviewId = null;
         }
       }
       if (work.pending) {
         stopPicker(true);
         if (recoveryInProgress()) {
-          showSetup = false;
           choosingBackup = false;
           submitError = '';
           submitField = null;

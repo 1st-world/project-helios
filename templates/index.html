@@ -430,7 +430,11 @@
             </details>
           </section>
           <div class="storage-recovery-overview">
-            <div class="storage-recovery-summary"><p id="storage-recovery-overview-status" class="storage-status" role="status" aria-atomic="true"></p><p id="storage-recovery-overview-time" class="storage-result-time" hidden><span></span> <time></time></p></div>
+            <div class="storage-recovery-summary">
+              <p id="storage-recovery-overview-status" class="storage-status" role="status" aria-atomic="true"></p>
+              <p id="storage-recovery-overview-time" class="storage-result-time" hidden><span></span> <time></time></p>
+              <p class="field-hint storage-recovery-record-location">Recovery copy records: <code>logs/storage-recovery/</code> in the Helios storage folder.</p>
+            </div>
             <button id="review-attachment-recovery" class="quiet-btn" type="button" aria-haspopup="dialog" aria-controls="storage-recovery-dialog" disabled><i data-lucide="database-backup" aria-hidden="true"></i><span>Attachment recovery</span></button>
           </div>
         </div>
@@ -1032,11 +1036,11 @@
             <p id="storage-recovery-copy-note" class="field-hint" hidden></p>
           </div>
           <p id="storage-recovery-copy-output" class="field-hint" hidden>Saved to <code></code></p>
+          <p id="storage-recovery-copy-record" class="field-hint storage-recovery-record-location" hidden>You can’t reopen this result after closing it. Find the copy’s record in <code>logs/storage-recovery/</code> under the Helios storage folder.</p>
           <details id="storage-recovery-copy-details" class="settings-disclosure settings-subgroup-disclosure storage-recovery-details" hidden>
             <summary class="settings-disclosure-header"><h4 class="settings-disclosure-title"><i data-lucide="list-checks" aria-hidden="true"></i>Verification details</h4><i class="settings-disclosure-chevron" data-lucide="chevron-down" aria-hidden="true"></i></summary>
             <div class="settings-disclosure-body"><div id="storage-recovery-copy-results" class="storage-result-list" tabindex="0" role="region" aria-label="Recovery copy diagnostic results" hidden><ul></ul></div><p id="storage-recovery-copy-omitted" class="storage-result-omitted" hidden></p></div>
           </details>
-          <button id="restart-storage-recovery" class="quiet-btn storage-result-action" type="button" hidden><i data-lucide="rotate-ccw" aria-hidden="true"></i><span>Start a new preview</span></button>
         </div>
       </section>
     </div>
@@ -1045,6 +1049,7 @@
       <button id="use-storage-recovery-preview" class="quiet" type="button" disabled hidden><i data-lucide="history" aria-hidden="true"></i><span>Use saved preview</span></button>
       <button id="preview-storage-recovery" class="primary-btn" type="button" disabled hidden><i data-lucide="scan-search" aria-hidden="true"></i><span>Preview recovery</span></button>
       <button id="create-storage-recovery-copy" class="primary-btn" type="button" hidden disabled><i data-lucide="copy-plus" aria-hidden="true"></i><span>Create recovery copy</span></button>
+      <button id="restart-storage-recovery" class="quiet" type="button" hidden disabled><i data-lucide="rotate-ccw" aria-hidden="true"></i><span>Start a new preview</span></button>
     </div>
   </dialog>
 

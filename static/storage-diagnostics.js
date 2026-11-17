@@ -13,13 +13,21 @@ const maintenanceJobs = {
 
 const savedRecoveryCodes = new Set(['upload_copy_missing', 'upload_size_mismatch', 'upload_hash_mismatch']);
 const maintenanceTicketKey = 'helios.storageMaintenance';
+const recoveryResultKey = 'helios.recoveryResult';
 
-function readTicket() {
+function readTicket(key) {
   try {
-    const ticket = JSON.parse(sessionStorage.getItem(maintenanceTicketKey));
+    const ticket = JSON.parse(sessionStorage.getItem(key));
     if (ticket && Object.hasOwn(maintenanceJobs, ticket.kind) && typeof ticket.id === 'string') return ticket;
   } catch { /* Storage can be unavailable in browser privacy modes. */ }
   return null;
+}
+
+function saveTicket(key, ticket) {
+  try {
+    if (ticket) sessionStorage.setItem(key, JSON.stringify(ticket));
+    else sessionStorage.removeItem(key);
+  } catch { /* Monitoring continues in memory. */ }
 }
 
 function describeReport({ summary: { problems, review, deferred } }) {
@@ -38,14 +46,15 @@ export function initializeStorageDiagnostics(dialog) {
   let current = null;
   let state = null;
   let scheduling = null;
-  let pending = readTicket();
+  let pending = readTicket(maintenanceTicketKey);
+  let recoveryResult = readTicket(recoveryResultKey);
   let missing = null;
   let basicNotice = null;
   let waitingForDeepRestart = false;
   let unsavedBasic = null;
   let pollTimer = null;
   let statusVersion = 0;
-  const recovery = initializeStorageRecovery(dialog, queueMaintenance, refreshMaintenance);
+  const recovery = initializeStorageRecovery(dialog, queueMaintenance, refreshMaintenance, acknowledgeRecoveryResult);
 
   function updateAction(running) {
     setText(action.querySelector('span'), running ? 'Stop check' : 'Run basic check');
@@ -55,8 +64,9 @@ export function initializeStorageDiagnostics(dialog) {
     action.disabled = busy;
     deepAction.disabled = !state?.available || running || busy;
     recovery.update(state, {
-      busy: busy || running, pending, scheduling, missing,
+      busy: busy || running, pending, scheduling, recoveryResult,
       hasCheckReport: Boolean(checks.basic?.report || checks.deep?.report),
+      lastCheckAt: latestResult(checks.basic?.report ? checks.basic : null, checks.deep?.report ? checks.deep : null)?.finished_at,
       hasRecoveryCandidates: hasRecoveryCandidates()
     });
   }
@@ -158,6 +168,7 @@ export function initializeStorageDiagnostics(dialog) {
       unsavedBasic = report.saved === false ? outcome : null;
       checks.basic = outcome;
       basicNotice = null;
+      rememberRecoveryResult(null);
     } catch {
       if (current === controller) basicNotice = ['Could not run the basic check. Try again.', 'error'];
     } finally {
@@ -176,10 +187,18 @@ export function initializeStorageDiagnostics(dialog) {
 
   function rememberTicket(ticket) {
     pending = ticket;
-    try {
-      if (ticket) sessionStorage.setItem(maintenanceTicketKey, JSON.stringify(ticket));
-      else sessionStorage.removeItem(maintenanceTicketKey);
-    } catch { /* Monitoring continues in memory. */ }
+    saveTicket(maintenanceTicketKey, ticket);
+  }
+
+  function rememberRecoveryResult(ticket) {
+    recoveryResult = ticket;
+    saveTicket(recoveryResultKey, ticket);
+  }
+
+  function acknowledgeRecoveryResult(ticket) {
+    if (recoveryResult?.id !== ticket.id || recoveryResult.kind !== ticket.kind) return;
+    rememberRecoveryResult(null);
+    updateAction(Boolean(current));
   }
 
   async function refreshMaintenance() {
@@ -200,10 +219,11 @@ export function initializeStorageDiagnostics(dialog) {
       const expected = pending;
       if (expected && expected.id !== serverTicket?.id) {
         const result = state[maintenanceJobs[expected.kind].field];
-        if (result?.id !== expected.id) missing = expected.kind;
-        else if (missing === expected.kind) missing = null;
+        if (expected.kind === 'deep-check') missing = result?.id !== expected.id ? expected.kind : null;
+        else rememberRecoveryResult({ ...expected, missing: result?.id !== expected.id });
         document.dispatchEvent(new Event('helios-restarted'));
       }
+      if (serverTicket && pending?.id !== serverTicket.id) rememberRecoveryResult(null);
       if (pending?.id !== serverTicket?.id) rememberTicket(serverTicket);
       if (pending) {
         if (current) stop();
@@ -247,6 +267,7 @@ export function initializeStorageDiagnostics(dialog) {
         throw error;
       }
       if (missing === kind) missing = null;
+      rememberRecoveryResult(null);
       rememberTicket({ kind, id: job.id });
       pollMaintenance();
       return job;

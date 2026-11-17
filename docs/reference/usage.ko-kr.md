@@ -220,7 +220,9 @@ Workspace를 연결한 뒤 **Tools → Explore project**를 선택하면 다음 
 
 검증된 백업이 있으면 현재 저장소와 백업 폴더 바깥의 기존 폴더를 **Output folder**로 지정합니다. **Create recovery copy**를 선택한 뒤 **Create copy**로 Helios 재시작을 확인합니다. 복구 과정에서 미리보기를 다시 검증하고 별도 사본에 복원 가능한 첨부를 반영합니다. Helios는 현재 저장소로 다시 열리며 복구 사본의 경로와 **Verification details**를 표시합니다. 미리보기에 사용한 파일이 바뀌면 새로 미리보기를 실행합니다.
 
-작업을 시작한 뒤에는 모달을 닫아도 됩니다. Storage diagnostics의 같은 버튼이 작업 중에는 **View recovery progress**, 이전 결과만 볼 수 있을 때는 **View recovery result**로 바뀝니다. Settings에서 복구를 시작하려면 관리형 실행기(`python app.py`)와 복구 대상을 식별한 검사 결과가 필요합니다. 페이지를 새로고침한 뒤에도 복구를 시작할 수 있는 상태라면 같은 백업 폴더를 다시 고르고 **Use saved preview**로 이어서 진행할 수 있습니다.
+작업 중에 모달을 닫아도 됩니다. 작업을 지켜보는 탭에서 **View recovery progress**로 진행 상황을 다시 열고, 재시작 후에는 **View recovery result**로 결과를 확인합니다. 결과를 닫으면 버튼에 현재 저장소 검사 상태가 반영됩니다. Settings에서 복구를 시작하려면 관리 실행기(`python app.py`)와 복구 대상을 식별한 검사 결과가 필요합니다. 아직 사용할 수 있는 미리보기에서 이어서 진행하려면 같은 백업 폴더를 고르고 **Use saved preview**를 선택합니다.
+
+생성한 사본의 기록은 Helios 저장소 루트 아래 `logs/storage-recovery/`에 보관합니다. 각 JSON 기록에는 사본 경로와 검증 요약이 들어갑니다. 파일과 보관 기준은 [오프라인 첨부 복구](architecture.ko-kr.md#오프라인-첨부-복구)를 참고하세요.
 
 Helios가 시작되지 않으면 [독립 실행 진단](architecture.ko-kr.md#독립-실행-진단)과 [오프라인 첨부 복구](architecture.ko-kr.md#오프라인-첨부-복구)를 참고하세요.
 

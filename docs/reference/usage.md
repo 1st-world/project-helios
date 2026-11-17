@@ -220,7 +220,9 @@ When a storage check finds missing or damaged attachment copies, select **Attach
 
 If the preview finds a verified backup, choose an existing **Output folder** outside the active storage and backup folders. Select **Create recovery copy**, then confirm with **Create copy** to restart Helios. The recovery verifies the preview again and applies the repairs to a separate copy. Helios reopens with the active storage and shows the copy's path and **Verification details**. Run a new preview if its inputs change.
 
-You can close the dialog after starting either operation. The same button in Storage diagnostics reads **View recovery progress** while a job runs, or **View recovery result** when only a previous result can be viewed. Starting recovery from Settings requires the managed launcher (`python app.py`) and a check that identifies a candidate. If recovery is available after a full page reload, choose the same backup folder and select **Use saved preview** to continue.
+You can close the dialog while either operation runs. In the tab following the job, **View recovery progress** reopens it, and **View recovery result** shows the outcome after restart. Once you close the result, the button reflects the current storage checks. Starting recovery from Settings requires the managed launcher (`python app.py`) and a check that identifies a candidate. To resume a reusable preview, choose the same backup folder and select **Use saved preview**.
+
+Records for created copies are stored in `logs/storage-recovery/` under the Helios storage root. Each JSON record includes the copy's path and verification summary. See [offline attachment recovery](architecture.md#offline-attachment-recovery) for the files and retention rules.
 
 If Helios cannot start, see [standalone diagnostics](architecture.md#standalone-diagnostics) and [offline attachment recovery](architecture.md#offline-attachment-recovery).
 
