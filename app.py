@@ -99,7 +99,8 @@ from services.settings_service import SettingsStorageError
 from services.storage_maintenance import (
     RECOVERY_APPLY, RECOVERY_PREVIEW, MaintenanceBusy, MaintenanceSession, RecoveryOperation,
     load_check_result, load_recovery_result, own_storage, ownership_path,
-    prepare_recovery_copy, resolve_preview_backup, result_path, save_basic_check,
+    prepare_recovery_copy, reconcile_recovery_records, recovery_record_dir, resolve_preview_backup, result_path,
+    save_basic_check,
 )
 from services.storage_recovery import RecoveryError as StorageRecoveryError, resolve_recovery_backup
 from services.storage_references import WORK_RUNS
@@ -139,6 +140,7 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     maintenance = application.state.storage_maintenance
     with own_storage(settings.profiles_path.parent), ExitStack() as logging_resources:
         configure_logging(settings, logging_resources)
+        reconcile_recovery_records(settings.profiles_path.parent)
         with ExitStack() as stores:
             runtime = AppRuntime(settings, stores, maintenance=maintenance)
             async with AsyncExitStack() as services:
@@ -1677,6 +1679,7 @@ def project_protected_paths() -> list[Path]:
         runtime.profile_service.storage_path, runtime.settings_service.storage_path,
         runtime.settings.conversations_root, runtime.settings.logs_root,
         ownership_path(runtime.storage_root), result_path(runtime.storage_root).parent,
+        recovery_record_dir(runtime.storage_root),
         runtime.attachment_store.root, runtime.databases[WORK_RUNS],
     ]
     if runtime.maintenance is not None:

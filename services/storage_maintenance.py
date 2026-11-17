@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 import os
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -13,6 +14,7 @@ from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 
+from services.storage_diagnostics import ATTACHMENT_RECOVERY_CODES
 from services.storage_recovery import (
     RecoveryError, RecoveryPreviewReport, recovery_copy_name, resolve_recovery_backup, resolve_recovery_output,
 )
@@ -34,6 +36,7 @@ class MaintenanceBusy(RuntimeError):
 RECOVERY_PREVIEW = "recovery-preview"
 RECOVERY_APPLY = "recovery-apply"
 RecoveryOperation = Literal["recovery-preview", "recovery-apply"]
+logger = logging.getLogger(__name__)
 
 
 def ownership_path(root: Path) -> Path:
@@ -90,6 +93,11 @@ def result_path(root: Path, *, scope: Literal["basic", "deep"] | RecoveryOperati
     filename = {"basic": "last-basic-check.json", "deep": "last-deep-check.json",
                 RECOVERY_PREVIEW: "last-recovery-preview.json", RECOVERY_APPLY: "last-recovery-copy.json"}[scope]
     return root / ".cache" / "storage-maintenance" / filename
+
+
+def recovery_record_dir(root: Path) -> Path:
+    """Locate durable records of published recovery copies."""
+    return root / "logs" / "storage-recovery"
 
 
 def _valid_report(report: object, scope: Literal["basic", "deep"]) -> bool:
@@ -190,6 +198,83 @@ def _recovery_copy_report(report: object) -> dict | None:
         return None
     return {"preview_id": preview_id, "output": output, "restored": restored,
             "unresolved": unresolved, "diagnostics": diagnostics}
+
+
+def archive_recovery_copy(root: Path, job: dict | None) -> Path | None:
+    """Save a successful copy's compact record without private recovery inputs."""
+    result = _recovery_result(job, RECOVERY_APPLY)
+    if not result or result["status"] != "completed":
+        return None
+    identity = str(UUID(result["id"]))
+    directory = recovery_record_dir(root.resolve())
+    if directory.resolve() != directory:
+        raise OSError("Recovery records directory is redirected.")
+    report = result["report"]
+    diagnostics = report["diagnostics"]
+    record = {"id": identity, "finished_at": result["finished_at"], "output": report["output"],
+              "restored": report["restored"], "unresolved": report["unresolved"],
+              "verification": {"complete": diagnostics["complete"],
+                               **{key: diagnostics["summary"][key] for key in ("problems", "review", "deferred")}}}
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path = directory / f"{identity}.json"
+    if path.resolve() != path:
+        raise OSError("Recovery record is redirected.")
+    if read_job(path) != record:
+        write_job(path, record)
+    return path
+
+
+def retire_recovery_preview(root: Path, preview_id: str) -> None:
+    """Remove only the specified temporary preview while holding storage ownership."""
+    path = result_path(root.resolve(), scope=RECOVERY_PREVIEW)
+    try:
+        if path.resolve() != path:
+            return
+        current = read_job(path)
+        if current and current["id"] == preview_id:
+            path.unlink(missing_ok=True)
+    except (OSError, RuntimeError):
+        logger.warning("Could not remove the obsolete recovery preview.", exc_info=True)
+
+
+def retire_clean_recovery_preview(root: Path) -> None:
+    """Remove a preview only when a newer deep check rules out attachment damage."""
+    preview = load_recovery_result(root, RECOVERY_PREVIEW)
+    if preview is None:
+        return
+    deep = load_check_result(result_path(root), scope="deep")
+    if deep is None or deep["status"] != "completed":
+        return
+    report = deep["report"]
+    # A damaged manifest can block attachment checks without producing a deferred finding.
+    if (not report["complete"] or report.get("has_attachment_recovery_candidates") is not False
+            or report["summary"]["problems"] or report["summary"]["deferred"]):
+        return
+    checked = datetime.fromisoformat(deep["finished_at"])
+    if checked <= datetime.fromisoformat(preview["finished_at"]):
+        return
+    basic = load_check_result(result_path(root, scope="basic"), scope="basic")
+    if basic is not None and datetime.fromisoformat(basic["finished_at"]) > checked:
+        latest = basic["report"]
+        has_candidates = latest.get("has_attachment_recovery_candidates")
+        if has_candidates is None:
+            has_candidates = latest["omitted_findings"] > 0 or any(
+                finding["code"] in ATTACHMENT_RECOVERY_CODES for finding in latest["findings"]
+            )
+        if has_candidates:
+            return
+    retire_recovery_preview(root, preview["id"])
+
+
+def reconcile_recovery_records(root: Path) -> None:
+    """Archive a legacy successful result and reconcile temporary state at startup."""
+    job = read_job(result_path(root, scope=RECOVERY_APPLY))
+    try:
+        if archive_recovery_copy(root, job) is not None:
+            retire_recovery_preview(root, job["report"]["preview_id"])
+    except (OSError, RuntimeError):
+        logger.warning("Could not archive the saved recovery copy record.", exc_info=True)
+    retire_clean_recovery_preview(root)
 
 
 def recovery_backup_selection(backup: Path) -> str:

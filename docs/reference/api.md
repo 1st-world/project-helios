@@ -60,6 +60,8 @@ Send `POST /api/storage/recovery/preview` to `localhost` or `127.0.0.1` with the
 
 To check whether the selected folder belongs to a saved preview, send `POST /api/storage/recovery/preview/backup` on loopback with `X-Helios-Maintenance: recovery-preview-backup` and the saved `preview_id` and selected `backup_path`. A match returns HTTP `204`. This check requires the managed launcher and leaves maintenance unscheduled.
 
+The saved preview is working state. After a successful copy is recorded, or a newer, complete deep check rules out attachment damage, the retired preview is no longer available for lookup or apply.
+
 ### Create a recovery copy
 
 After reviewing the preview, send `POST /api/storage/recovery/apply` on loopback with the `X-Helios-Maintenance: recovery-apply` header. The JSON body requires the latest completed `preview_id`, the same `backup_path`, and an absolute `output_dir` pointing to an existing directory outside the source and backup trees. An accepted request returns HTTP `202` with a new job ID. A rejected request returns HTTP `400` for an invalid directory, `403` for a failed host or header requirement, or `409` for unavailable managed launch, a busy job slot, a missing or incompatible preview, a different backup selection, no verified repairs, or an existing recovery folder for that preview and output location.

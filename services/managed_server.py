@@ -16,8 +16,9 @@ from uuid import UUID
 from config import PROJECT_ROOT, Settings
 from services.storage_diagnostics import inspect_storage, storage_report
 from services.storage_maintenance import (
-    RECOVERY_APPLY, RECOVERY_PREVIEW, MaintenanceSession, StorageInUse, own_storage, read_job,
-    recovery_backup_selection, require_recovery_confirmation, result_path, write_job,
+    RECOVERY_APPLY, RECOVERY_PREVIEW, MaintenanceSession, StorageInUse, archive_recovery_copy, own_storage, read_job,
+    recovery_backup_selection, require_recovery_confirmation, result_path, retire_clean_recovery_preview,
+    retire_recovery_preview, write_job,
 )
 from services.storage_recovery import (
     RecoveryError, plan_attachment_recovery, recovery_preview_report, resolve_recovery_backup, restore_attachment_copy,
@@ -74,7 +75,7 @@ def _offline_recovery(root: Path, job: dict) -> dict:
     }}
 
 
-def _offline_result(root: Path, channel: Path, job: dict, exit_code: int) -> dict:
+def _offline_result(root: Path, channel: Path, job: dict, exit_code: int, *, publish: bool = False) -> dict:
     """Run one supported operation after the worker finished a clean shutdown."""
     operation = job.get("operation")
     if operation not in (None, RECOVERY_PREVIEW, RECOVERY_APPLY):
@@ -85,8 +86,14 @@ def _offline_result(root: Path, channel: Path, job: dict, exit_code: int) -> dic
     try:
         with own_storage(root):
             if operation is not None:
-                return _offline_recovery(root, job)
-            findings = inspect_storage(root, deep=True)
+                result = _offline_recovery(root, job)
+            else:
+                findings = inspect_storage(root, deep=True)
+                result = {"id": job["id"], "status": "completed", "report": storage_report(findings, scope="deep"),
+                          "findings": [asdict(item) for item in findings]}
+            if publish:
+                _save_result(root, result)
+            return result
     except StorageInUse:
         return _failed_result(job, "storage_in_use", f"Another Helios process owns this store. The {label} was skipped.")
     except RecoveryError as error:
@@ -94,8 +101,6 @@ def _offline_result(root: Path, channel: Path, job: dict, exit_code: int) -> dic
     except Exception as error:
         print(f"Storage maintenance failed ({type(error).__name__}).", file=sys.stderr, flush=True)
         return _failed_result(job, "operation_failed", f"The {label} could not finish. Try again after Helios restarts.")
-    return {"id": job["id"], "status": "completed", "report": storage_report(findings, scope="deep"),
-            "findings": [asdict(item) for item in findings]}
 
 
 def _save_result(root: Path, result: dict) -> None:
@@ -106,10 +111,18 @@ def _save_result(root: Path, result: dict) -> None:
         return
     path = result_path(root, scope=operation or "deep")
     label = OFFLINE_LABELS[operation]
+    finished = {**result, "finished_at": datetime.now(timezone.utc).isoformat()}
+    record = None
     if operation == RECOVERY_APPLY and result["status"] == "completed":
         print(f"Verified recovery copy: {result['report']['output']}", flush=True)
+        try:
+            record = archive_recovery_copy(root, finished)
+        except (OSError, RuntimeError):
+            print("Could not archive the recovery copy record.", file=sys.stderr, flush=True)
+        if record is not None:
+            print(f"Recovery copy record: {record}", flush=True)
     try:
-        write_job(path, {**result, "finished_at": datetime.now(timezone.utc).isoformat()})
+        write_job(path, finished)
     except OSError:
         print(f"Could not save the {label} report.", file=sys.stderr, flush=True)
         if result.get("message"):
@@ -121,6 +134,10 @@ def _save_result(root: Path, result: dict) -> None:
             print(result["report"]["summary"], file=sys.stderr, flush=True)
     else:
         print(f"Storage maintenance {result['status']}. Report: {path}", flush=True)
+        if record is not None:
+            retire_recovery_preview(root, result["report"]["preview_id"])
+        elif operation is None and result["status"] == "completed":
+            retire_clean_recovery_preview(root)
 
 
 def _wait_for_worker(command: list[str]) -> tuple[int, bool]:
@@ -154,7 +171,9 @@ def run_managed(root: Path, port: int) -> int:
                 return exit_code
             print("Helios has stopped. Starting storage maintenance.", flush=True)
             try:
-                _save_result(root, _offline_result(root, channel, job, exit_code))
+                result = _offline_result(root, channel, job, exit_code, publish=True)
+                if result["status"] != "completed":
+                    _save_result(root, result)
             except KeyboardInterrupt:
                 _save_result(root, _failed_result(job, "launcher_stopped", "The launcher stopped during storage maintenance."))
                 return 130

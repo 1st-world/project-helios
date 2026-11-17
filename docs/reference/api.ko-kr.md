@@ -60,6 +60,8 @@ Microsoft의 [Foundry REST 참조](https://learn.microsoft.com/en-us/rest/api/mi
 
 선택한 폴더가 저장된 미리보기의 백업과 일치하는지 확인하려면 루프백 주소에 `X-Helios-Maintenance: recovery-preview-backup` 헤더와 `preview_id`, `backup_path`를 보내 `POST /api/storage/recovery/preview/backup`을 호출합니다. 일치하면 HTTP `204`를 반환합니다. 이 확인에는 관리 실행기가 필요하며 유지보수 작업을 예약하지 않습니다.
 
+저장된 미리보기는 복구 작업을 위한 임시 상태입니다. 사본 생성 성공 기록을 저장했거나 더 최근의 완전한 심층 검사에서 첨부 손상이 없다고 확인해 미리보기를 정리한 뒤에는 해당 미리보기를 조회하거나 적용할 수 없습니다.
+
 ### 복구 사본 만들기
 
 미리보기를 검토한 뒤 루프백 주소에 `X-Helios-Maintenance: recovery-apply` 헤더를 붙여 `POST /api/storage/recovery/apply`를 보냅니다. JSON 본문에는 최신 완료 미리보기의 `preview_id`, 미리보기에서 선택한 `backup_path`, 두 입력 폴더 바깥에 있는 기존 폴더의 절대 경로 `output_dir`를 지정합니다. 예약하면 HTTP `202`와 새 작업 ID를 반환합니다. 잘못된 폴더에는 HTTP `400`, 호스트나 헤더 조건을 충족하지 못하면 `403`을 반환합니다. 관리 실행기를 사용할 수 없거나 이미 대기 중인 작업이 있을 때, 미리보기가 유효하지 않거나 백업 폴더가 다를 때, 복원할 항목이 없거나 같은 미리보기와 위치의 복구 폴더가 이미 있을 때는 `409`를 반환합니다.
