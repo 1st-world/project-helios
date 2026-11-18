@@ -36,6 +36,12 @@ Microsoft의 [Foundry REST 참조](https://learn.microsoft.com/en-us/rest/api/mi
 
 ## 저장소 진단 API
 
+### 로컬 저장 공간 집계
+
+`GET /api/storage/usage`는 Helios를 실행하는 컴퓨터에서 [앱이 관리하는 파일](architecture.ko-kr.md#저장-공간-사용량)의 크기를 집계합니다. 호스트가 `localhost` 또는 `127.0.0.1`이면 집계하고, 그 외에는 HTTP `403`을 반환합니다. 집계 중에 다시 요청하면 HTTP `409`와 `detail.code: "storage_usage_in_progress"`를 반환합니다.
+
+응답에는 UTC 기준의 `measured_at`, `total_bytes`, `complete`, `categories`가 들어갑니다. 항목별로 `id`, 집계한 바이트 수 `bytes`, 파일 수 `files`, 집계하지 못한 항목 수 `skipped`를 제공합니다. `skipped`의 한 건은 개별 파일이나 집계할 수 없었던 경로 전체에 해당할 수 있습니다. `complete`가 `false`이면 합계는 집계된 파일만 포함합니다. 응답에 파일 경로는 포함되지 않으며 결과를 디스크에 저장하지 않습니다.
+
 ### 기본 검사 실행
 
 `GET /api/storage/diagnostics`는 서버의 설정·프로필 파일, 대화, 개별 SQLite 데이터베이스를 읽기 전용으로 검사하고 결과를 별도 파일에 저장합니다. 저널 보조 파일이 있거나 WAL 모드인 데이터베이스는 검사를 보류합니다. 검사 중에 같은 요청이 들어오면 HTTP `409`와 `detail.code: "storage_check_in_progress"`를 반환합니다.

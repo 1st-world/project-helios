@@ -104,6 +104,7 @@ from services.storage_maintenance import (
 )
 from services.storage_recovery import RecoveryError as StorageRecoveryError, resolve_recovery_backup
 from services.storage_references import WORK_RUNS
+from services.storage_usage import measure_storage_usage
 from services.token_estimator import estimation_metadata
 from services.workspace_service import WorkspaceAccessError, WorkspaceService
 
@@ -2022,6 +2023,21 @@ def application_settings_response() -> dict:
 async def get_application_settings():
     """Expose application preferences for future Settings GUI integration."""
     return application_settings_response()
+
+
+@router.get("/api/storage/usage")
+async def storage_usage(request: Request):
+    """Measure configured storage without opening, writing, or cleaning files."""
+    if request.url.hostname not in {"localhost", "127.0.0.1"}:
+        raise HTTPException(status_code=403, detail="Open Helios on its host computer to measure storage usage.")
+    runtime = current_runtime()
+    if runtime.storage_usage_lock.locked():
+        return JSONResponse(status_code=409, headers={"Cache-Control": "no-store"}, content={"detail": {
+            "code": "storage_usage_in_progress", "message": "Storage usage is already being measured. Try again shortly.",
+        }})
+    async with runtime.storage_usage_lock:
+        report = await until_disconnect(request, run_local, measure_storage_usage, runtime.settings)
+    return JSONResponse(report, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/api/storage/diagnostics")

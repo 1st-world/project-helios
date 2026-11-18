@@ -103,6 +103,7 @@ class AppRuntime:
         self.work_run_store.on_attachments_released = self.attachment_cleanup.notify
         self.workspace_operations: dict[object, str] = {}
         self.storage_check_lock = asyncio.Lock()
+        self.storage_usage_lock = asyncio.Lock()
         self.pause_deadline_changed = asyncio.Event()
         self.work_run_store.on_pause_changed = self.pause_deadline_changed.set
 
