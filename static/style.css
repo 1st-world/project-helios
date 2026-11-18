@@ -3131,12 +3131,14 @@ textarea::placeholder {
 .preferences-dialog #storage-usage #storage-usage-total {
   margin-inline-start: 4px;
   color: var(--text-main);
+  font-weight: var(--font-weight-emphasis);
   font-size: var(--font-size-metric);
-  font-weight: var(--font-weight-heading);
   font-variant-numeric: tabular-nums;
 }
 .preferences-dialog #storage-usage #storage-usage-empty {
-  margin: 8px 0 0;
+  margin: var(--settings-content-spacing) 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
 }
 .preferences-dialog #storage-usage #storage-usage-categories:not([hidden]) {
   display: grid;
@@ -4132,6 +4134,13 @@ textarea::placeholder {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-app);
+}
+.preferences-dialog .settings-usage-primary dt {
+  color: var(--text-sub);
+}
+.preferences-dialog .settings-usage-primary dd {
+  color: var(--text-main);
+  font-weight: var(--font-weight-emphasis);
 }
 .preferences-dialog .settings-usage-overview .usage-table-scroll {
   max-height: 280px;
