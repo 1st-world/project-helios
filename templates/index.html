@@ -384,6 +384,27 @@
     </section>
 
     <section id="settings-storage" class="settings-panel" role="tabpanel" aria-labelledby="settings-storage-tab" tabindex="0" hidden>
+      <section id="storage-usage" class="settings-group" aria-labelledby="storage-usage-title">
+        <div class="settings-panel-heading">
+          <div class="dialog-section-title"><h3 id="storage-usage-title">Storage usage</h3><button class="help-popover-trigger" type="button" popovertarget="settings-help-storage-usage" aria-controls="settings-help-storage-usage" aria-expanded="false" aria-label="About storage usage" title="About storage usage"><i data-lucide="info" aria-hidden="true"></i></button></div>
+          <button id="refresh-storage-usage" class="quiet-btn" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>Refresh</span></button>
+        </div>
+        <div class="settings-group-body storage-usage-body">
+          <div class="storage-usage-feedback">
+            <p id="storage-usage-status" class="storage-status" role="status" aria-atomic="true"></p>
+            <p id="storage-usage-coverage" class="storage-status" role="status" aria-atomic="true" hidden></p>
+          </div>
+          <span id="storage-usage-announcement" class="sr-only" role="status"></span>
+          <div id="storage-usage-result" hidden>
+            <div class="storage-usage-overview">
+              <p><span>Total measured</span> <strong id="storage-usage-total"></strong></p>
+              <p id="storage-usage-time" class="storage-result-time" hidden><span></span> <time></time></p>
+            </div>
+            <p id="storage-usage-empty" class="field-hint" hidden>No managed files found.</p>
+            <ul id="storage-usage-categories" role="list" aria-label="Storage usage by category" hidden></ul>
+          </div>
+        </div>
+      </section>
       <section class="settings-group storage-diagnostics" aria-labelledby="storage-diagnostics-title">
         <div class="settings-panel-heading">
           <div class="dialog-section-title"><h3 id="storage-diagnostics-title">Storage diagnostics</h3><button class="help-popover-trigger" type="button" popovertarget="settings-help-storage" aria-controls="settings-help-storage" aria-expanded="false" aria-label="About storage diagnostics" title="About storage diagnostics"><i data-lucide="info" aria-hidden="true"></i></button></div>
@@ -949,6 +970,11 @@
       <p>Basic checks inspect saved settings, profiles, conversations, and databases while Helios is running.</p>
       <p>Deep checks also verify attachment contents and links across stores. The managed launcher (<code>python app.py</code>) runs deep checks and attachment recovery during a restart.</p>
       <p>A check must find missing or damaged attachment copies before recovery can start.</p>
+    </div>
+    <div id="settings-help-storage-usage" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="settings-help-storage-usage-title" hidden>
+      <h4 id="settings-help-storage-usage-title">Storage usage</h4>
+      <p>Shows file sizes for local data managed by Helios. Workspace files, external backups, and recovery copies are excluded.</p>
+      <p>Sizes are based on file contents as reported by the filesystem. They may differ from allocated disk space or the space you could free.</p>
     </div>
     <div id="settings-help-memory" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="settings-help-memory-title" hidden>
       <h4 id="settings-help-memory-title">Memory summaries</h4>

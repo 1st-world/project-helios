@@ -1559,6 +1559,10 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:not(:disabled):hover 
     transform: rotate(1turn);
   }
 }
+
+.preferences-dialog #storage-usage button[aria-busy="true"] > svg[data-lucide="refresh-cw"] {
+  animation: status-icon-spin calc(var(--motion-duration) * 5) linear infinite;
+}
 @keyframes composer-notice-check {
   from {
     stroke-dashoffset: -24;
@@ -3092,6 +3096,96 @@ textarea::placeholder {
 .preferences-dialog #settings-storage #run-storage-check [hidden] {
   display: none;
 }
+
+.preferences-dialog #storage-usage .storage-usage-body {
+  display: grid;
+  gap: var(--settings-content-spacing);
+}
+.preferences-dialog #storage-usage .storage-usage-feedback {
+  display: grid;
+  gap: 8px;
+}
+.preferences-dialog #storage-usage .storage-usage-feedback > .storage-status {
+  margin: 0;
+}
+.preferences-dialog #storage-usage .storage-usage-feedback:not(:has(> .storage-status:not([hidden]):not(:empty))),
+.preferences-dialog #storage-usage .storage-usage-feedback > .storage-status:is([hidden], :empty) {
+  display: none;
+}
+.preferences-dialog #storage-usage .storage-usage-overview {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.preferences-dialog #storage-usage .storage-usage-overview > p {
+  margin: 0;
+  color: var(--text-sub);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+}
+.preferences-dialog #storage-usage .storage-usage-overview > .storage-result-time {
+  color: var(--text-muted);
+}
+.preferences-dialog #storage-usage #storage-usage-total {
+  margin-inline-start: 4px;
+  color: var(--text-main);
+  font-size: var(--font-size-metric);
+  font-weight: var(--font-weight-heading);
+  font-variant-numeric: tabular-nums;
+}
+.preferences-dialog #storage-usage #storage-usage-empty {
+  margin: 8px 0 0;
+}
+.preferences-dialog #storage-usage #storage-usage-categories:not([hidden]) {
+  display: grid;
+  margin: var(--settings-content-spacing) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.preferences-dialog #storage-usage #storage-usage-categories > li {
+  display: grid;
+  min-width: 0;
+  padding: 10px 0;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+}
+.preferences-dialog #storage-usage #storage-usage-categories > li:last-child {
+  padding-bottom: 0;
+}
+.preferences-dialog #storage-usage .storage-usage-category-caption {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  color: var(--text-sub);
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-control);
+  overflow-wrap: anywhere;
+}
+.preferences-dialog #storage-usage .storage-usage-category-value {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.preferences-dialog #storage-usage .storage-usage-track {
+  display: block;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--bg-element);
+}
+.preferences-dialog #storage-usage .storage-usage-track[data-unmeasured] {
+  border: 1px dashed var(--border-strong);
+  background: transparent;
+}
+.preferences-dialog #storage-usage .storage-usage-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
 :is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-status {
   align-items: flex-start;
   gap: 4px;
@@ -5668,6 +5762,7 @@ button svg,
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .preferences-dialog #storage-usage button[aria-busy="true"] > svg[data-lucide="refresh-cw"],
   .response-progress .response-progress-indicator,
   .composer-conversation-notices [data-tone="progress"] [data-notice-icon="progress"],
   .composer-conversation-notices [data-tone="success"] [data-notice-icon="success"],

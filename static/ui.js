@@ -8,6 +8,11 @@ export function setText(element, text) {
   if (element.textContent !== text) element.textContent = text;
 }
 
+export function setRefreshBusy(button, busy, disabled = busy) {
+  button.setAttribute('aria-busy', String(busy));
+  button.disabled = disabled;
+}
+
 export function escapeHtml(value) {
   const div = document.createElement('div');
   div.textContent = value;

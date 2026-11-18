@@ -7,6 +7,7 @@ import { createDisclosure } from './disclosure.js';
 import { initializeTimezoneSettings } from './timezone.js';
 import { initializeHelpPopovers } from './help-popovers.js';
 import { initializeStorageDiagnostics } from './storage-diagnostics.js';
+import { initializeStorageUsage } from './storage-usage.js';
 
 const panelScrollPositions = new Map();
 
@@ -51,6 +52,7 @@ export function initializeSettings({ onConversationUsageVisibilityChange, onResp
   initializeFontSizeSettings();
   initializeTimezoneSettings();
   initializeStorageDiagnostics($('#settings-dialog'));
+  initializeStorageUsage($('#settings-dialog'));
   initializeSettingsDisclosures();
   const help = initializeHelpPopovers($('#settings-dialog'));
   $('#settings-dialog').addEventListener('settings-panel-change', help.close);

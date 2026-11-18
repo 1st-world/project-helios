@@ -205,9 +205,15 @@ For runs with actual tool activity, **Work process** appears above model answers
 
 Failed, cancelled, interrupted, and replaced runs remain available. Completed runs outside the current answer branch are labelled and never automatically adopted. Reopening a conversation restores its history; older runs and steps are paged. Conversation deletion does not automatically erase original run content or the separate usage ledger, but deleted conversations' activity cannot be opened through the UI/API.
 
+## Storage usage
+
+View local file sizes under **Settings → Storage → Storage usage**. Helios measures them the first time you visit the Storage tab after opening Settings. **Refresh** measures again while keeping the previous result visible. Bars show each category's share of the measured total. In a partial result, only counted files contribute to the total and shares. A category marked **Not measured** has no share.
+
+The measurement includes app-managed files such as conversations, attachment copies, and migration backups. It does not estimate how much disk space a cleanup would free. See the [measurement scope](architecture.md#storage-usage).
+
 ## Storage diagnostics
 
-Open **Settings → Storage** and choose a check.
+Choose a check under **Settings → Storage → Storage diagnostics**.
 
 - **Run basic check** inspects settings, profiles, conversations, and individual databases while Helios is open. Select **Stop check** to cancel it.
 - **Run deep check** also verifies attachment contents and links across stores when Helios was started with `python app.py`. After you confirm, Helios finishes active requests, stops the server for the check, and restarts. Keep the browser tab open to see the result.
