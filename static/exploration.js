@@ -491,7 +491,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     } catch (error) {
       if (error.name !== 'AbortError' && controller === evidenceController) {
         clearEvidence();
-        target.replaceChildren(node('p', error.message), button('Retry', () => openEvidence(runId, step, opener)));
+        target.replaceChildren(node('p', error.message), button('Reload result', () => openEvidence(runId, step, opener)));
       }
     }
   }
@@ -533,7 +533,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       card.loaded = true;
     } catch (error) {
       if (error.name !== 'AbortError' && version === generation && card.activityToken === token && revision === (card.activityRevision || 0)) {
-        card.more = button('Retry loading steps', () => loadActivity(card, offset));
+        card.more = button(offset === 0 ? 'Reload steps' : 'Retry loading more steps', () => loadActivity(card, offset));
         card.error = node('p', error.message);
         card.body.append(card.error, card.more);
       }
@@ -621,7 +621,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     } catch (error) {
       if (error.name !== 'AbortError' && version === generation) {
         historyError = node('p', error.message);
-        historyRetry = button('Retry loading history', () => loadPage(before));
+        historyRetry = button(before == null ? 'Reload work history' : 'Retry loading older runs', () => loadPage(before));
         region.append(historyError, historyRetry);
       }
     } finally {

@@ -235,9 +235,9 @@ export function createUsage({ footer, renderFooter }) {
       if (view === views.footer) watchFooter(report.revision);
     } catch (error) {
       if (view.controller === controller && error.name !== 'AbortError') {
-        const retryHint = view === views.footer ? '' : ' Use Refresh to retry.';
-        if (retainReport) view.render(() => setStateMessage(view, `${error.message} Showing the previous result.${retryHint}`, 'error'));
-        else showState(view, `${error.message}${retryHint}`, 'error');
+        const refreshHint = view === views.footer ? '' : ' Use Refresh to load the latest totals.';
+        if (retainReport) view.render(() => setStateMessage(view, `${error.message} Showing the previous result.${refreshHint}`, 'error'));
+        else showState(view, `${error.message}${refreshHint}`, 'error');
       }
     } finally {
       if (view.controller === controller) {

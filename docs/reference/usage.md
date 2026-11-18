@@ -15,7 +15,7 @@ Detailed behavior for Helios `0.4.1-alpha`. Start with the root README for insta
 
 Model selections are saved per conversation and restored when reopened. A new chat captures the default when its draft opens; later default changes leave existing conversations and already selected drafts unchanged. Editing a profile in Settings is separate from choosing the new-chat default.
 
-Sending while a model selection is saving waits for confirmation. Failed saves or changes from another tab reload the current choice, preserve the question draft, and do not automatically resend. If readback also fails, use **Reload selection** to verify it. Deleted selections show **Unavailable model** without automatically substituting another profile. Attachment checks also use this conversation's selected model and settings.
+Sending while a model selection is saving waits for confirmation. After a failed save or a change from another tab, Helios checks the current selection and keeps the question draft without resending it. If Helios cannot verify the selection, choose **Reload selection** in **Conversation model**. Deleted selections show **Unavailable model** without automatically substituting another profile. Attachment checks also use this conversation's selected model and settings.
 
 Enter the resource or Foundry project API base used to call the Deployment. Project endpoints containing `/api/projects/<project-name>` are supported, including bases with `/openai/v1/` already appended. Use the API base rather than an individual `/responses` operation URL, an Azure Portal page, or an Azure Resource Manager management URL.
 

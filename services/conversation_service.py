@@ -184,7 +184,7 @@ class ConversationManager:
             and expected_revision != conversation.profile_revision
         ):
             raise ConversationProfileConflictError(
-                "The model selection changed. Reload it before selecting again."
+                "The model selection changed. Review the current model before selecting again."
             )
         if (
             conversation.profile_initialized

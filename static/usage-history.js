@@ -230,12 +230,12 @@ export function createUsageHistory({ isVisible, onLoadingChange }) {
       scroller.scrollTop = scrollTop;
     } catch (error) {
       if (controller === current && error.name !== 'AbortError') {
-        const retry = 'Use Refresh to retry from the newest records.';
+        const refreshHint = 'Use Refresh to load the newest records.';
         if (retainPage) {
           root.dataset.state = 'error';
-          message.textContent = `${error.message} Showing the previous page. ${retry}`;
+          message.textContent = `${error.message} Showing the previous page. ${refreshHint}`;
           message.hidden = false;
-        } else clear('error', `${error.message} ${retry}`);
+        } else clear('error', `${error.message} ${refreshHint}`);
       }
     } finally {
       if (controller === current) {

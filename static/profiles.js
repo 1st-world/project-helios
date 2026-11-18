@@ -263,7 +263,8 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
 
     const reload = $('#reload-model-selection');
     const reloading = reloadingSelection?.epoch === model.epoch;
-    reload.hidden = !reloading && model.ready && !model.error && !state.catalogError;
+    const selectionLoadFailed = !model.ready && Boolean(model.error);
+    reload.hidden = !reloading && !selectionLoadFailed && !state.catalogError;
     setRefreshBusy(reload, reloading, reloading || model.saving);
 
     const popoverList = $('#model-profile-list');
@@ -389,7 +390,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     $('#profile-catalog-feedback').hidden = !state.catalogError;
     const status = $('#profile-catalog-status');
     const message = state.catalogError ? state.catalogLoaded
-      ? 'Could not reload profiles. The last loaded list is shown.' : 'Could not load connection profiles.' : '';
+      ? 'Could not load connection profiles. Showing the previous list.' : 'Could not load connection profiles.' : '';
     setText(status, message);
     setRefreshBusy($('#reload-profile-catalog'), state.catalogLoading, state.catalogLoading || state.saving || state.defaultSaving);
   }
@@ -450,8 +451,8 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
   async function prepareRequestProfile() {
     const context = modelSelection.snapshot().epoch;
     if (catalogPromise) await catalogPromise;
-    if (!state.catalogLoaded && !await loadProfiles()) throw new Error('Reload model profiles before sending.');
-    if (state.catalogError) throw new Error('Reload model profiles before sending.');
+    if (!state.catalogLoaded) await loadProfiles();
+    if (state.catalogError) throw new Error('Could not load model profiles. Choose Reload selection in the model picker.');
     if (context !== modelSelection.snapshot().epoch) throw new DOMException('Conversation changed while loading model profiles.', 'AbortError');
     const prepared = await modelSelection.prepare();
     const profile = state.profiles.find(item => item.id === prepared.profile_id);

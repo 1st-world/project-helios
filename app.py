@@ -816,7 +816,7 @@ def resolve_conversation_profile(
     ):
         raise HTTPException(status_code=409, detail={
             "code": "conversation_profile_changed",
-            "message": "The model selection changed. Reload it before sending again.",
+            "message": "The model selection changed. Review the current model before sending again.",
         })
     selected_id = (
         explicit_id if explicit_id is not None else selection["profile_id"]

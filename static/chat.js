@@ -55,7 +55,7 @@ export function createChat({ getActiveProfileId, getModelSelection = () => ({}),
   usageFooter.setAttribute('aria-label', 'Recorded conversation usage');
   usageFooter.setAttribute('aria-live', 'off');
   usageFooter.innerHTML = `
-    <div class="conversation-usage-heading"><i data-lucide="chart-no-axes-combined"></i><strong>Conversation usage</strong><button class="quiet-btn" type="button" data-usage-retry aria-label="Retry conversation usage" hidden><i data-lucide="refresh-cw"></i> Retry</button></div>
+    <div class="conversation-usage-heading"><i data-lucide="chart-no-axes-combined"></i><strong>Conversation usage</strong><button class="quiet-btn" type="button" data-usage-retry hidden><i data-lucide="refresh-cw" aria-hidden="true"></i><span>Reload usage</span></button></div>
     <p data-usage-state role="status">Select a conversation to see recorded usage.</p>
     <dl class="conversation-usage-metrics">
       <div><dt>Calls</dt><dd data-usage-field="calls">—</dd></div>
@@ -1174,7 +1174,7 @@ export function createChat({ getActiveProfileId, getModelSelection = () => ({}),
       resumeTarget = { target_profile_id: prepared.profile_id, expected_profile_revision: prepared.expected_profile_revision,
         expected_checkpoint_revision: run.checkpoint_revision, expected_execution_revision: run.execution_revision };
     } catch (error) {
-      if (isCurrent()) toast(error.message || 'Could not verify the selected model. Reload its selection before resuming.', 'warning');
+      if (isCurrent()) toast(error.message || 'Could not verify the selected model. Review it in the model picker before resuming.', 'warning');
       return;
     } finally {
       state.resumePreparing = false;

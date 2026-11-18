@@ -11,7 +11,7 @@ export function createModelSelection({ onChange = () => {}, request = (...args) 
   const changed = () => onChange(snapshot());
 
   function apply(data) {
-    if (!Object.hasOwn(data, 'profile_id') || !Number.isSafeInteger(data.profile_revision) || data.profile_revision < 0) throw new Error('Could not verify the saved model selection. Reload it before continuing.');
+    if (!Object.hasOwn(data, 'profile_id') || !Number.isSafeInteger(data.profile_revision) || data.profile_revision < 0) throw new Error('Could not verify the saved model selection.');
     if (state.revision !== null && data.profile_revision < state.revision) return false;
     state.profileId = data.profile_id;
     state.available = data.profile_available !== false;
@@ -21,11 +21,11 @@ export function createModelSelection({ onChange = () => {}, request = (...args) 
     return true;
   }
 
-  async function read(response) {
+  async function read(response, fallback) {
     let data;
     try { data = await response.json(); }
-    catch { throw new Error('Could not confirm the model selection. Reload it before continuing.'); }
-    if (!response.ok) throw new Error(data?.detail?.message || data?.detail || 'Could not save the model selection.');
+    catch { throw new Error('Could not verify the saved model selection.'); }
+    if (!response.ok) throw new Error(data?.detail?.message || data?.detail || fallback);
     return data;
   }
 
@@ -75,7 +75,8 @@ export function createModelSelection({ onChange = () => {}, request = (...args) 
     state.ready = false;
     changed();
     try {
-      const data = await read(await request(`/api/conversations/${encodeURIComponent(id)}/profile`, { cache: 'no-store', signal: AbortSignal.timeout(12000) }));
+      const response = await request(`/api/conversations/${encodeURIComponent(id)}/profile`, { cache: 'no-store', signal: AbortSignal.timeout(12000) });
+      const data = await read(response, 'Could not load the saved model selection.');
       if (context !== epoch || reading !== readVersion) return false;
       if (!apply(data)) state.ready = true;
       return true;
@@ -89,7 +90,7 @@ export function createModelSelection({ onChange = () => {}, request = (...args) 
 
   function select(profileId) {
     if (pending) return pending;
-    if (!state.ready) return Promise.reject(new Error('Reload the model selection before choosing a profile.'));
+    if (!state.ready) return Promise.reject(new Error('The model selection is not ready. Check the model picker before choosing a profile.'));
     if (profileId === state.profileId) return Promise.resolve(false);
     if (state.conversationId === null) {
       state.profileId = profileId;
@@ -107,10 +108,11 @@ export function createModelSelection({ onChange = () => {}, request = (...args) 
     changed();
     pending = (async () => {
       try {
-        const data = await read(await request(`/api/conversations/${encodeURIComponent(id)}/profile`, {
+        const response = await request(`/api/conversations/${encodeURIComponent(id)}/profile`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ profile_id: profileId, expected_profile_revision: revision }), signal: AbortSignal.timeout(12000)
-        }));
+        });
+        const data = await read(response, 'Could not save the model selection.');
         if (context !== epoch) return false;
         if (!apply(data)) throw new Error('The model selection changed again. Review the current model before sending.');
         return true;
@@ -135,7 +137,10 @@ export function createModelSelection({ onChange = () => {}, request = (...args) 
     const context = epoch;
     if (pending) await pending;
     if (context !== epoch) throw new DOMException('Conversation changed while saving its model.', 'AbortError');
-    if (!state.ready) throw new Error('Reload the model selection before sending.');
+    if (!state.ready) {
+      throw new Error(state.error ? 'Could not verify the model selection. Choose Reload selection in the model picker.'
+        : 'Wait for the model selection to finish loading.');
+    }
     if (!state.profileId) throw new Error('Select a model profile for this conversation before sending.');
     if (state.available === false) throw new Error('The selected model profile is unavailable. Choose another profile before sending.');
     return { profile_id: state.profileId, ...(state.conversationId === null ? {} : { expected_profile_revision: state.revision }), epoch };
