@@ -1560,7 +1560,7 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:not(:disabled):hover 
   }
 }
 
-.preferences-dialog #storage-usage button[aria-busy="true"] > svg[data-lucide="refresh-cw"] {
+button[aria-busy="true"] > svg[data-lucide="refresh-cw"] {
   animation: status-icon-spin calc(var(--motion-duration) * 5) linear infinite;
 }
 @keyframes composer-notice-check {
@@ -5762,7 +5762,7 @@ button svg,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .preferences-dialog #storage-usage button[aria-busy="true"] > svg[data-lucide="refresh-cw"],
+  button[aria-busy="true"] > svg[data-lucide="refresh-cw"],
   .response-progress .response-progress-indicator,
   .composer-conversation-notices [data-tone="progress"] [data-notice-icon="progress"],
   .composer-conversation-notices [data-tone="success"] [data-notice-icon="success"],

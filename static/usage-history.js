@@ -87,7 +87,7 @@ function validateRecords(data) {
   }
 }
 
-export function createUsageHistory({ isVisible }) {
+export function createUsageHistory({ isVisible, onLoadingChange }) {
   const root = $('#usage-call-history');
   const list = $('#usage-calls-list');
   const message = $('#usage-calls-state');
@@ -123,6 +123,7 @@ export function createUsageHistory({ isVisible }) {
     root.setAttribute('aria-busy', String(Boolean(controller)));
     previous.disabled = Boolean(controller) || !hasPage || offset === 0;
     next.disabled = Boolean(controller) || !hasPage || !hasNext;
+    onLoadingChange(Boolean(controller));
   }
 
   function cancel() {
@@ -187,18 +188,15 @@ export function createUsageHistory({ isVisible }) {
     return item;
   }
 
-  async function loadPage(requestedOffset = offset) {
+  async function loadPage(requestedOffset = offset, { keepPage = false } = {}) {
     cancel();
     if (!query || !root.open || !isVisible()) return;
-    const retainPage = requestedOffset === offset && hasPage;
+    const retainPage = hasPage && (requestedOffset === offset || keepPage);
     if (retainPage) rememberDisclosures();
     else if (requestedOffset !== offset) disclosureStates.clear();
     const current = new AbortController();
     controller = current;
     if (retainPage) {
-      root.dataset.state = 'loading';
-      message.textContent = 'Loading recorded calls…';
-      message.hidden = false;
       updateControls();
     } else {
       clear('loading', 'Loading recorded calls…');
@@ -218,7 +216,7 @@ export function createUsageHistory({ isVisible }) {
       validateRecords(data);
       const calls = data.calls.slice(0, PAGE_SIZE);
       const scroller = root.querySelector('.usage-calls-scroll');
-      const scrollTop = retainPage ? scroller.scrollTop : 0;
+      const scrollTop = retainPage && requestedOffset === offset ? scroller.scrollTop : 0;
       if (retainPage) rememberDisclosures();
       disposeDisclosures();
       list.replaceChildren(...calls.map(renderCall));
@@ -231,7 +229,14 @@ export function createUsageHistory({ isVisible }) {
       $('#usage-calls-page').textContent = calls.length ? `${offset + 1}–${offset + calls.length}` : 'No records';
       scroller.scrollTop = scrollTop;
     } catch (error) {
-      if (controller === current && error.name !== 'AbortError') clear('error', `${error.message} Use Refresh to retry from the newest records.`);
+      if (controller === current && error.name !== 'AbortError') {
+        const retry = 'Use Refresh to retry from the newest records.';
+        if (retainPage) {
+          root.dataset.state = 'error';
+          message.textContent = `${error.message} Showing the previous page. ${retry}`;
+          message.hidden = false;
+        } else clear('error', `${error.message} ${retry}`);
+      }
     } finally {
       if (controller === current) {
         controller = null;
@@ -244,14 +249,15 @@ export function createUsageHistory({ isVisible }) {
   function select(params, description = '', { reset = false } = {}) {
     cancel();
     const selected = params ? params.toString() : null;
-    const changed = selected !== query || reset;
+    const visible = root.open && isVisible();
+    const changed = selected !== query || reset && !visible;
     if (changed) {
       offset = 0;
       disclosureStates.clear();
     }
     query = selected;
     if (changed || !query) clear('empty', description);
-    if (query && root.open && isVisible()) loadPage();
+    if (query && visible) loadPage(reset ? 0 : offset, { keepPage: reset });
   }
 
   function suspend() {

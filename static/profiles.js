@@ -1,6 +1,6 @@
 /* Own connection profiles, model selection, and credential, context, and pricing editing. */
 
-import { $, closeMobileSidebar, escapeHtml, nameInText, refreshIcons, setText, toast } from './ui.js';
+import { $, closeMobileSidebar, escapeHtml, nameInText, refreshIcons, setRefreshBusy, setText, toast } from './ui.js';
 import { selectSettingsPanel } from './settings.js';
 import { createProfileContext } from './profile-context.js';
 import { describeRequestError } from './chat-feedback.js';
@@ -39,6 +39,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
   const profileContext = createProfileContext({ isSaving: () => state.saving });
   const modelSelection = createModelSelection({ onChange: renderModelSelection });
   let catalogPromise = null;
+  let reloadingSelection = null;
   let modelContextSignature = '';
   let cachePriceBaseline = {};
   let pausedRun = null;
@@ -260,8 +261,10 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
       if (select) select.title = $('#model-trigger').title;
     }
 
-    $('#reload-model-selection').hidden = model.ready && !model.error && !state.catalogError;
-    $('#reload-model-selection').disabled = model.saving;
+    const reload = $('#reload-model-selection');
+    const reloading = reloadingSelection?.epoch === model.epoch;
+    reload.hidden = !reloading && model.ready && !model.error && !state.catalogError;
+    setRefreshBusy(reload, reloading, reloading || model.saving);
 
     const popoverList = $('#model-profile-list');
     if (popoverList) {
@@ -388,9 +391,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     const message = state.catalogError ? state.catalogLoaded
       ? 'Could not reload profiles. The last loaded list is shown.' : 'Could not load connection profiles.' : '';
     setText(status, message);
-    $('#reload-profile-catalog').disabled = state.catalogLoading || state.saving || state.defaultSaving;
-    $('#reload-profile-catalog').setAttribute('aria-busy', String(state.catalogLoading));
-    $('#reload-profile-catalog-label').textContent = state.catalogLoading ? 'Reloading…' : 'Reload profiles';
+    setRefreshBusy($('#reload-profile-catalog'), state.catalogLoading, state.catalogLoading || state.saving || state.defaultSaving);
   }
 
   async function loadProfiles() {
@@ -689,7 +690,21 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
       try { await modelSelection.select(event.target.value); }
       catch (error) { toast(error.message, 'warning'); }
     };
-    $('#reload-model-selection').onclick = () => refreshModelSelection(modelSelection.snapshot().conversationId);
+    $('#reload-model-selection').onclick = async () => {
+      const { conversationId, epoch } = modelSelection.snapshot();
+      if (reloadingSelection?.epoch === epoch) return;
+      const reload = { epoch };
+      reloadingSelection = reload;
+      renderModelSelection();
+      try {
+        await refreshModelSelection(conversationId);
+      } finally {
+        if (reloadingSelection === reload) {
+          reloadingSelection = null;
+          renderModelSelection();
+        }
+      }
+    };
 
     $('#settings-dialog').addEventListener('close', () => {
       if ($('#settings-dialog').open) return;

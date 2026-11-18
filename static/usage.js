@@ -1,6 +1,6 @@
 /* Coordinate ledger aggregates and filtered call history without estimating missing usage or repricing history. */
 
-import { $, refreshIcons } from './ui.js';
+import { $, refreshIcons, setRefreshBusy } from './ui.js';
 import { describeRequestError } from './chat-feedback.js';
 import { createFieldValidation } from './field-validation.js';
 import { createUsageHistory } from './usage-history.js';
@@ -96,17 +96,30 @@ export function createUsage({ footer, renderFooter }) {
   let updatesConnectionTimer = null;
   let updatesRevision = null;
   let updatesSequence = 0;
-  const history = createUsageHistory({ isVisible: settingsVisible });
+  let historyLoading = false;
+  const history = createUsageHistory({ isVisible: settingsVisible, onLoadingChange(loading) {
+    historyLoading = loading;
+    updateSettingsRefresh();
+  } });
 
   function settingsVisible() {
     return dialog.open && !$('#settings-usage').hidden;
   }
 
+  function updateSettingsRefresh() {
+    setRefreshBusy(views.settings.refresh, Boolean(views.settings.controller || historyLoading));
+  }
+
+  function setLoading(view, busy) {
+    view.root.setAttribute('aria-busy', String(busy));
+    if (view === views.settings) updateSettingsRefresh();
+    else setRefreshBusy(view.refresh, busy);
+  }
+
   function cancel(view) {
     view.controller?.abort();
     view.controller = null;
-    view.root.setAttribute('aria-busy', 'false');
-    view.refresh.disabled = false;
+    setLoading(view, false);
   }
 
   function stopUpdates() {
@@ -192,7 +205,7 @@ export function createUsage({ footer, renderFooter }) {
     });
   }
 
-  async function load(view, params) {
+  async function load(view, params, { retry = false } = {}) {
     const query = params.toString();
     const retainReport = view.hasReport && view.query === query;
     cancel(view);
@@ -201,13 +214,8 @@ export function createUsage({ footer, renderFooter }) {
     view.controller = controller;
     const sequence = updatesSequence;
     let followup = false;
-    view.root.setAttribute('aria-busy', 'true');
-    view.refresh.disabled = true;
-    if (retainReport) {
-      setStateMessage(view, view === views.footer ? '' : 'Loading recorded usage…', 'loading');
-    } else {
-      showState(view, 'Loading recorded usage…', 'loading');
-    }
+    setLoading(view, true);
+    if (!retainReport && !retry) showState(view, 'Loading recorded usage…', 'loading');
     try {
       const response = await fetch(`/api/usage?${params}`, { signal: controller.signal });
       const report = await response.json().catch(() => null);
@@ -227,14 +235,14 @@ export function createUsage({ footer, renderFooter }) {
       if (view === views.footer) watchFooter(report.revision);
     } catch (error) {
       if (view.controller === controller && error.name !== 'AbortError') {
-        const retry = view === views.footer ? '' : ' Use Refresh to retry.';
-        showState(view, `${error.message}${retry}`, 'error');
+        const retryHint = view === views.footer ? '' : ' Use Refresh to retry.';
+        if (retainReport) view.render(() => setStateMessage(view, `${error.message} Showing the previous result.${retryHint}`, 'error'));
+        else showState(view, `${error.message}${retryHint}`, 'error');
       }
     } finally {
       if (view.controller === controller) {
         view.controller = null;
-        view.root.setAttribute('aria-busy', 'false');
-        view.refresh.disabled = false;
+        setLoading(view, false);
         if (followup) refreshFooter({ keepUpdates: true });
       }
     }
@@ -286,13 +294,13 @@ export function createUsage({ footer, renderFooter }) {
     }
   }
 
-  function refreshFooter({ keepUpdates = false } = {}) {
+  function refreshFooter({ keepUpdates = false, retry = false } = {}) {
     if (!keepUpdates) stopUpdates();
     cancel(views.footer);
     if (!conversationId) {
       showState(views.footer, 'Select a conversation to see recorded usage.', 'empty');
     } else if (footerVisible && !generating && !document.hidden) {
-      load(views.footer, new URLSearchParams({ conversation_id: conversationId, timezone: getTimezone() }));
+      load(views.footer, new URLSearchParams({ conversation_id: conversationId, timezone: getTimezone() }), { retry });
     }
   }
 
@@ -346,7 +354,8 @@ export function createUsage({ footer, renderFooter }) {
       params.set('start_date', startDate.toISOString().slice(0, 10));
     }
     history.select(params, '', { reset: resetHistory });
-    load(views.settings, params);
+    load(views.settings, params, { retry: resetHistory && views.settings.query === params.toString()
+      && views.settings.root.dataset.state === 'error' });
   }
 
   function selectConversation(id) {
@@ -384,7 +393,7 @@ export function createUsage({ footer, renderFooter }) {
   function init() {
     history.init();
     updateTimezone();
-    views.footer.refresh.onclick = refreshFooter;
+    views.footer.refresh.onclick = () => refreshFooter({ retry: true });
     views.settings.refresh.onclick = () => refreshSettings({ resetHistory: true });
     document.addEventListener('visibilitychange', refreshFooter);
     window.addEventListener('focus', () => {

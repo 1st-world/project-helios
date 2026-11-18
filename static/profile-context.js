@@ -1,6 +1,6 @@
 /* Edit profile context settings and preview their effective policy without provider calls. */
 
-import { $, setText } from './ui.js';
+import { $, setRefreshBusy, setText } from './ui.js';
 import { PREFLIGHT_HELP, describeMemoryState, describeRequestError } from './chat-feedback.js';
 import { describeEstimation } from './estimation.js';
 import { setFieldFeedback } from './field-validation.js';
@@ -63,6 +63,7 @@ export function createProfileContext({ isSaving }) {
     state.timer = null;
     state.controller?.abort();
     state.controller = null;
+    setRefreshBusy(retry, false);
   }
 
   function invalidate() {
@@ -90,7 +91,7 @@ export function createProfileContext({ isSaving }) {
     setText(policyStatus, stale ? `${message}${separator}Showing previous values.` : message);
   }
 
-  function schedulePreview(delay = 0) {
+  function schedulePreview(delay = 0, { retrying = false } = {}) {
     cancelPreview();
     if (!disclosure.open || !dialog.open || $('#settings-connections').hidden) return;
 
@@ -100,17 +101,19 @@ export function createProfileContext({ isSaving }) {
     const draft = invalid || !profileId || Object.keys(edits).length > 0;
     const key = JSON.stringify([profileId, draft ? edits : null]);
     setText(policyTitle, draft ? 'Draft effective policy' : 'Saved effective policy');
-    retry.hidden = true;
+    retry.hidden = !retrying;
     if (invalid) {
+      retry.hidden = true;
       setPreviewFeedback('Check the context fields.');
       return;
     }
     if (key === state.loadedKey) {
+      retry.hidden = true;
       setPreviewFeedback();
       return;
     }
 
-    setPreviewFeedback('Updating preview.');
+    if (!retrying) setPreviewFeedback('Updating preview.');
     const payload = draft ? { profile_id: profileId, ...edits } : null;
     if (delay) {
       state.timer = setTimeout(() => {
@@ -118,13 +121,14 @@ export function createProfileContext({ isSaving }) {
         loadPreview(profileId, payload, key);
       }, delay);
     } else {
-      loadPreview(profileId, payload, key);
+      loadPreview(profileId, payload, key, retrying);
     }
   }
 
-  async function loadPreview(profileId, payload, key) {
+  async function loadPreview(profileId, payload, key, retrying = false) {
     const controller = new AbortController();
     state.controller = controller;
+    if (retrying) setRefreshBusy(retry, true);
     try {
       const response = payload
         ? await fetch('/api/context-policy/preview', {
@@ -143,13 +147,17 @@ export function createProfileContext({ isSaving }) {
       renderPolicy(data);
       state.loadedKey = key;
       setPreviewFeedback();
+      retry.hidden = true;
     } catch (error) {
       if (error.name !== 'AbortError' && state.controller === controller) {
         setPreviewFeedback(error.message || 'Could not load the effective policy.');
         retry.hidden = false;
       }
     } finally {
-      if (state.controller === controller) state.controller = null;
+      if (state.controller === controller) {
+        state.controller = null;
+        setRefreshBusy(retry, false);
+      }
     }
   }
 
@@ -288,7 +296,7 @@ export function createProfileContext({ isSaving }) {
       };
     });
     disclosure.addEventListener('toggle', () => schedulePreview());
-    retry.onclick = () => schedulePreview();
+    retry.onclick = () => schedulePreview(0, { retrying: true });
     dialog.addEventListener('settings-panel-change', () => schedulePreview());
     dialog.addEventListener('app-settings-saved', () => {
       invalidate();
