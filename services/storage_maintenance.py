@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+import stat
 from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -14,6 +15,7 @@ from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 
+from services.project_access import is_link, signature
 from services.storage_diagnostics import ATTACHMENT_RECOVERY_CODES
 from services.storage_recovery import (
     RecoveryError, RecoveryPreviewReport, recovery_copy_name, resolve_recovery_backup, resolve_recovery_output,
@@ -35,6 +37,7 @@ class MaintenanceBusy(RuntimeError):
 
 RECOVERY_PREVIEW = "recovery-preview"
 RECOVERY_APPLY = "recovery-apply"
+CheckScope = Literal["basic", "deep"]
 RecoveryOperation = Literal["recovery-preview", "recovery-apply"]
 logger = logging.getLogger(__name__)
 
@@ -88,7 +91,7 @@ def read_job(path: Path) -> dict | None:
     return None
 
 
-def result_path(root: Path, *, scope: Literal["basic", "deep"] | RecoveryOperation = "deep") -> Path:
+def result_path(root: Path, *, scope: CheckScope | RecoveryOperation = "deep") -> Path:
     """Locate the latest report of the selected maintenance operation."""
     filename = {"basic": "last-basic-check.json", "deep": "last-deep-check.json",
                 RECOVERY_PREVIEW: "last-recovery-preview.json", RECOVERY_APPLY: "last-recovery-copy.json"}[scope]
@@ -100,7 +103,7 @@ def recovery_record_dir(root: Path) -> Path:
     return root / "logs" / "storage-recovery"
 
 
-def _valid_report(report: object, scope: Literal["basic", "deep"]) -> bool:
+def _valid_report(report: object, scope: CheckScope) -> bool:
     """Check the saved report fields the Settings view needs to render."""
     if not isinstance(report, dict) or report.get("scope") != scope or type(report.get("complete")) is not bool:
         return False
@@ -136,7 +139,7 @@ def _finished_outcome(job: dict | None) -> dict | None:
     return {"id": job["id"], "status": job.get("status"), "finished_at": timestamp}
 
 
-def check_result(job: dict | None, *, scope: Literal["basic", "deep"]) -> dict | None:
+def check_result(job: dict | None, *, scope: CheckScope) -> dict | None:
     """Return a valid saved check outcome for Settings."""
     result = _finished_outcome(job)
     if job is None or result is None:
@@ -149,9 +152,38 @@ def check_result(job: dict | None, *, scope: Literal["basic", "deep"]) -> dict |
     return None
 
 
-def load_check_result(path: Path, *, scope: Literal["basic", "deep"]) -> dict | None:
+def load_check_result(path: Path, *, scope: CheckScope) -> dict | None:
     """Read the saved result and treat a missing or malformed file as no history."""
     return check_result(read_job(path), scope=scope)
+
+
+def _check_result_signature(path: Path) -> tuple | None:
+    """Identify a regular, unlinked result file in its expected location."""
+    try:
+        if path.resolve() != path:
+            raise OSError("Saved check result is redirected.")
+        info = path.lstat()
+    except FileNotFoundError:
+        return None
+    if is_link(info) or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise OSError("Saved check result is not an ordinary file.")
+    return signature(info)
+
+
+def remove_check_result(root: Path, scope: CheckScope, result_id: UUID) -> bool:
+    """Remove a reviewed check result, returning false if a different result occupies its slot."""
+    path = result_path(root.absolute(), scope=scope)
+    before = _check_result_signature(path)
+    if before is None:
+        return True
+    result = load_check_result(path, scope=scope)
+    after = _check_result_signature(path)
+    if after is None:
+        return True
+    if before != after or result is None or result["id"] != str(result_id):
+        return False
+    path.unlink(missing_ok=True)
+    return True
 
 
 def load_recovery_result(root: Path, operation: RecoveryOperation) -> dict | None:

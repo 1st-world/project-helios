@@ -109,7 +109,7 @@ A confirmed deep check lets active requests finish before the loopback worker ex
 
 The live basic check uses the configured paths for each store. It shares the inspection logic and Settings report format in `services/storage_diagnostics.py` with the offline deep check.
 
-Check results are separate from the stores they inspect. The latest result of each type is saved in `.cache/storage-maintenance/` as `last-basic-check.json` and `last-deep-check.json`. The deep check file retains the full findings. The launcher prints its path before starting the new worker so the result remains accessible if startup fails.
+Check results are separate from the stores they inspect. The latest result of each type is saved in `.cache/storage-maintenance/` as `last-basic-check.json` and `last-deep-check.json`. The deep check file retains the full findings. The launcher prints its path before starting the new worker so the result remains accessible if startup fails. The [result removal API](api.md#remove-a-saved-check-result) clears each report independently using its saved ID.
 
 #### Standalone diagnostics
 

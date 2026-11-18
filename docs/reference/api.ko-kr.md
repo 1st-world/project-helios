@@ -58,6 +58,12 @@ Microsoft의 [Foundry REST 참조](https://learn.microsoft.com/en-us/rest/api/mi
 
 두 검사 결과에는 `scope`(`basic` 또는 `deep`), `complete`, `problems`·`review`·`deferred` 건수를 담은 `summary`가 들어갑니다. `findings`의 각 항목은 상대 경로 `path`와 `status`, `code`, `message`를 담습니다. `omitted_findings`는 처음 50건 이후 응답에서 생략한 문제·보류·검토 항목 수입니다. 새 결과의 `has_attachment_recovery_candidates`는 생략된 항목을 포함한 전체 결과에서 첨부 복구 대상이 있는지 나타냅니다. 이전 결과에는 이 필드가 없을 수 있습니다. 보류된 검사가 있으면 `complete`는 `false`입니다. 오프라인 검사 범위는 [독립 실행 진단](architecture.ko-kr.md#독립-실행-진단)을 참고하세요.
 
+### 저장된 검사 결과 삭제
+
+`DELETE /api/storage/diagnostics/results/{scope}?result_id=<UUID>`에 `scope`를 `basic` 또는 `deep`으로 지정하고 저장된 결과의 `id`를 전달합니다. 요청은 루프백에서 보내야 하며, 호스트는 `localhost` 또는 `127.0.0.1`이어야 합니다. `X-Helios-Maintenance: remove-check-result` 헤더가 필요합니다. 이 조건을 충족하지 못하면 HTTP `403`을 반환합니다.
+
+지정한 결과를 삭제했거나 해당 파일이 이미 없으면 HTTP `204`를 반환합니다. 저장된 결과가 바뀌었거나 검증할 수 없으면 `storage_check_result_changed`를, 검사·삭제·관리형 유지보수 작업이 진행 중이면 `storage_maintenance_in_progress`를 담은 HTTP `409`를 반환합니다. 파일을 안전하게 삭제할 수 없으면 HTTP `500`을 반환합니다. 선택한 진단 결과 파일만 삭제하며 재시작은 필요하지 않습니다.
+
 ### 첨부 복구 미리보기
 
 `localhost` 또는 `127.0.0.1`에 `X-Helios-Maintenance: recovery-preview` 헤더와 `backup_path`가 포함된 JSON 본문을 붙여 `POST /api/storage/recovery/preview`를 보냅니다. 서버에서 접근 가능한 기존 백업 폴더의 절대 경로를 지정합니다. 백업 폴더는 현재 저장소와 달라야 합니다. 관리 실행기로 시작한 서버는 HTTP `202`와 작업의 `id`, `status: "pending"`을 반환합니다. 실행기는 워커가 정상 종료된 뒤 백업을 검증하고 같은 포트에 서버를 다시 띄웁니다. 심층 검사와 복구 미리보기는 한 번에 하나만 예약할 수 있습니다. 잘못된 폴더에는 HTTP `400`, 호스트나 헤더 조건을 충족하지 못하면 `403`, 관리 실행기를 사용할 수 없거나 이미 대기 중인 오프라인 작업이 있으면 `409`를 반환합니다.

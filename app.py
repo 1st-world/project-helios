@@ -97,10 +97,10 @@ from services.profile_service import (
 from services.provider_errors import ConnectionConfigurationError, ProviderFailure
 from services.settings_service import SettingsStorageError
 from services.storage_maintenance import (
-    RECOVERY_APPLY, RECOVERY_PREVIEW, MaintenanceBusy, MaintenanceSession, RecoveryOperation,
+    RECOVERY_APPLY, RECOVERY_PREVIEW, CheckScope, MaintenanceBusy, MaintenanceSession, RecoveryOperation,
     load_check_result, load_recovery_result, own_storage, ownership_path,
-    prepare_recovery_copy, reconcile_recovery_records, recovery_record_dir, resolve_preview_backup, result_path,
-    save_basic_check,
+    prepare_recovery_copy, reconcile_recovery_records, recovery_record_dir, remove_check_result,
+    resolve_preview_backup, result_path, save_basic_check,
 )
 from services.storage_recovery import RecoveryError as StorageRecoveryError, resolve_recovery_backup
 from services.storage_references import WORK_RUNS
@@ -2087,6 +2087,30 @@ def is_local_maintenance_request(request: Request, operation: str) -> bool:
     """Require a loopback host and the operation's explicit maintenance header."""
     return (request.url.hostname in {"localhost", "127.0.0.1"}
             and request.headers.get("x-helios-maintenance") == operation)
+
+
+@router.delete("/api/storage/diagnostics/results/{scope}", status_code=204)
+async def remove_saved_storage_check(request: Request, scope: CheckScope, result_id: UUID):
+    """Remove one previously reviewed diagnostic result from local Settings."""
+    if (not is_local_maintenance_request(request, "remove-check-result")
+            or request.client is None or request.client.host not in {"127.0.0.1", "::1"}):
+        raise HTTPException(status_code=403, detail="Remove saved check results from local Helios.")
+    runtime = current_runtime()
+    maintenance = runtime.maintenance
+    if runtime.storage_check_lock.locked() or (maintenance is not None and maintenance.pending is not None):
+        raise HTTPException(status_code=409, detail={
+            "code": "storage_maintenance_in_progress", "message": "Wait for storage maintenance to finish before removing a result.",
+        })
+    async with runtime.storage_check_lock:
+        try:
+            removed = await run_local(remove_check_result, runtime.storage_root, scope, result_id)
+        except (OSError, RuntimeError):
+            raise HTTPException(status_code=500, detail="Could not remove the saved check result.") from None
+    if not removed:
+        raise HTTPException(status_code=409, detail={
+            "code": "storage_check_result_changed", "message": "The saved check result changed. Load the latest results before removing it.",
+        })
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/api/storage/maintenance")
