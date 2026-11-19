@@ -1,6 +1,6 @@
 /* Measure Storage usage on demand and render a breakdown of measured bytes. */
 
-import { $, setRefreshBusy, setText } from './ui.js';
+import { $, formatSize, setRefreshBusy, setText } from './ui.js';
 import { refreshStorageTime, setStorageStatus, setStorageTime } from './storage-results.js';
 
 const categories = new Map([
@@ -12,18 +12,7 @@ const categories = new Map([
   ['cache', 'Cache'],
   ['backups', 'Settings & profile backups']
 ]);
-const sizeUnits = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
-const sizeNumber = new Intl.NumberFormat('en', { maximumFractionDigits: 1 });
 const shareNumber = new Intl.NumberFormat('en', { style: 'percent', maximumFractionDigits: 1 });
-
-function formatSize(bytes) {
-  let unit = 0;
-  while (bytes >= 1024 && unit < sizeUnits.length - 1) {
-    bytes /= 1024;
-    unit++;
-  }
-  return `${sizeNumber.format(bytes)} ${sizeUnits[unit]}`;
-}
 
 function formatShare(value) {
   if (value > 0 && value < 0.001) return '<0.1%';

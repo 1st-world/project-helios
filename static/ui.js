@@ -4,6 +4,18 @@ import { bindDialogBackdrop } from './dialogs.js';
 
 export const $ = (selector) => document.querySelector(selector);
 
+const sizeUnits = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
+const sizeNumber = new Intl.NumberFormat('en', { maximumFractionDigits: 1 });
+
+export function formatSize(bytes) {
+  let unit = 0;
+  while (bytes >= 1024 && unit < sizeUnits.length - 1) {
+    bytes /= 1024;
+    unit++;
+  }
+  return `${sizeNumber.format(bytes)} ${sizeUnits[unit]}`;
+}
+
 export function setText(element, text) {
   if (element.textContent !== text) element.textContent = text;
 }

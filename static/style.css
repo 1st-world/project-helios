@@ -3075,6 +3075,80 @@ textarea::placeholder {
   border-bottom: 0;
 }
 
+.preferences-dialog .settings-load-feedback {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 12px var(--settings-content-spacing);
+  gap: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+.preferences-dialog .settings-load-feedback[hidden] {
+  display: none;
+}
+.preferences-dialog .settings-load-feedback > p {
+  flex: 1 1 180px;
+  min-width: 0;
+  margin: 0;
+  color: var(--danger-text);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+  overflow-wrap: anywhere;
+}
+.preferences-dialog .settings-load-feedback > button {
+  flex: none;
+}
+
+.preferences-dialog #context-tokenizer .settings-panel-heading {
+  flex-wrap: wrap;
+}
+.preferences-dialog #context-tokenizer :where(.settings-group-body, #context-tokenizer-transfer) {
+  display: grid;
+  gap: 8px;
+}
+.preferences-dialog #context-tokenizer :is(.field-hint, .field-error) {
+  margin: 0;
+}
+.preferences-dialog #context-tokenizer-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.preferences-dialog #context-tokenizer-status .tokenizer-status-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  height: 1lh;
+}
+.preferences-dialog #context-tokenizer-status .tokenizer-status-icon > svg {
+  width: 11px;
+  height: 11px;
+  animation: status-icon-spin calc(var(--motion-duration) * 5) linear infinite;
+}
+.preferences-dialog #context-tokenizer progress {
+  width: 100%;
+  height: 5px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 4px;
+  background: var(--bg-element);
+  appearance: none;
+}
+.preferences-dialog #context-tokenizer progress::-webkit-progress-bar {
+  background: transparent;
+}
+.preferences-dialog #context-tokenizer progress::-webkit-progress-value {
+  border-radius: inherit;
+  background: var(--accent);
+}
+.preferences-dialog #context-tokenizer progress::-moz-progress-bar {
+  border-radius: inherit;
+  background: var(--accent);
+}
+.preferences-dialog #context-tokenizer [hidden] {
+  display: none;
+}
+
 .preferences-dialog #settings-storage .settings-panel-heading {
   flex-wrap: wrap;
 }
@@ -4609,29 +4683,6 @@ textarea::placeholder {
 .preferences-dialog .profile-key-field > label {
   margin: 0;
 }
-.preferences-dialog .profile-catalog-feedback {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  padding: 12px var(--settings-content-spacing);
-  gap: 8px 12px;
-  border-top: 1px solid var(--border);
-}
-.preferences-dialog .profile-catalog-feedback[hidden] {
-  display: none;
-}
-.preferences-dialog .profile-catalog-feedback p {
-  flex: 1 1 180px;
-  min-width: 0;
-  margin: 0;
-  color: var(--danger-text);
-  font-size: var(--font-size-description);
-  line-height: var(--line-height-description);
-  overflow-wrap: anywhere;
-}
-.preferences-dialog .profile-catalog-feedback button {
-  flex: none;
-}
 #azure-settings-form label {
   margin: 0;
 }
@@ -5769,6 +5820,7 @@ button svg,
   .response-progress .response-progress-indicator,
   .composer-conversation-notices [data-tone="progress"] [data-notice-icon="progress"],
   .composer-conversation-notices [data-tone="success"] [data-notice-icon="success"],
+  .preferences-dialog #context-tokenizer-status .tokenizer-status-icon > svg,
   :is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-status[data-tone="running"] .storage-status-icon > svg,
   .preferences-dialog [data-field-control] [aria-invalid="true"],
   .work-tools-settings [data-field-control] [aria-invalid="true"],

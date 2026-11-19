@@ -94,6 +94,16 @@ Older conversations without selection fields initialize once, during list/detail
 
 The API can update the next-response choice during active or paused work. Already started requests and one-use recovery keep their prepared profile without overwriting a newer choice. Resume keeps the current execution segment's model by default; only an explicit model-switch request uses another profile. Composer saves the conversation's choice, while the Connections default initializes new chats. The Composer can save a model choice while paused without starting work. Resume confirmation identifies the current and target models, the target host, shared context and cumulative costs. Selection is reread before and after confirmation; changed profile settings require fresh consent. Cancel keeps both the new selection and the original paused checkpoint. Connections can still change the new-chat default.
 
+## Token estimation vocabulary API
+
+`GET /api/settings/tokenizer` returns `state` (`ready`, `missing`, `invalid`, or `installing`) and `can_install`. It checks the local file without accessing the network. Install with `POST /api/settings/tokenizer` from loopback using `localhost` or `127.0.0.1` and `X-Helios-Tokenizer: install`. The request has no body. Helios downloads the configured public file, verifies it before replacing the local copy, and uses it for new requests.
+
+HTTP `200` returns `state: "ready"`. If a download is already in progress, HTTP `202` returns `state: "installing"`. Read the status again to see the outcome. HTTP `403` indicates an invalid host, peer, or header. HTTP `502` indicates a failed or unverifiable download. HTTP `500` indicates a local save or load failure.
+
+While the state is `installing`, the response includes `download` with `phase` (`downloading` or `verifying`), `received_bytes`, and `total_bytes`. The total comes from the upstream `Content-Length` and is `null` when unavailable.
+
+After a failed installation, local status requests include `installation_error` while the vocabulary is still unavailable. The server retains the message until the next install attempt or restart.
+
 ## Memory policy API
 
 Set `stream_preparation: true` on `POST /api/chat` to receive preparation events on the reply stream. A foreground summary submission emits `memory_preparation` with `phase: "summary_started"`. With earlier messages, `start.memory_source` identifies the selected input as `original_history`, `saved_summary`, or `new_summary`. A later fallback to original history emits `memory_preparation` with `phase: "ready"` and the updated `source`. Preparation errors after the stream opens use an `error` event with `preparation_status` and the usual `detail`. Requests that omit the option receive preparation failures as HTTP errors.

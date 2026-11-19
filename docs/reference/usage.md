@@ -118,13 +118,15 @@ Recent-history size includes the saved model and tool records replayed for compl
 
 Local estimation **does not select a model-specific tokenizer**. It uses a local `o200k_base` vocabulary file if the file passes its integrity check. Otherwise, it uses a UTF-8 byte heuristic. Request framing and image/PDF estimates are also approximate, so estimates can differ from the provider's actual token and billing usage.
 
-To install the estimation vocabulary, run this separate setup command. It downloads and verifies a public file without calling the model API. This is not required for basic chat.
+On the computer running Helios, open **Settings → Context & attachments → Token estimation**. Select **Download vocabulary** if the file is missing or **Repair vocabulary** if verification failed. Helios shows how much it has received and the total when the source provides it, then verifies the download before installation. New requests use the vocabulary immediately, and it remains available offline. The download makes no model API calls.
+
+For console setup, run the same installer with the following command.
 
 ```powershell
 .\.venv\Scripts\python.exe -m services.token_estimator --download
 ```
 
-Normal app execution does not download the vocabulary automatically. The current estimation method appears in the profile's Saved effective policy.
+The app downloads the vocabulary only on request. The profile's **Saved effective policy** shows which method it uses for its input estimate.
 
 ### Errors and retries
 

@@ -298,6 +298,10 @@ export function createProfileContext({ isSaving }) {
     disclosure.addEventListener('toggle', () => schedulePreview());
     retry.onclick = () => schedulePreview(0, { retrying: true });
     dialog.addEventListener('settings-panel-change', () => schedulePreview());
+    dialog.addEventListener('tokenizer-changed', () => {
+      invalidate();
+      schedulePreview();
+    });
     dialog.addEventListener('app-settings-saved', () => {
       invalidate();
       updateBudgetReview();

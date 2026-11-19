@@ -31,7 +31,7 @@ from services.settings_service import SettingsService
 from services.storage_maintenance import MaintenanceSession
 from services.storage_references import CALL_USAGE, MANIFEST, SUMMARY_USAGE, WORK_RUNS
 from services.summary_usage_store import SummaryUsageStore
-from services.token_estimator import use_tokenizer_path
+from services.token_estimator import VocabularyDownloadProgress, use_tokenizer_path
 from services.usage_service import UsageService
 from services.work_run_store import WorkRunStore
 from services.workspace_service import WorkspaceService
@@ -104,6 +104,9 @@ class AppRuntime:
         self.workspace_operations: dict[object, str] = {}
         self.storage_check_lock = asyncio.Lock()
         self.storage_usage_lock = asyncio.Lock()
+        self.tokenizer_install_lock = asyncio.Lock()
+        self.tokenizer_download: VocabularyDownloadProgress | None = None
+        self.tokenizer_install_error: str | None = None
         self.pause_deadline_changed = asyncio.Event()
         self.work_run_store.on_pause_changed = self.pause_deadline_changed.set
 

@@ -105,7 +105,9 @@ from services.storage_maintenance import (
 from services.storage_recovery import RecoveryError as StorageRecoveryError, resolve_recovery_backup
 from services.storage_references import WORK_RUNS
 from services.storage_usage import measure_storage_usage
-from services.token_estimator import estimation_metadata
+from services.token_estimator import (
+    VocabularyDownloadError, VocabularyDownloadProgress, estimation_metadata, install_vocabulary, vocabulary_status,
+)
 from services.workspace_service import WorkspaceAccessError, WorkspaceService
 
 if __name__ == "__main__":
@@ -2023,6 +2025,64 @@ def application_settings_response() -> dict:
 async def get_application_settings():
     """Expose application preferences for future Settings GUI integration."""
     return application_settings_response()
+
+
+def can_install_tokenizer(request: Request) -> bool:
+    """Allow an explicit installation on the computer running Helios."""
+    return (request.url.hostname in {"localhost", "127.0.0.1"}
+            and request.client is not None and request.client.host in {"127.0.0.1", "::1"})
+
+
+@router.get("/api/settings/tokenizer")
+async def get_application_tokenizer(request: Request):
+    """Report local vocabulary availability without making a download request."""
+    runtime = current_runtime()
+    state = ("installing" if runtime.tokenizer_install_lock.locked()
+             else await run_local(vocabulary_status, runtime.settings.tokenizer_path))
+    can_install = can_install_tokenizer(request)
+    payload = {"state": state, "can_install": can_install}
+    if runtime.tokenizer_install_lock.locked():
+        payload["state"] = "installing"
+        payload["download"] = asdict(runtime.tokenizer_download or VocabularyDownloadProgress())
+    elif state != "ready" and can_install and runtime.tokenizer_install_error:
+        payload["installation_error"] = runtime.tokenizer_install_error
+    return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/api/settings/tokenizer")
+async def install_application_tokenizer(request: Request):
+    """Download the official vocabulary once for concurrent local requests."""
+    if not can_install_tokenizer(request) or request.headers.get("x-helios-tokenizer") != "install":
+        raise HTTPException(status_code=403, detail="Download the vocabulary from local Helios Settings.")
+    runtime = current_runtime()
+    if runtime.tokenizer_install_lock.locked():
+        return JSONResponse({"state": "installing", "can_install": True,
+                             "download": asdict(runtime.tokenizer_download or VocabularyDownloadProgress())},
+                            status_code=202, headers={"Cache-Control": "no-store"})
+
+    def record_progress(progress: VocabularyDownloadProgress) -> None:
+        """Publish one immutable transfer snapshot from the installation worker."""
+        runtime.tokenizer_download = progress
+
+    def installation_failure(status: int, message: str) -> HTTPException:
+        """Expose the same failure to both the installer and tabs following its progress."""
+        runtime.tokenizer_install_error = message
+        return HTTPException(status_code=status, detail=message)
+
+    path = runtime.settings.tokenizer_path
+    async with runtime.tokenizer_install_lock:
+        runtime.tokenizer_install_error = None
+        try:
+            await run_local(install_vocabulary, path, report=record_progress)
+            if await run_local(vocabulary_status, path) != "ready":
+                raise installation_failure(500, "Could not load the installed vocabulary. Check file access and try again.")
+        except VocabularyDownloadError as error:
+            raise installation_failure(502, str(error)) from None
+        except OSError:
+            raise installation_failure(500, "Could not save the vocabulary. Check write access and try again.") from None
+        finally:
+            runtime.tokenizer_download = None
+    return JSONResponse({"state": "ready", "can_install": True}, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/api/storage/usage")

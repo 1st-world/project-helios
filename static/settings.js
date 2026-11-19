@@ -8,6 +8,7 @@ import { initializeTimezoneSettings } from './timezone.js';
 import { initializeHelpPopovers } from './help-popovers.js';
 import { initializeStorageDiagnostics } from './storage-diagnostics.js';
 import { initializeStorageUsage } from './storage-usage.js';
+import { initializeTokenizerSettings } from './tokenizer-settings.js';
 
 const panelScrollPositions = new Map();
 
@@ -53,6 +54,7 @@ export function initializeSettings({ onConversationUsageVisibilityChange, onResp
   initializeTimezoneSettings();
   initializeStorageDiagnostics($('#settings-dialog'));
   initializeStorageUsage($('#settings-dialog'));
+  initializeTokenizerSettings($('#settings-dialog'));
   initializeSettingsDisclosures();
   const help = initializeHelpPopovers($('#settings-dialog'));
   $('#settings-dialog').addEventListener('settings-panel-change', help.close);

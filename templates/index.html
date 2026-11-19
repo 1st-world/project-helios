@@ -466,6 +466,24 @@
       <form id="app-settings-form" class="app-settings-form settings-editor-form" novalidate>
         <div class="settings-editor-body">
           <div class="info-callout"><i data-lucide="info"></i><p>App-wide settings. Saved changes apply to new requests; memory permissions also affect work in progress.</p></div>
+          <section id="context-tokenizer" class="settings-group" aria-labelledby="context-tokenizer-title">
+            <div class="settings-panel-heading">
+              <div class="dialog-section-title"><h3 id="context-tokenizer-title">Token estimation</h3><button class="help-popover-trigger" type="button" popovertarget="settings-help-tokenizer" aria-controls="settings-help-tokenizer" aria-expanded="false" aria-label="About token estimation" title="About token estimation"><i data-lucide="info" aria-hidden="true"></i></button></div>
+              <button id="context-tokenizer-action" class="quiet-btn" type="button" disabled><i data-lucide="download" aria-hidden="true"></i><span>Download vocabulary</span></button>
+            </div>
+            <div id="context-tokenizer-body" class="settings-group-body">
+              <p id="context-tokenizer-status" class="field-hint" role="status"><span class="tokenizer-status-icon" aria-hidden="true" hidden><i data-lucide="loader-circle"></i></span><span data-tokenizer-status-text>Checking the local vocabulary…</span></p>
+              <div id="context-tokenizer-transfer" hidden>
+                <progress id="context-tokenizer-progress" value="0" max="1" aria-label="Vocabulary download" aria-describedby="context-tokenizer-bytes" hidden></progress>
+                <p id="context-tokenizer-bytes" class="field-hint"></p>
+              </div>
+              <p id="context-tokenizer-error" class="field-error" role="status" hidden></p>
+            </div>
+            <div id="context-tokenizer-load-feedback" class="settings-load-feedback" hidden>
+              <p id="context-tokenizer-load-error" role="status"></p>
+              <button id="reload-tokenizer-status" class="quiet-btn" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>Reload status</span></button>
+            </div>
+          </section>
           <section class="settings-group" aria-labelledby="context-input-title">
             <div class="settings-panel-heading"><h3 id="context-input-title">Input & output</h3></div>
             <div class="settings-group-body">
@@ -669,7 +687,7 @@
               </div>
               <div id="profile-list-container" class="profile-list-container"></div>
             </div>
-            <div id="profile-catalog-feedback" class="profile-catalog-feedback" hidden>
+            <div id="profile-catalog-feedback" class="settings-load-feedback" hidden>
               <p id="profile-catalog-status" role="status"></p>
               <button id="reload-profile-catalog" class="quiet-btn" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>Reload profiles</span></button>
             </div>
@@ -975,6 +993,11 @@
       <h4 id="settings-help-storage-usage-title">Storage usage</h4>
       <p>Shows file sizes for local data managed by Helios. Workspace files, external backups, and recovery copies are excluded.</p>
       <p>Sizes are based on file contents as reported by the filesystem. They may differ from allocated disk space or the space you could free.</p>
+    </div>
+    <div id="settings-help-tokenizer" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="settings-help-tokenizer-title" hidden>
+      <h4 id="settings-help-tokenizer-title">Token estimation</h4>
+      <p>Local estimates help check input limits and plan memory summaries.</p>
+      <p>Text estimates use the installed vocabulary or fall back to UTF-8 bytes. Actual usage comes from the provider.</p>
     </div>
     <div id="settings-help-memory" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="settings-help-memory-title" hidden>
       <h4 id="settings-help-memory-title">Memory summaries</h4>

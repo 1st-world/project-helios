@@ -94,6 +94,16 @@ Storage의 네이티브 폴더 선택은 `/api/storage/recovery/picker/{token}`�
 
 진행 중이거나 Paused인 실행의 다음 응답용 선택도 API로 변경할 수 있습니다. 이미 시작한 요청과 일회성 복구는 준비 당시 프로필을 유지하며 새 선택을 덮어쓰지 않습니다. Resume는 기본적으로 현재 실행 구간의 모델을 유지하고, 명시적인 모델 전환 요청만 새 프로필을 사용합니다. Composer는 대화별 선택을 저장하고, Connections의 기본값은 새 채팅을 초기화합니다. Paused 상태에서도 Composer에서 대화별 모델 선택을 저장할 수 있으며, 선택만으로 실행하지 않습니다. Resume 확인창은 현재 모델과 대상 모델·연결 호스트, 인계 범위와 누적 비용을 설명합니다. 확인 전후로 저장된 선택을 다시 조회하고 승인한 프로필 설정이 달라졌으면 재확인을 요구합니다. 취소하면 새 선택과 기존 Paused 지점을 모두 유지합니다. Connections의 기본값 변경도 가능합니다.
 
+## 토큰 추정 어휘 파일 API
+
+`GET /api/settings/tokenizer`는 `state`(`ready`, `missing`, `invalid`, `installing` 중 하나)와 `can_install`을 반환합니다. 네트워크에 접속하지 않고 로컬 파일을 확인합니다. 설치하려면 루프백에서 `localhost` 또는 `127.0.0.1`에 `X-Helios-Tokenizer: install` 헤더를 붙여 본문 없이 `POST /api/settings/tokenizer`를 보냅니다. Helios는 지정된 공개 파일을 내려받아 검증한 뒤 로컬 사본을 교체하고 새 요청부터 사용합니다.
+
+설치가 완료되면 HTTP `200`과 `state: "ready"`를 반환합니다. 이미 다운로드가 진행 중이면 HTTP `202`와 `state: "installing"`을 반환합니다. 상태를 다시 조회해 결과를 확인할 수 있습니다. 호스트·접속 주소·헤더 조건을 충족하지 못하면 HTTP `403`, 다운로드 또는 무결성 검증에 실패하면 HTTP `502`, 로컬 저장이나 로드에 실패하면 HTTP `500`을 반환합니다.
+
+`installing` 상태의 응답에는 `download`가 포함됩니다. `phase`는 `downloading` 또는 `verifying`이며, `received_bytes`는 지금까지 받은 바이트 수입니다. `total_bytes`에는 다운로드 서버가 보낸 `Content-Length`를 사용하며, 전체 크기를 알 수 없으면 `null`입니다.
+
+설치에 실패하고 어휘 파일을 여전히 사용할 수 없으면, 로컬 상태 조회에 `installation_error`가 포함됩니다. 서버는 다음 설치를 시도하거나 재시작할 때까지 메시지를 보관합니다.
+
 ## 메모리 정책 API
 
 `POST /api/chat`에 `stream_preparation: true`를 보내면 답변 스트림에서 준비 이벤트를 받습니다. 답변 전 요약 호출을 제출하면 `phase: "summary_started"`인 `memory_preparation` 이벤트를 보냅니다. 이전 메시지가 있으면 `start.memory_source`가 선택한 입력을 `original_history`, `saved_summary`, `new_summary`로 표시합니다. 이후 원문 이력으로 전환하면 `phase: "ready"`와 갱신한 `source`를 담은 `memory_preparation` 이벤트를 보냅니다. 스트림을 연 뒤 준비 중에 발생한 오류는 `error` 이벤트에 `preparation_status`와 기존 형식의 `detail`을 담습니다. 옵션을 생략하면 준비 중 실패를 HTTP 오류로 받습니다.
