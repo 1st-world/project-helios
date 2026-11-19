@@ -104,6 +104,8 @@ While the state is `installing`, the response includes `download` with `phase` (
 
 After a failed installation, local status requests include `installation_error` while the vocabulary is still unavailable. The server retains the message until the next install attempt or restart.
 
+Input policy and memory policy report the fallback as `estimation_method: "script_aware_heuristic_with_approximate_framing"` when they estimate without the local vocabulary. The fallback uses `o200k_base` as its reference for text counts. Its `estimate_is_exact` and `estimate_is_model_specific` flags are both `false`.
+
 ## Memory policy API
 
 Set `stream_preparation: true` on `POST /api/chat` to receive preparation events on the reply stream. A foreground summary submission emits `memory_preparation` with `phase: "summary_started"`. With earlier messages, `start.memory_source` identifies the selected input as `original_history`, `saved_summary`, or `new_summary`. A later fallback to original history emits `memory_preparation` with `phase: "ready"` and the updated `source`. Preparation errors after the stream opens use an `error` event with `preparation_status` and the usual `detail`. Requests that omit the option receive preparation failures as HTTP errors.

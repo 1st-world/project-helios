@@ -116,7 +116,7 @@ Recent-history size includes the saved model and tool records replayed for compl
 
 ### Token estimation
 
-Local estimation **does not select a model-specific tokenizer**. It uses a local `o200k_base` vocabulary file if the file passes its integrity check. Otherwise, it uses a UTF-8 byte heuristic. Request framing and image/PDF estimates are also approximate, so estimates can differ from the provider's actual token and billing usage.
+Local estimation uses a verified `o200k_base` vocabulary when available. Otherwise, **Script-aware estimate** aims to avoid undercounting text relative to that vocabulary. It starts with the UTF-8 byte count and reduces it only for verified merges, such as those in groups of ASCII digits and some Hangul syllables. Request framing and image/PDF counts are also approximate. Estimates can differ from the provider's actual token and billing usage.
 
 On the computer running Helios, open **Settings → Context & attachments → Token estimation**. Select **Download vocabulary** if the file is missing or **Repair vocabulary** if verification failed. Helios shows how much it has received and the total when the source provides it, then verifies the download before installation. New requests use the vocabulary immediately, and it remains available offline. The download makes no model API calls.
 

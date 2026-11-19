@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import os
+import re
 import stat
 from base64 import b64decode
 from collections.abc import Callable, Iterator
@@ -28,6 +29,23 @@ VOCABULARY_URL = (
 VOCABULARY_SHA256 = (
     "446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d"
 )
+FALLBACK_ESTIMATION_METHOD = "script_aware_heuristic_with_approximate_framing"
+_FALLBACK_RUNS = re.compile(
+    r"(?P<lowercase> ?[a-z]{2,})|(?P<digits>[0-9]{2,})|"
+    r"(?P<hangul>[\uac00-\ud7a3]+)|(?P<kana>[\u3040-\u30ff]+)"
+)
+# The pinned vocabulary includes every space + lowercase pair and all but these
+# lowercase pairs. The exclusions come from checking all 26 × 26 pairs.
+_UNMERGED_LOWERCASE_PAIRS = frozenset(
+    (
+        "bq gk gq jv jz kq kz lq nq qf qg qj qk qv qz rj tq "
+        "wq wz xg xj xk xq xv xw yq zj zq zv"
+    ).split()
+)
+_HANGUL_START = 0xAC00
+# Bit i records a two-byte token for the UTF-8 prefix of U+AC00 + 64*i.
+# The pinned vocabulary contains all three UTF-8 prefixes in U+3040–U+30FF.
+_HANGUL_PREFIX_MERGES = 0x67F4DD7FBF5F02DF7FF02FFE03DD97FBF45BBD7F1BBF
 MAX_VOCABULARY_BYTES = 5 * 1024 * 1024
 DOWNLOAD_CHUNK_BYTES = 64 * 1024
 VocabularyStatus = Literal["ready", "missing", "invalid"]
@@ -189,12 +207,57 @@ def install_vocabulary(path: Path, *, report: Callable[[VocabularyDownloadProgre
             temporary.unlink(missing_ok=True)
 
 
+def _lowercase_merge_savings(run: str) -> int:
+    """Count mergeable ASCII pairs with a spare byte between neighboring pairs."""
+    savings = 0
+    pair_start = 0
+    # The gap stops one merge from accounting for two credited pairs, even across scripts.
+    while pair_start + 2 < len(run):
+        pair = run[pair_start:pair_start + 2]
+        if pair in _UNMERGED_LOWERCASE_PAIRS:
+            pair_start += 1
+            continue
+        savings += 1
+        pair_start += 3
+    return savings
+
+
+def _fallback_text_tokens(text: str) -> int:
+    """Subtract supported merge savings from the UTF-8 byte estimate."""
+    tokens = len(text.encode("utf-8", errors="surrogatepass"))
+    for match in _FALLBACK_RUNS.finditer(text):
+        run = match.group()
+        start, end = match.span()
+        match match.lastgroup:
+            case "lowercase":
+                # A contraction can put a tokenization boundary inside this run.
+                if start == 0 or text[start - 1] != "'":
+                    tokens -= _lowercase_merge_savings(run)
+            case "digits":
+                # Every one- to three-digit ASCII group is one token in the pinned vocabulary.
+                # Restrict the discount to ASCII boundaries, where grouping cannot shift.
+                if (
+                    (start > 0 and not text[start - 1].isascii())
+                    or (end < len(text) and not text[end].isascii())
+                ):
+                    continue
+                size = len(run)
+                tokens -= size - (size + 2) // 3
+            case "hangul":
+                for syllable in run:
+                    prefix_index = (ord(syllable) - _HANGUL_START) // 64
+                    tokens -= (_HANGUL_PREFIX_MERGES >> prefix_index) & 1
+            case "kana":
+                tokens -= len(run)
+    return tokens
+
+
 def text_tokens(text: str) -> int:
-    """Count the local encoding or use a UTF-8 byte heuristic without a model guarantee."""
+    """Count verified vocabulary tokens or estimate text with the offline heuristic."""
     encoding = _local_encoding()
     if encoding:
         return len(encoding.encode_ordinary(text))
-    return len(text.encode("utf-8"))
+    return _fallback_text_tokens(text)
 
 
 def estimation_method() -> str:
@@ -202,7 +265,7 @@ def estimation_method() -> str:
     return (
         "o200k_base_with_approximate_framing"
         if _local_encoding()
-        else "utf8_byte_heuristic_with_approximate_framing"
+        else FALLBACK_ESTIMATION_METHOD
     )
 
 

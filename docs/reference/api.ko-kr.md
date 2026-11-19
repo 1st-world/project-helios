@@ -104,6 +104,8 @@ Storage의 네이티브 폴더 선택은 `/api/storage/recovery/picker/{token}`�
 
 설치에 실패하고 어휘 파일을 여전히 사용할 수 없으면, 로컬 상태 조회에 `installation_error`가 포함됩니다. 서버는 다음 설치를 시도하거나 재시작할 때까지 메시지를 보관합니다.
 
+로컬 어휘 파일 없이 추정할 때 입력 정책과 메모리 정책은 `estimation_method`에 `"script_aware_heuristic_with_approximate_framing"`을 반환합니다. 폴백은 텍스트 토큰 수의 기준으로 `o200k_base`를 사용합니다. 이 방식의 `estimate_is_exact`와 `estimate_is_model_specific`은 모두 `false`입니다.
+
 ## 메모리 정책 API
 
 `POST /api/chat`에 `stream_preparation: true`를 보내면 답변 스트림에서 준비 이벤트를 받습니다. 답변 전 요약 호출을 제출하면 `phase: "summary_started"`인 `memory_preparation` 이벤트를 보냅니다. 이전 메시지가 있으면 `start.memory_source`가 선택한 입력을 `original_history`, `saved_summary`, `new_summary`로 표시합니다. 이후 원문 이력으로 전환하면 `phase: "ready"`와 갱신한 `source`를 담은 `memory_preparation` 이벤트를 보냅니다. 스트림을 연 뒤 준비 중에 발생한 오류는 `error` 이벤트에 `preparation_status`와 기존 형식의 `detail`을 담습니다. 옵션을 생략하면 준비 중 실패를 HTTP 오류로 받습니다.

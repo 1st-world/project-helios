@@ -1,11 +1,12 @@
 /* Display the local estimation vocabulary status and handle explicit downloads in Settings. */
 
 import { $, formatSize, setRefreshBusy, setText } from './ui.js';
+import { fallbackEstimateLabel } from './estimation.js';
 
 const vocabularyMessages = {
   ready: 'Current method: o200k_base vocabulary.',
-  missing: 'Current method: UTF-8 byte estimate.',
-  invalid: 'The o200k_base vocabulary could not be verified. Current method: UTF-8 byte estimate.'
+  missing: `Current method: ${fallbackEstimateLabel}.`,
+  invalid: `The o200k_base vocabulary could not be verified. Current method: ${fallbackEstimateLabel}.`
 };
 
 async function readVocabulary(response, fallback) {
