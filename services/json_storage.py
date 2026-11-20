@@ -4,9 +4,13 @@ import hashlib
 import json
 import math
 import os
+import re
+import stat
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+
+from services.project_access import is_link
 
 if os.name == "nt":
     import msvcrt
@@ -16,6 +20,9 @@ else:
 
 # String labels keep alpha revisions such as 0.1 and 0.10 distinct.
 SCHEMA_VERSION = "0.1"
+_BACKUP_VERSION_MARKER = ".v"
+_BACKUP_SUFFIX = ".bak"
+_BACKUP_DIGEST_PATTERN = r"[0-9a-f]{64}"
 
 
 class JsonStorageError(RuntimeError):
@@ -55,6 +62,16 @@ def decode_storage_json(source: str | bytes) -> object:
     return json.loads(
         source, object_pairs_hook=_unique_members,
         parse_float=_finite_float, parse_constant=_reject_constant,
+    )
+
+
+def migration_backup_pattern(*registries: str) -> re.Pattern[str]:
+    """Match names of migration originals associated with the given registries."""
+    prefixes = "|".join(re.escape(name) for name in registries)
+    return re.compile(
+        rf"(?:{prefixes}){re.escape(_BACKUP_VERSION_MARKER)}[0-9]+(?:\.[0-9]+)*"
+        rf"-{_BACKUP_DIGEST_PATTERN}{re.escape(_BACKUP_SUFFIX)}",
+        re.ASCII,
     )
 
 
@@ -135,8 +152,8 @@ class JsonDocumentStore:
                 or type(migration["from_schema_version"]) is str
                 and migration["from_schema_version"] in self.previous_versions
             )
-            or not isinstance(digest, str) or len(digest) != 64
-            or any(character not in "0123456789abcdef" for character in digest)
+            or not isinstance(digest, str)
+            or not re.fullmatch(_BACKUP_DIGEST_PATTERN, digest)
             or migration["backup_file"] != self._backup_name(digest, migration["from_schema_version"])
             or not isinstance(migration["policy"], dict)
         ):
@@ -144,19 +161,46 @@ class JsonDocumentStore:
 
     def _backup_name(self, digest: str, version: str | int = 0) -> str:
         """Name an immutable original by its source format and exact byte digest."""
-        return f"{self.path.name}.v{version}-{digest}.bak"
+        return f"{self.path.name}{_BACKUP_VERSION_MARKER}{version}-{digest}{_BACKUP_SUFFIX}"
+
+    def retained_backup_names(self) -> set[str]:
+        """Identify the backups needed by the live registry and its next migration."""
+        if self._read_current() != self.original:
+            raise JsonStorageError("The saved registry changed outside Helios.", reason="conflict")
+        names = {self.migration["backup_file"]} if self.migration is not None else set()
+        if self.original is not None and self.version != self.schema_version:
+            names.add(self._backup_name(hashlib.sha256(self.original).hexdigest(), self.version))
+        return names
 
     @contextmanager
-    def _exclusive(self):
+    def guard_backup_removal(self):
+        """Keep registry saves out while a reviewed migration backup is removed."""
+        with self._exclusive(ordinary_lock=True):
+            yield self.retained_backup_names()
+
+    @contextmanager
+    def _exclusive(self, *, ordinary_lock: bool = False):
         """Coordinate cooperating writers without blocking the local API event loop."""
         handle = None
         locked = False
         try:
-            descriptor = os.open(
-                self.path.with_name(self.path.name + ".lock"),
-                os.O_RDWR | os.O_CREAT, 0o600,
-            )
+            lock_path = self.path.with_name(self.path.name + ".lock")
+            flags = os.O_RDWR | os.O_CREAT
+            if ordinary_lock:
+                try:
+                    self._validate_lock_entry(lock_path.lstat())
+                except FileNotFoundError:
+                    pass
+                flags |= getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(lock_path, flags, 0o600)
             handle = os.fdopen(descriptor, "r+b")
+            if ordinary_lock:
+                info = lock_path.lstat()
+                opened = os.fstat(handle.fileno())
+                self._validate_lock_entry(info)
+                self._validate_lock_entry(opened)
+                if (info.st_dev, info.st_ino) != (opened.st_dev, opened.st_ino):
+                    raise OSError("The registry lock changed before it could be opened.")
             if os.fstat(handle.fileno()).st_size == 0:
                 handle.write(b"0")
                 handle.flush()
@@ -186,6 +230,12 @@ class JsonDocumentStore:
                     handle.close()
                 except OSError:
                     pass
+
+    @staticmethod
+    def _validate_lock_entry(info: os.stat_result) -> None:
+        """Reject redirected, linked, and non-regular registry lock entries."""
+        if is_link(info) or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise OSError("The registry lock is unsafe.")
 
     def _preserve_original(self, backup: Path) -> None:
         """Create a private original once, or verify an earlier migration attempt's copy."""

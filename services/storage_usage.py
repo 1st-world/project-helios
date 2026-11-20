@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from config import Settings
+from services.json_storage import migration_backup_pattern
 from services.local_work import check_local_cancelled
 from services.project_access import directory_identity, is_link
 from services.storage_diagnostics import is_upload_id
@@ -127,8 +128,7 @@ def measure_storage_usage(settings: Settings) -> dict:
     _measure(tokenizer.parent, (tokenizer.name,), locations["cache"])
     result_names = tuple(result_path(root, scope=scope).name for scope in ("basic", "deep", RECOVERY_PREVIEW, RECOVERY_APPLY))
     _measure(result_path(root).parent, result_names, locations["cache"])
-    registry_names = "|".join(re.escape(name) for name in registries)
-    backup_name = re.compile(rf"(?:{registry_names})\.v[0-9]+(?:\.[0-9]+)*-[0-9a-f]{{64}}\.bak", re.ASCII)
+    backup_name = migration_backup_pattern(*registries)
     _measure(root, lambda name: backup_name.fullmatch(name) is not None, locations["backups"])
     return {
         "measured_at": datetime.now(timezone.utc).isoformat(),

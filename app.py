@@ -96,6 +96,9 @@ from services.profile_service import (
 )
 from services.provider_errors import ConnectionConfigurationError, ProviderFailure
 from services.settings_service import SettingsStorageError
+from services.storage_backup_cleanup import (
+    BackupRemovalRequest, inspect_migration_backups, remove_migration_backups,
+)
 from services.storage_cache import TokenizerCacheUnavailable, inspect_tokenizer_cache, remove_tokenizer_cache
 from services.storage_maintenance import (
     RECOVERY_APPLY, RECOVERY_PREVIEW, CheckScope, MaintenanceBusy, MaintenanceSession, RecoveryOperation,
@@ -2223,6 +2226,41 @@ async def remove_saved_storage_check(request: Request, scope: CheckScope, result
             "code": "storage_check_result_changed", "message": "The saved check result changed. Load the latest results before removing it.",
         })
     return Response(status_code=204, headers={"Cache-Control": "no-store"})
+
+
+def storage_backup_documents(request: Request, *, remove: bool = False):
+    """Require local access and select only the live app's validated registries."""
+    if (
+        request.url.hostname not in {"localhost", "127.0.0.1"}
+        or request.client is None
+        or request.client.host not in {"127.0.0.1", "::1"}
+        or (remove and not is_local_maintenance_request(request, "remove-migration-backups"))
+    ):
+        raise HTTPException(status_code=403, detail="Manage migration backups from local Helios.")
+    runtime = current_runtime()
+    maintenance = runtime.maintenance
+    if remove and maintenance is not None and maintenance.pending is not None:
+        raise HTTPException(status_code=409, detail={
+            "code": "storage_maintenance_in_progress",
+            "message": "Wait for storage maintenance to finish before removing backups.",
+        })
+    return {"settings": runtime.settings_service._document, "profiles": runtime.profile_service._document}
+
+
+@router.get("/api/storage/backups")
+async def get_migration_backups(request: Request):
+    """List the size, protection, and revision of recognized migration backups."""
+    documents = storage_backup_documents(request)
+    report = await until_disconnect(request, run_local, inspect_migration_backups, documents)
+    return JSONResponse(report, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/api/storage/backups/remove")
+async def remove_storage_backups(request: Request, payload: BackupRemovalRequest):
+    """Remove only reviewed migration backups eligible at the time of deletion."""
+    documents = storage_backup_documents(request, remove=True)
+    report = await run_local(remove_migration_backups, documents, payload.items)
+    return JSONResponse(report, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/api/storage/maintenance")

@@ -42,6 +42,14 @@ Microsoft's [Foundry REST reference](https://learn.microsoft.com/en-us/rest/api/
 
 The response includes the UTC `measured_at` timestamp, `total_bytes`, `complete`, and `categories`. Each category has an `id`, measured `bytes`, counted `files`, and a `skipped` count. A skipped entry can be a file or an entire location that could not be measured. When `complete` is false, totals cover only the files counted. The endpoint returns aggregates without file paths, and does not save a report.
 
+### Review and remove migration backups
+
+`GET /api/storage/backups` lists Helios-named settings and profile migration backups next to their live registries. Each item contains `registry` (`settings` or `profiles`), `name`, `size_bytes`, UTC `modified_at`, `protected`, and an opaque `revision`. `incomplete` lists registries whose backups could not all be inspected. The list uses file metadata.
+
+Send `POST /api/storage/backups/remove` with `X-Helios-Maintenance: remove-migration-backups` and `{"items":[{"registry":"settings","name":"<reviewed name>","revision":"<reviewed revision>"}]}`. A request accepts up to 100 distinct backups. Both endpoints require loopback and `localhost` or `127.0.0.1` as the host. Access failures return HTTP `403`, and pending managed maintenance returns HTTP `409` for removal.
+
+Each selected item returns an `outcome` of `removed`, `missing`, `changed`, `protected`, `unavailable`, or `failed`. Helios rechecks file revisions and registry references under the registry save lock. Backups needed by a live registry or its pending migration are protected. The operation covers only the recognized files beside the live registries.
+
 ### Run a basic check
 
 `GET /api/storage/diagnostics` checks the configured settings, profiles, transcripts, and individual SQLite databases. It reads the inspected stores without changing them and saves the resulting report separately. Databases with journal sidecars or WAL mode are deferred. A second basic check requested while one is running receives HTTP `409` with `detail.code: "storage_check_in_progress"`.

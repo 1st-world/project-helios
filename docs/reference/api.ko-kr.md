@@ -42,6 +42,14 @@ Microsoft의 [Foundry REST 참조](https://learn.microsoft.com/en-us/rest/api/mi
 
 응답에는 UTC 기준의 `measured_at`, `total_bytes`, `complete`, `categories`가 들어갑니다. 항목별로 `id`, 집계한 바이트 수 `bytes`, 파일 수 `files`, 집계하지 못한 항목 수 `skipped`를 제공합니다. `skipped`의 한 건은 개별 파일이나 집계할 수 없었던 경로 전체에 해당할 수 있습니다. `complete`가 `false`이면 합계는 집계된 파일만 포함합니다. 응답에 파일 경로는 포함되지 않으며 결과를 디스크에 저장하지 않습니다.
 
+### 마이그레이션 백업 조회 및 삭제
+
+`GET /api/storage/backups`는 설정·프로필 파일과 같은 폴더에서 Helios의 마이그레이션 백업 이름 규칙에 맞는 파일을 조회합니다. 각 항목에는 `registry`(`settings` 또는 `profiles`), `name`, `size_bytes`, UTC 기준의 `modified_at`, `protected`, 파일 식별용 `revision`이 들어갑니다. `incomplete`에는 백업을 모두 확인할 수 없었던 대상이 나옵니다. 목록은 파일 속성을 기준으로 작성합니다.
+
+`X-Helios-Maintenance: remove-migration-backups` 헤더와 `{"items":[{"registry":"settings","name":"<확인한 이름>","revision":"<확인한 revision>"}]}` 본문을 붙여 `POST /api/storage/backups/remove`를 보냅니다. 한 요청에서 서로 다른 백업을 최대 100개 지정할 수 있습니다. 두 API 모두 루프백에서 보내고 호스트는 `localhost` 또는 `127.0.0.1`이어야 합니다. 접근 조건을 충족하지 못하면 HTTP `403`을, 대기 중인 관리형 유지보수 작업이 있으면 삭제 요청에 HTTP `409`를 반환합니다.
+
+선택한 파일별 `outcome`은 `removed`, `missing`, `changed`, `protected`, `unavailable`, `failed` 중 하나입니다. Helios는 설정 또는 프로필 저장과 동일한 잠금을 사용하여 파일이 바뀌었는지와 현재 참조를 재확인합니다. 현재 파일에서 참조하거나 다음 마이그레이션에 필요한 백업은 보호합니다. 삭제 대상은 설정·프로필 파일 옆에 있는 이름 규칙에 맞는 백업으로 한정합니다.
+
 ### 기본 검사 실행
 
 `GET /api/storage/diagnostics`는 서버의 설정·프로필 파일, 대화, 개별 SQLite 데이터베이스를 읽기 전용으로 검사하고 결과를 별도 파일에 저장합니다. 저널 보조 파일이 있거나 WAL 모드인 데이터베이스는 검사를 보류합니다. 검사 중에 같은 요청이 들어오면 HTTP `409`와 `detail.code: "storage_check_in_progress"`를 반환합니다.
