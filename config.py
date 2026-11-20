@@ -6,13 +6,14 @@ from pathlib import Path
 from models.app_settings import AppSettings
 
 PROJECT_ROOT = Path(__file__).resolve().parent
+TOKENIZER_CACHE_PATH = Path(".cache/tokenizers/o200k_base.tiktoken")
 
 
 @dataclass(frozen=True)
 class Settings(AppSettings):
     """Keep project paths separate from preferences persisted in settings.json."""
 
-    tokenizer_path: Path = PROJECT_ROOT / ".cache/tokenizers/o200k_base.tiktoken"
+    tokenizer_path: Path = PROJECT_ROOT / TOKENIZER_CACHE_PATH
     workspace_root: Path | None = None
     conversations_root: Path = PROJECT_ROOT / "conversation"
     logs_root: Path = PROJECT_ROOT / "logs"

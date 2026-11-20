@@ -96,6 +96,7 @@ from services.profile_service import (
 )
 from services.provider_errors import ConnectionConfigurationError, ProviderFailure
 from services.settings_service import SettingsStorageError
+from services.storage_cache import TokenizerCacheUnavailable, inspect_tokenizer_cache, remove_tokenizer_cache
 from services.storage_maintenance import (
     RECOVERY_APPLY, RECOVERY_PREVIEW, CheckScope, MaintenanceBusy, MaintenanceSession, RecoveryOperation,
     load_check_result, load_recovery_result, own_storage, ownership_path,
@@ -2027,8 +2028,8 @@ async def get_application_settings():
     return application_settings_response()
 
 
-def can_install_tokenizer(request: Request) -> bool:
-    """Allow an explicit installation on the computer running Helios."""
+def is_local_tokenizer_request(request: Request) -> bool:
+    """Restrict explicit vocabulary changes to the computer running Helios."""
     return (request.url.hostname in {"localhost", "127.0.0.1"}
             and request.client is not None and request.client.host in {"127.0.0.1", "::1"})
 
@@ -2039,7 +2040,7 @@ async def get_application_tokenizer(request: Request):
     runtime = current_runtime()
     state = ("installing" if runtime.tokenizer_install_lock.locked()
              else await run_local(vocabulary_status, runtime.settings.tokenizer_path))
-    can_install = can_install_tokenizer(request)
+    can_install = is_local_tokenizer_request(request)
     payload = {"state": state, "can_install": can_install}
     if runtime.tokenizer_install_lock.locked():
         payload["state"] = "installing"
@@ -2052,9 +2053,11 @@ async def get_application_tokenizer(request: Request):
 @router.post("/api/settings/tokenizer")
 async def install_application_tokenizer(request: Request):
     """Download the official vocabulary once for concurrent local requests."""
-    if not can_install_tokenizer(request) or request.headers.get("x-helios-tokenizer") != "install":
+    if not is_local_tokenizer_request(request) or request.headers.get("x-helios-tokenizer") != "install":
         raise HTTPException(status_code=403, detail="Download the vocabulary from local Helios Settings.")
     runtime = current_runtime()
+    if runtime.tokenizer_remove_lock.locked():
+        raise HTTPException(status_code=409, detail="Wait for vocabulary removal to finish before downloading.")
     if runtime.tokenizer_install_lock.locked():
         return JSONResponse({"state": "installing", "can_install": True,
                              "download": asdict(runtime.tokenizer_download or VocabularyDownloadProgress())},
@@ -2083,6 +2086,55 @@ async def install_application_tokenizer(request: Request):
         finally:
             runtime.tokenizer_download = None
     return JSONResponse({"state": "ready", "can_install": True}, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/api/storage/cache/tokenizer")
+async def get_tokenizer_cache(request: Request):
+    """Return the file size and revision for local vocabulary cleanup."""
+    if not is_local_tokenizer_request(request):
+        raise HTTPException(status_code=403, detail="Open Helios on its host computer to review the tokenizer cache.")
+    runtime = current_runtime()
+    if runtime.tokenizer_install_lock.locked() or runtime.tokenizer_remove_lock.locked():
+        payload = {"state": "busy"}
+    else:
+        try:
+            entry = await run_local(inspect_tokenizer_cache, runtime.settings)
+        except TokenizerCacheUnavailable:
+            payload = {"state": "unavailable"}
+        else:
+            payload = {"state": "empty"} if entry is None else {"state": "available", **asdict(entry)}
+    return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+
+
+@router.delete("/api/storage/cache/tokenizer", status_code=204)
+async def remove_storage_tokenizer_cache(
+    request: Request, revision: str = Query(pattern=r"^[0-9a-f]{64}$"),
+):
+    """Remove only the tokenizer file the local user reviewed."""
+    if not is_local_tokenizer_request(request) or request.headers.get("x-helios-maintenance") != "remove-tokenizer":
+        raise HTTPException(status_code=403, detail="Remove the vocabulary from local Helios Settings.")
+    runtime = current_runtime()
+    if runtime.tokenizer_install_lock.locked() or runtime.tokenizer_remove_lock.locked():
+        raise HTTPException(status_code=409, detail={
+            "code": "tokenizer_cache_busy", "message": "Wait for the current vocabulary operation to finish.",
+        })
+    async with runtime.tokenizer_remove_lock:
+        try:
+            removed = await run_local(remove_tokenizer_cache, runtime.settings, revision)
+        except TokenizerCacheUnavailable:
+            raise HTTPException(status_code=409, detail={
+                "code": "tokenizer_cache_unavailable", "message": "The app-managed vocabulary file cannot be removed safely.",
+            }) from None
+        except OSError:
+            raise HTTPException(
+                status_code=500, detail="Could not remove the vocabulary. Check file access and try again.",
+            ) from None
+        if not removed:
+            raise HTTPException(status_code=409, detail={
+                "code": "tokenizer_cache_changed", "message": "The vocabulary changed. Refresh the cache information before removing it.",
+            })
+        runtime.tokenizer_install_error = None
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/api/storage/usage")

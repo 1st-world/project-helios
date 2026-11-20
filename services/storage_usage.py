@@ -10,7 +10,7 @@ from pathlib import Path
 
 from config import Settings
 from services.local_work import check_local_cancelled
-from services.project_access import is_link
+from services.project_access import directory_identity, is_link
 from services.storage_diagnostics import is_upload_id
 from services.storage_maintenance import RECOVERY_APPLY, RECOVERY_PREVIEW, ownership_path, recovery_record_dir, result_path
 from services.storage_references import CALL_USAGE, MANIFEST, SUMMARY_USAGE
@@ -29,22 +29,11 @@ class Usage:
     skipped: int = 0
 
 
-def _directory_identity(directory: Path) -> tuple[tuple[int, int], ...]:
-    """Check every ancestor without following links or Windows reparse points."""
-    identities = []
-    for path in (*reversed(directory.parents), directory):
-        info = path.lstat()
-        if is_link(info) or not stat.S_ISDIR(info.st_mode):
-            raise OSError("Storage directory cannot be measured.")
-        identities.append((info.st_dev, info.st_ino))
-    return tuple(identities)
-
-
 def _measure(directory: Path, names: tuple[str, ...] | Callable[[str], bool], usage: Usage) -> None:
     """Count one directory's recognized entries and discard sizes if the directory moves."""
     check_local_cancelled()
     try:
-        before = _directory_identity(directory)
+        before = directory_identity(directory)
     except FileNotFoundError:
         return  # Optional stores may not have been initialized.
     except OSError:
@@ -80,7 +69,7 @@ def _measure(directory: Path, names: tuple[str, ...] | Callable[[str], bool], us
                     continue
                 except OSError:
                     measured.skipped += 1
-        if _directory_identity(directory) != before:
+        if directory_identity(directory) != before:
             raise OSError("Storage directory changed during measurement.")
     except OSError:
         usage.skipped += 1

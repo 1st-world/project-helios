@@ -98,13 +98,19 @@ Storage의 네이티브 폴더 선택은 `/api/storage/recovery/picker/{token}`�
 
 `GET /api/settings/tokenizer`는 `state`(`ready`, `missing`, `invalid`, `installing` 중 하나)와 `can_install`을 반환합니다. 네트워크에 접속하지 않고 로컬 파일을 확인합니다. 설치하려면 루프백에서 `localhost` 또는 `127.0.0.1`에 `X-Helios-Tokenizer: install` 헤더를 붙여 본문 없이 `POST /api/settings/tokenizer`를 보냅니다. Helios는 지정된 공개 파일을 내려받아 검증한 뒤 로컬 사본을 교체하고 새 요청부터 사용합니다.
 
-설치가 완료되면 HTTP `200`과 `state: "ready"`를 반환합니다. 이미 다운로드가 진행 중이면 HTTP `202`와 `state: "installing"`을 반환합니다. 상태를 다시 조회해 결과를 확인할 수 있습니다. 호스트·접속 주소·헤더 조건을 충족하지 못하면 HTTP `403`, 다운로드 또는 무결성 검증에 실패하면 HTTP `502`, 로컬 저장이나 로드에 실패하면 HTTP `500`을 반환합니다.
+설치가 완료되면 HTTP `200`과 `state: "ready"`를 반환합니다. 이미 다운로드가 진행 중이면 HTTP `202`와 `state: "installing"`을 반환합니다. 상태를 다시 조회해 결과를 확인할 수 있습니다. 호스트·접속 주소·헤더 조건을 충족하지 못하면 HTTP `403`, 삭제 중이면 HTTP `409`, 다운로드 또는 무결성 검증에 실패하면 HTTP `502`, 로컬 저장이나 로드에 실패하면 HTTP `500`을 반환합니다.
 
 `installing` 상태의 응답에는 `download`가 포함됩니다. `phase`는 `downloading` 또는 `verifying`이며, `received_bytes`는 지금까지 받은 바이트 수입니다. `total_bytes`에는 다운로드 서버가 보낸 `Content-Length`를 사용하며, 전체 크기를 알 수 없으면 `null`입니다.
 
-설치에 실패하고 어휘 파일을 여전히 사용할 수 없으면, 로컬 상태 조회에 `installation_error`가 포함됩니다. 서버는 다음 설치를 시도하거나 재시작할 때까지 메시지를 보관합니다.
+설치에 실패하고 어휘 파일을 여전히 사용할 수 없으면, 로컬 상태 조회에 `installation_error`가 포함됩니다. 서버는 다음 설치를 시도하거나, 삭제를 완료하거나, 재시작할 때 메시지를 지웁니다.
 
 로컬 어휘 파일 없이 추정할 때 입력 정책과 메모리 정책은 `estimation_method`에 `"script_aware_heuristic_with_approximate_framing"`을 반환합니다. 폴백은 텍스트 토큰 수의 기준으로 `o200k_base`를 사용합니다. 이 방식의 `estimate_is_exact`와 `estimate_is_model_specific`은 모두 `false`입니다.
+
+### 토크나이저 어휘 파일 삭제
+
+루프백에서 `localhost` 또는 `127.0.0.1`에 `GET /api/storage/cache/tokenizer`를 보냅니다. 응답의 `state`는 `available`, `empty`, `busy`, `unavailable` 중 하나입니다. 삭제할 수 있는 파일은 `size_bytes`와 외부에서 해석할 필요가 없는 `revision`을 함께 반환합니다. 파일 속성만 확인하므로 손상된 사본도 조회할 수 있습니다. 앱이 관리하는 토크나이저 경로 밖의 파일이나 안전하게 처리할 수 없는 파일은 삭제 대상에서 제외합니다.
+
+같은 로컬 호스트에 `X-Helios-Maintenance: remove-tokenizer` 헤더를 붙여 `DELETE /api/storage/cache/tokenizer?revision=<revision>`을 보냅니다. 확인한 파일을 삭제했거나 이미 없으면 HTTP `204`를 반환합니다. 파일이 바뀌었거나, 어휘 파일 작업이 진행 중이거나, 파일을 안전하게 처리할 수 없으면 각각 `tokenizer_cache_changed`, `tokenizer_cache_busy`, `tokenizer_cache_unavailable`을 담은 HTTP `409`를 반환합니다. 호스트·접속 주소·헤더 조건을 충족하지 못하면 HTTP `403`, 파일 삭제에 실패하면 HTTP `500`을 반환합니다. 다시 내려받기 전까지 새 요청에는 폴백을 사용합니다. 이미 어휘 파일로 추정을 시작한 요청은 완료될 때까지 같은 방식을 사용합니다.
 
 ## 메모리 정책 API
 

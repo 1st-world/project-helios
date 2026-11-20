@@ -10,7 +10,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from functools import lru_cache
+from functools import cached_property, lru_cache
 from http.client import HTTPException, IncompleteRead
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -50,7 +50,6 @@ MAX_VOCABULARY_BYTES = 5 * 1024 * 1024
 DOWNLOAD_CHUNK_BYTES = 64 * 1024
 VocabularyStatus = Literal["ready", "missing", "invalid"]
 VocabularyRevision = tuple | Literal["missing", "invalid"]
-_vocabulary = ContextVar[tuple[Path, VocabularyRevision] | None]("helios_vocabulary", default=None)
 # Use tiktoken 0.12's o200k_base pattern with locally verified vocabulary bytes.
 PATTERN = "|".join(
     (
@@ -78,6 +77,22 @@ class VocabularyDownloadProgress:
     phase: Literal["downloading", "verifying"] = "downloading"
     received_bytes: int = 0
     total_bytes: int | None = None
+
+
+@dataclass(frozen=True)
+class _VocabularySnapshot:
+    """Keep the first resolved encoder alive for the lifetime of its request."""
+
+    path: Path
+    revision: VocabularyRevision
+
+    @cached_property
+    def encoding(self) -> tiktoken.Encoding | None:
+        """Load lazily so requests without estimation never open the vocabulary."""
+        return _load_encoding(self.path, self.revision)
+
+
+_vocabulary = ContextVar[_VocabularySnapshot | None]("helios_vocabulary", default=None)
 
 
 def _revision(path: Path) -> VocabularyRevision:
@@ -127,7 +142,7 @@ def _load_encoding(path: Path, revision: VocabularyRevision) -> tiktoken.Encodin
 def use_tokenizer_path(path: Path) -> Iterator[None]:
     """Pin the vocabulary revision for the current request and its child work."""
     path = path.absolute()
-    token = _vocabulary.set((path, _revision(path)))
+    token = _vocabulary.set(_VocabularySnapshot(path, _revision(path)))
     try:
         yield
     finally:
@@ -143,7 +158,7 @@ def _encoding(path: str) -> tiktoken.Encoding | None:
 def _local_encoding() -> tiktoken.Encoding | None:
     """Resolve the request's vocabulary or the standalone tool default."""
     vocabulary = _vocabulary.get()
-    return _load_encoding(*vocabulary) if vocabulary is not None else _encoding(str(settings.tokenizer_path))
+    return vocabulary.encoding if vocabulary is not None else _encoding(str(settings.tokenizer_path))
 
 
 def vocabulary_status(path: Path) -> VocabularyStatus:

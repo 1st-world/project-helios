@@ -55,6 +55,17 @@ def is_link(info: os.stat_result) -> bool:
     )
 
 
+def directory_identity(directory: Path) -> tuple[tuple[int, int], ...]:
+    """Identify a directory and each ancestor without following links or junctions."""
+    identities = []
+    for path in (*reversed(directory.parents), directory):
+        info = path.lstat()
+        if is_link(info) or not stat.S_ISDIR(info.st_mode):
+            raise OSError("Storage directory is not an ordinary directory.")
+        identities.append((info.st_dev, info.st_ino))
+    return tuple(identities)
+
+
 def final_handle_path(fd: int, fallback: Path) -> Path:
     """Resolve an opened Windows handle before reading bytes through it."""
     if os.name != "nt":

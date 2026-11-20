@@ -105,6 +105,7 @@ class AppRuntime:
         self.storage_check_lock = asyncio.Lock()
         self.storage_usage_lock = asyncio.Lock()
         self.tokenizer_install_lock = asyncio.Lock()
+        self.tokenizer_remove_lock = asyncio.Lock()
         self.tokenizer_download: VocabularyDownloadProgress | None = None
         self.tokenizer_install_error: str | None = None
         self.pause_deadline_changed = asyncio.Event()

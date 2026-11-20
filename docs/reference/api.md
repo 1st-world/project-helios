@@ -98,13 +98,19 @@ The API can update the next-response choice during active or paused work. Alread
 
 `GET /api/settings/tokenizer` returns `state` (`ready`, `missing`, `invalid`, or `installing`) and `can_install`. It checks the local file without accessing the network. Install with `POST /api/settings/tokenizer` from loopback using `localhost` or `127.0.0.1` and `X-Helios-Tokenizer: install`. The request has no body. Helios downloads the configured public file, verifies it before replacing the local copy, and uses it for new requests.
 
-HTTP `200` returns `state: "ready"`. If a download is already in progress, HTTP `202` returns `state: "installing"`. Read the status again to see the outcome. HTTP `403` indicates an invalid host, peer, or header. HTTP `502` indicates a failed or unverifiable download. HTTP `500` indicates a local save or load failure.
+HTTP `200` returns `state: "ready"`. If a download is already in progress, HTTP `202` returns `state: "installing"`. Read the status again to see the outcome. HTTP `403` indicates an invalid host, peer, or header. HTTP `409` means removal is in progress. HTTP `502` indicates a failed or unverifiable download. HTTP `500` indicates a local save or load failure.
 
 While the state is `installing`, the response includes `download` with `phase` (`downloading` or `verifying`), `received_bytes`, and `total_bytes`. The total comes from the upstream `Content-Length` and is `null` when unavailable.
 
-After a failed installation, local status requests include `installation_error` while the vocabulary is still unavailable. The server retains the message until the next install attempt or restart.
+After a failed installation, local status requests include `installation_error` while the vocabulary is still unavailable. The server clears the message on the next install attempt, successful removal, or restart.
 
 Input policy and memory policy report the fallback as `estimation_method: "script_aware_heuristic_with_approximate_framing"` when they estimate without the local vocabulary. The fallback uses `o200k_base` as its reference for text counts. Its `estimate_is_exact` and `estimate_is_model_specific` flags are both `false`.
+
+### Remove the tokenizer vocabulary
+
+Send `GET /api/storage/cache/tokenizer` from loopback using `localhost` or `127.0.0.1`. The response has a `state` of `available`, `empty`, `busy`, or `unavailable`. An available entry includes `size_bytes` and an opaque `revision`. The check uses file metadata and can list a damaged copy for removal. Custom paths outside the managed tokenizer slot and unsafe filesystem entries are unavailable.
+
+Send `DELETE /api/storage/cache/tokenizer?revision=<revision>` with `X-Helios-Maintenance: remove-tokenizer` from the same local host. HTTP `204` indicates that the reviewed file was removed or was already absent. HTTP `409` returns `tokenizer_cache_changed`, `tokenizer_cache_busy`, or `tokenizer_cache_unavailable` when the revision changed, a vocabulary operation is active, or the file cannot be handled safely. HTTP `403` indicates an invalid host, peer, or header. HTTP `500` indicates that deleting the file failed. Subsequent requests use the fallback until the vocabulary is downloaded again. Requests that have already used an encoder keep it through completion.
 
 ## Memory policy API
 

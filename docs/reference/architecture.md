@@ -101,6 +101,8 @@ The [storage usage API](api.md#measure-local-storage-usage) measures logical fil
 
 SQLite sidecars are counted with their databases. Optional files that do not exist contribute zero. Unreadable locations, links, and recognized paths that cannot be measured produce a partial result. Unrecognized files do not contribute to totals.
 
+The [vocabulary removal API](api.md#remove-the-tokenizer-vocabulary) covers the ordinary cache file at `.cache/tokenizers/o200k_base.tiktoken` in the app storage directory. It verifies the reviewed file revision before removal. The app runs installation and removal one at a time. Saved check results have their [own removal endpoint](api.md#remove-a-saved-check-result).
+
 ### Read-only storage diagnostics
 
 #### Checks from Settings
