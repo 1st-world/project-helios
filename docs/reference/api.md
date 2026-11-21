@@ -66,6 +66,14 @@ Send `POST /api/storage/conversations/remove` with `X-Helios-Maintenance: remove
 
 Each selection returns an `outcome` of `removed`, `missing`, `changed`, `protected`, `unavailable`, or `failed`. Helios verifies the cutoff, live activity, and transcript revision at removal. The reported size counts the transcript file. Removal uses the standard conversation deletion flow, releases attachment references, and retains recorded usage and work history.
 
+### Review and remove attachment copies
+
+`GET /api/storage/attachments` reviews files present in the managed attachment store and registered in its manifest. The response contains `items`, `total`, and `next_offset`. Use `offset` (default `0`) and `limit` (default `50`, maximum `100`) to page through copies in order of creation, oldest first. Items report their `attachment_id`, display filename, `created_at`, and `state`. The logical file size appears as `size_bytes` when it can be verified. Available items include a `revision`; protected or unavailable items give a `reason`. The review includes files still waiting for physical removal with `pending_removal: true`.
+
+Send `POST /api/storage/attachments/remove` with `X-Helios-Maintenance: remove-attachment-copies` and `{"items":[{"attachment_id":"<upload UUID>","revision":"<reviewed revision>"}]}`. Both routes require a loopback peer and a `localhost` or `127.0.0.1` host. Select up to 100 distinct copies. Removal rechecks storage, file identity, live owners, and the unclaimed-upload grace period. For each selection, the response reports `removed`, `missing`, `changed`, `protected`, `unavailable`, `failed`, or `pending_removal`. The last outcome means the manifest recorded removal and the existing scheduler will retry freeing the bytes.
+
+An unavailable or unsupported manifest returns `attachment_storage_unavailable`. Pending managed maintenance rejects removal with HTTP `409`.
+
 ### Run a basic check
 
 `GET /api/storage/diagnostics` checks the configured settings, profiles, transcripts, and individual SQLite databases. It reads the inspected stores without changing them and saves the resulting report separately. Databases with journal sidecars or WAL mode are deferred. A second basic check requested while one is running receives HTTP `409` with `detail.code: "storage_check_in_progress"`.

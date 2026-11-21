@@ -9,11 +9,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from config import Settings
+from models.attachment import is_upload_id
 from services.cache_staging import is_cache_stage
 from services.json_storage import migration_backup_pattern
 from services.local_work import check_local_cancelled
 from services.project_access import directory_identity, is_link
-from services.storage_diagnostics import is_upload_id
 from services.storage_maintenance import REPORT_CACHE_NAMES, ownership_path, recovery_record_dir, result_path
 from services.storage_references import CALL_USAGE, MANIFEST, SUMMARY_USAGE
 

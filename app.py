@@ -97,6 +97,7 @@ from services.profile_service import (
 )
 from services.provider_errors import ConnectionConfigurationError, ProviderFailure
 from services.settings_service import SettingsStorageError
+from services.storage_attachment_cleanup import AttachmentCleanupRequest
 from services.storage_backup_cleanup import (
     BackupRemovalRequest, inspect_migration_backups, remove_migration_backups,
 )
@@ -2458,6 +2459,37 @@ async def remove_storage_conversations(request: Request, payload: ConversationCl
     if candidates:
         await collect_attachments(candidates)
     return JSONResponse({"items": items}, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/api/storage/attachments")
+async def review_storage_attachments(
+    request: Request, offset: int = Query(default=0, ge=0), limit: int = Query(default=50, ge=1, le=100),
+):
+    """List managed attachment copies and their eligibility for removal."""
+    if not is_loopback_http_request(request):
+        raise HTTPException(status_code=403, detail="Review attachment copies from local Helios.")
+    store = current_runtime().attachment_store
+    report = await attachment_storage_work(request, store.review_cleanup, offset, limit)
+    return JSONResponse(report, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/api/storage/attachments/remove")
+async def remove_storage_attachments(request: Request, payload: AttachmentCleanupRequest):
+    """Remove only reviewed copies that are still unreferenced and eligible."""
+    if not is_loopback_http_request(request) or not is_local_maintenance_request(request, "remove-attachment-copies"):
+        raise HTTPException(status_code=403, detail="Remove attachment copies from local Helios.")
+    runtime = current_runtime()
+    if runtime.maintenance is not None and runtime.maintenance.pending is not None:
+        raise HTTPException(status_code=409, detail={
+            "code": "storage_maintenance_in_progress",
+            "message": "Wait for storage maintenance to finish before removing attachment copies.",
+        })
+    selected = [(str(item.attachment_id), item.revision) for item in payload.items]
+    report = await attachment_storage_work(request, runtime.attachment_store.remove_reviewed_copies, selected)
+    for item in report["items"]:
+        if item["outcome"] in {"removed", "pending_removal"}:
+            runtime.context_recovery.invalidate_attachment(item["attachment_id"])
+    return JSONResponse(report, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/api/storage/maintenance")

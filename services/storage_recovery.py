@@ -17,11 +17,12 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field
 
 from config import PROJECT_ROOT
+from models.attachment import is_upload_id
 from services.project_access import (
     RECOVERY_COPY_PREFIX, RECOVERY_STAGE_PREFIX, ProjectReadError, final_handle_path, is_link, signature,
 )
 from services.storage_diagnostics import (
-    PROBLEMS, SQLITE_TABLES, AttachmentFingerprint, StorageScan, inspect_storage, is_upload_id,
+    PROBLEMS, SQLITE_TABLES, AttachmentFingerprint, StorageScan, inspect_storage,
 )
 from services.storage_references import ATTACHMENTS, CONVERSATIONS, MANIFEST, Finding
 

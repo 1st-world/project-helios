@@ -156,6 +156,8 @@ Copies stay on the computer running the app while conversation messages, the com
 
 Tabs renew their selections every 15 minutes and when returning to the page; unchanged selections update only their expiry. Abandoned drafts and undelivered selection results receive a 24-hour grace period. Selection releases are persisted before physical deletion runs in the background. Cleanup reconciles the full state once at startup, then runs on ownership changes and the nearest actual expiry, without scanning files every minute. Failed deletions retry only their own paths with increasing delays; clock changes and new notifications do not shorten retry intervals. Committed references use an index updated after successful transcript writes. Unreadable conversations at startup suspend automatic deletion with one logged warning; restore the affected files and restart the app to revalidate them.
 
+The [attachment cleanup API](api.md#review-and-remove-attachment-copies) reviews only registered published copies. It uses the existing attachment store lock and ownership checks, including the grace period for undelivered selections. When physical deletion fails, the same scheduler retries the file after removal is recorded in the manifest.
+
 ## Versions and compatibility
 
 App versions and storage schema versions are managed independently. During alpha, they use `0.x.y` and strings in the `"0.*"` range, respectively.

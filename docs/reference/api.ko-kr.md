@@ -66,6 +66,14 @@ Microsoft의 [Foundry REST 참조](https://learn.microsoft.com/en-us/rest/api/mi
 
 선택한 대화별 `outcome`은 `removed`, `missing`, `changed`, `protected`, `unavailable`, `failed` 중 하나입니다. Helios는 삭제 직전에 기준 시각, 진행 중인 작업, 대화 파일의 변경 여부를 재확인합니다. 표시하는 크기는 대화 파일 자체의 크기입니다. 기존 대화 삭제 흐름을 사용해 첨부 사본 참조를 해제하고, 기록된 사용량과 실행 기록은 보존합니다.
 
+### 첨부 사본 조회 및 삭제
+
+`GET /api/storage/attachments`는 첨부 저장소에 실제 파일이 있고 매니페스트에 등록된 사본을 조회합니다. 결과에는 `items`, `total`, `next_offset`이 들어갑니다. `offset`(기본값 `0`)과 `limit`(기본값 `50`, 최댓값 `100`)을 사용하면 오래된 순서로 조회할 수 있습니다. 항목마다 `attachment_id`, 표시 파일명, `created_at`, `state`를 제공합니다. 파일 크기를 확인할 수 있으면 `size_bytes`가, 삭제할 수 있으면 `revision`이 들어갑니다. 보호되거나 검증할 수 없는 항목에는 `reason`이 포함됩니다. 삭제를 기록한 뒤에도 파일이 남아 있으면 `pending_removal: true`로 표시합니다.
+
+`X-Helios-Maintenance: remove-attachment-copies` 헤더와 `{"items":[{"attachment_id":"<업로드 UUID>","revision":"<확인한 revision>"}]}` 본문을 붙여 `POST /api/storage/attachments/remove`를 보냅니다. 두 API 모두 루프백에서 보내고 호스트는 `localhost` 또는 `127.0.0.1`이어야 합니다. 한 번에 서로 다른 사본을 최대 100개까지 지정할 수 있습니다. 삭제 직전에 저장소, 파일 변경 여부, 현재 참조, 선택에 아직 등록되지 않은 업로드의 유예 기간을 다시 확인합니다. 사본별 결과는 `removed`, `missing`, `changed`, `protected`, `unavailable`, `failed`, `pending_removal` 중 하나입니다. `pending_removal`은 매니페스트에 삭제를 기록했으며 기존 정리 기능이 실제 파일 삭제를 재시도한다는 뜻입니다.
+
+매니페스트를 안전하게 읽을 수 없거나 지원하지 않는 형식이면 `attachment_storage_unavailable`을 반환합니다. 대기 중인 관리형 유지보수 작업이 있으면 삭제 요청에 HTTP `409`를 반환합니다.
+
 ### 기본 검사 실행
 
 `GET /api/storage/diagnostics`는 서버의 설정·프로필 파일, 대화, 개별 SQLite 데이터베이스를 읽기 전용으로 검사하고 결과를 별도 파일에 저장합니다. 저널 보조 파일이 있거나 WAL 모드인 데이터베이스는 검사를 보류합니다. 검사 중에 같은 요청이 들어오면 HTTP `409`와 `detail.code: "storage_check_in_progress"`를 반환합니다.

@@ -11,6 +11,7 @@ from pathlib import Path
 from uuid import UUID
 
 from config import PROJECT_ROOT
+from models.attachment import is_upload_id
 from models.conversation import Conversation
 from services.attachment_store import AttachmentStore
 from services.json_storage import SCHEMA_VERSION, JsonStorageError, decode_storage_json
@@ -33,14 +34,6 @@ SQLITE_TABLES = {
     CALL_USAGE: {"usage_calls"},
     SUMMARY_USAGE: {"summary_usage"},
 }
-
-
-def is_upload_id(value: object) -> bool:
-    """Recognize a canonical upload UUID without accepting alternate filename spellings."""
-    try:
-        return isinstance(value, str) and str(UUID(value)) == value
-    except ValueError:
-        return False
 
 
 class SQLiteSidecarsPresent(OSError):

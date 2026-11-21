@@ -9,16 +9,19 @@ import hashlib
 import logging
 import os
 import sqlite3
+import stat
 from collections.abc import Callable, Iterator
-from contextlib import closing
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
 from time import monotonic, time
 from uuid import UUID, uuid4
 
-from services.attachment_errors import AttachmentError
+from services.attachment_errors import AttachmentError, AttachmentReferencesUnavailableError
 from services.local_work import check_local_cancelled
+from services.project_access import directory_identity, is_link
+from services.storage_attachment_cleanup import attachment_blob_id, reviewed_copy_file
 
 logger = logging.getLogger(__name__)
 
@@ -236,7 +239,7 @@ class AttachmentStore:
                     raise AttachmentError(
                         "attachment_in_use", "This attachment is used by a conversation, draft, or request. Remove those references before deleting it.", identity, 409,
                     )
-                db.execute("UPDATE uploads SET deleted=1 WHERE id=?", (identity,))
+                self._mark_deleted(db, identity)
                 db.commit()
             self._remove_file(f"{identity}.blob")
             self._changed()
@@ -250,6 +253,147 @@ class AttachmentStore:
                 (identity, time()),
             ).fetchone()
         )
+
+    @staticmethod
+    def _mark_deleted(db: sqlite3.Connection, identity: str) -> None:
+        """Persist removal intent before dropping the managed bytes."""
+        db.execute("UPDATE uploads SET deleted=1 WHERE id=?", (identity,))
+
+    @contextmanager
+    def _cleanup_manifest(self, *, writable: bool = False):
+        """Open only an existing safe manifest without initializing or sweeping the store."""
+        root = self.root.absolute()
+        manifest = root / "manifest.sqlite3"
+        try:
+            directory = directory_identity(root)
+        except FileNotFoundError:
+            yield None
+            return
+        try:
+            info = manifest.lstat()
+        except FileNotFoundError:
+            if any(attachment_blob_id(path.name) is not None for path in root.iterdir()):
+                raise OSError("The attachment manifest is missing.")
+            yield None
+            return
+        if is_link(info) or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise OSError("The attachment manifest is not an ordinary file.")
+        with manifest.open("rb") as source:
+            if not os.path.samestat(info, os.fstat(source.fileno())):
+                raise OSError("The attachment manifest changed.")
+            header = source.read(20)
+        # A read-only WAL connection may create coordination files. Managed copies use rollback journals.
+        if not header.startswith(b"SQLite format 3\x00") or header[18:20] != b"\x01\x01":
+            raise OSError("The attachment manifest requires a compatible local database.")
+        mode = "rw" if writable else "ro"
+        with closing(sqlite3.connect(manifest.as_uri() + f"?mode={mode}", uri=True)) as db:
+            versions = db.execute("SELECT schema_version FROM store_metadata").fetchall()
+            if versions != [(self.SCHEMA_VERSION,)]:
+                raise OSError("The attachment manifest requires initialization by this app version.")
+            db.row_factory = sqlite3.Row
+            self._require_cleanup_identity(root, directory, info)
+            yield db, root, directory, info
+
+    @staticmethod
+    def _require_cleanup_identity(root: Path, directory: tuple, manifest_info: os.stat_result) -> None:
+        """Verify the same ordinary directory and manifest still own the reviewed copies."""
+        current = (root / "manifest.sqlite3").lstat()
+        if (directory_identity(root) != directory or not os.path.samestat(manifest_info, current)
+                or is_link(current) or not stat.S_ISREG(current.st_mode) or current.st_nlink != 1):
+            raise OSError("Attachment storage changed during cleanup.")
+
+    def _cleanup_item(
+        self, db: sqlite3.Connection, path: Path, owner: tuple, row: sqlite3.Row,
+    ) -> dict:
+        """Determine whether a manifest-owned file can be selected for removal."""
+        metadata = {"attachment_id": row["id"], "filename": row["filename"],
+                    "created_at": row["created_at"], "pending_removal": bool(row["deleted"])}
+        record = (row["filename"], row["created_at"], row["sha256"], row["deleted"])
+        if (not all(isinstance(value, str) for value in record[:3]) or row["deleted"] not in (0, 1)
+                or not isinstance(row["unclaimed_until"], (int, float))):
+            return {"attachment_id": row["id"], "state": "unavailable", "reason": "metadata_unavailable"}
+        try:
+            file = reviewed_copy_file(path, (*owner, *record))
+        except FileNotFoundError:
+            return {**metadata, "state": "unavailable", "reason": "copy_missing"}
+        except OSError:
+            return {**metadata, "state": "unavailable", "reason": "copy_unavailable"}
+        metadata["size_bytes"] = file["size_bytes"]
+        try:
+            if self._is_protected(row["id"], db):
+                return {**metadata, "state": "protected", "reason": "in_use"}
+        except AttachmentReferencesUnavailableError:
+            return {**metadata, "state": "unavailable", "reason": "references_unavailable"}
+        if not row["deleted"] and row["unclaimed_until"] > time():
+            return {**metadata, "state": "protected", "reason": "upload_grace_period"}
+        return {**metadata, "state": "available", "revision": file["revision"]}
+
+    def review_cleanup(self, offset: int, limit: int) -> dict:
+        """List only physically present, registered copies without writing the manifest."""
+        with self._lock, self._cleanup_manifest() as opened:
+            if opened is None:
+                return {"items": [], "total": 0, "next_offset": None}
+            db, root, directory, manifest = opened
+            owner = (directory, manifest.st_dev, manifest.st_ino)
+            identities = set()
+            for path in root.iterdir():
+                check_local_cancelled()
+                if (identity := attachment_blob_id(path.name)) is not None:
+                    identities.add(identity)
+            rows = []
+            for batch in self._batches(identities):
+                check_local_cancelled()
+                placeholders = ",".join("?" for _ in batch)
+                rows.extend(db.execute(f"SELECT * FROM uploads WHERE id IN ({placeholders})", batch))
+            rows.sort(key=lambda row: (str(row["created_at"]), row["id"]))
+            items = [self._cleanup_item(db, root / f"{row['id']}.blob", owner, row)
+                     for row in rows[offset:offset + limit]]
+            self._require_cleanup_identity(root, directory, manifest)
+        next_offset = offset + len(items)
+        return {"items": items, "total": len(rows), "next_offset": next_offset if next_offset < len(rows) else None}
+
+    def remove_reviewed_copies(self, selections: list[tuple[str, str]]) -> dict:
+        """Recheck ownership and file revisions under the same lock used by automatic cleanup."""
+        with self._lock, self._cleanup_manifest(writable=True) as opened:
+            if opened is None:
+                return {"items": [{"attachment_id": identity, "outcome": "missing"} for identity, _ in selections]}
+            db, root, directory, manifest = opened
+            owner = (directory, manifest.st_dev, manifest.st_ino)
+            items = []
+            for value, revision in selections:
+                check_local_cancelled()
+                identity = str(UUID(value))
+                item = {"attachment_id": identity}
+                items.append(item)
+                try:
+                    with db:
+                        db.execute("BEGIN IMMEDIATE")
+                        self._require_cleanup_identity(root, directory, manifest)
+                        row = db.execute("SELECT * FROM uploads WHERE id=?", (identity,)).fetchone()
+                        if row is None:
+                            item.update(outcome="missing")
+                            continue
+                        filename = f"{identity}.blob"
+                        current = self._cleanup_item(db, root / filename, owner, row)
+                        if current.get("reason") == "copy_missing":
+                            item.update(outcome="missing")
+                            continue
+                        if current["state"] != "available":
+                            item.update(outcome=current["state"], reason=current["reason"])
+                            continue
+                        if current["revision"] != revision:
+                            item.update(outcome="changed")
+                            continue
+                        self._require_cleanup_identity(root, directory, manifest)
+                        self._mark_deleted(db, identity)
+                except (OSError, sqlite3.Error):
+                    logger.warning("Could not confirm removal of a managed attachment copy.", exc_info=True)
+                    item.update(outcome="failed")
+                    continue
+                removed = self._remove_file(filename)
+                self._changed()
+                item.update(outcome="removed" if removed else "pending_removal")
+        return {"items": items}
 
     def replace_draft(
         self, draft_id: str, attachment_ids: list[str],
@@ -378,7 +522,7 @@ class AttachmentStore:
             delays.extend(max(0, due - monotonic()) for due, _ in self._retry_files.values())
             return min(delays, default=None)
 
-    def _remove_file(self, name: str) -> None:
+    def _remove_file(self, name: str) -> bool:
         """Retry only failed owned paths with exponential delay capped at five minutes."""
         try:
             (self.root / name).unlink(missing_ok=True)
@@ -386,8 +530,10 @@ class AttachmentStore:
             attempts = self._retry_files.get(name, (0, 0))[1] + 1
             self._retry_files[name] = (monotonic() + min(2 ** min(attempts - 1, 9), 300), attempts)
             logger.warning("Could not remove an unused attachment copy; a targeted retry was scheduled.", exc_info=True)
+            return False
         else:
             self._retry_files.pop(name, None)
+            return True
 
     def _changed(self, identities: set[str] | None = None) -> None:
         """Wake the cleanup scheduler after a deadline or owning request changes."""

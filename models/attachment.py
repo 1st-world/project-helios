@@ -9,6 +9,14 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 AttachmentPath = Annotated[str, Field(min_length=1, max_length=4096)]
 
 
+def is_upload_id(value: object) -> bool:
+    """Recognize a canonical upload UUID without accepting alternate filename spellings."""
+    try:
+        return isinstance(value, str) and str(UUID(value)) == value
+    except ValueError:
+        return False
+
+
 class WorkspaceAttachment(BaseModel):
     """Identify an explicitly selected file inside one workspace session."""
 
