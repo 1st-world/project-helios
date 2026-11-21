@@ -13,13 +13,13 @@ from dataclasses import dataclass
 from functools import cached_property, lru_cache
 from http.client import HTTPException, IncompleteRead
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import Literal
 from urllib.request import urlopen
 
 import tiktoken
 
 from config import settings
+from services.cache_staging import staged_cache_write
 from services.project_access import signature
 
 
@@ -209,17 +209,8 @@ def install_vocabulary(path: Path, *, report: Callable[[VocabularyDownloadProgre
     if not _verified(data):
         raise VocabularyDownloadError("The downloaded vocabulary failed verification. Try the download again.")
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = None
-    try:
-        with NamedTemporaryFile(dir=path.parent, prefix=".tokenizer-", delete=False) as target:
-            temporary = Path(target.name)
-            target.write(data)
-            target.flush()
-            os.fsync(target.fileno())
-        temporary.replace(path)
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+    with staged_cache_write(path) as target:
+        target.write(data)
 
 
 def _lowercase_merge_savings(run: str) -> int:

@@ -42,6 +42,14 @@ Microsoft의 [Foundry REST 참조](https://learn.microsoft.com/en-us/rest/api/mi
 
 응답에는 UTC 기준의 `measured_at`, `total_bytes`, `complete`, `categories`가 들어갑니다. 항목별로 `id`, 집계한 바이트 수 `bytes`, 파일 수 `files`, 집계하지 못한 항목 수 `skipped`를 제공합니다. `skipped`의 한 건은 개별 파일이나 집계할 수 없었던 경로 전체에 해당할 수 있습니다. `complete`가 `false`이면 합계는 집계된 파일만 포함합니다. 응답에 파일 경로는 포함되지 않으며 결과를 디스크에 저장하지 않습니다.
 
+### 캐시 파일 조회
+
+`GET /api/storage/cache`는 `tokenizer`, `basic`, `deep`, `recovery-preview`, `recovery-copy`, `tokenizer-staging`, `maintenance-staging` 항목을 `items`에 반환합니다. 요청은 루프백에서 보내고 호스트는 `localhost` 또는 `127.0.0.1`이어야 합니다. 항목마다 `id`와 `state`가 있고, 파일 크기를 확인할 수 있으면 `size_bytes`도 포함됩니다. 상태는 `available`, `damaged`, `empty`, `busy`, `unavailable`, `protected` 중 하나입니다. 저장된 복구 결과 파일은 재시작 뒤에도 복구 절차를 이어갈 수 있도록 보호합니다.
+
+삭제 가능한 토크나이저 항목은 [어휘 파일 삭제](#토크나이저-어휘-파일-삭제)에 필요한 `revision`을 반환합니다. 유효한 검사 항목은 `finished_at`과 `result_id`를 반환합니다. 읽을 수 있지만 손상된 기본·심층 검사 결과는 [검사 결과 삭제](#저장된-검사-결과-삭제)에 필요한 `revision`을 반환합니다. 안전하게 검토할 수 없는 파일은 `unavailable`입니다.
+
+삭제 가능한 임시 파일 그룹은 파일 수 `files`와 `revision`을 반환합니다. `scope`를 `tokenizer` 또는 `maintenance`로 지정하고 `X-Helios-Maintenance: remove-cache-staging` 헤더를 붙여 같은 로컬 호스트에 `DELETE /api/storage/cache/staging/{scope}?revision=<revision>`을 보냅니다. 확인한 그룹을 삭제했거나 이미 없으면 HTTP `204`를 반환합니다. 쓰기 작업이 진행 중이거나 파일이 바뀌었거나 안전하게 처리할 수 없으면 HTTP `409`, 삭제에 실패하면 HTTP `500`을 반환합니다. 일부 파일만 삭제됐다면 다시 조회해 남은 파일을 확인합니다. Helios 전용 이름으로 식별할 수 있고, 쓰기 잠금을 확보할 수 있는 임시 파일만 대상으로 합니다.
+
 ### 마이그레이션 백업 조회 및 삭제
 
 `GET /api/storage/backups`는 설정·프로필 파일과 같은 폴더에서 Helios의 마이그레이션 백업 이름 규칙에 맞는 파일을 조회합니다. 각 항목에는 `registry`(`settings` 또는 `profiles`), `name`, `size_bytes`, UTC 기준의 `modified_at`, `protected`, 파일 식별용 `revision`이 들어갑니다. `incomplete`에는 백업을 모두 확인할 수 없었던 대상이 나옵니다. 목록은 파일 속성을 기준으로 작성합니다.
@@ -69,6 +77,8 @@ Microsoft의 [Foundry REST 참조](https://learn.microsoft.com/en-us/rest/api/mi
 ### 저장된 검사 결과 삭제
 
 `DELETE /api/storage/diagnostics/results/{scope}?result_id=<UUID>`에 `scope`를 `basic` 또는 `deep`으로 지정하고 저장된 결과의 `id`를 전달합니다. 요청은 루프백에서 보내야 하며, 호스트는 `localhost` 또는 `127.0.0.1`이어야 합니다. `X-Helios-Maintenance: remove-check-result` 헤더가 필요합니다. 이 조건을 충족하지 못하면 HTTP `403`을 반환합니다.
+
+캐시 조회에서 `damaged`로 표시된 결과는 쿼리 매개변수로 `revision=<revision>`만 보냅니다. Helios는 당시 확인한 파일을 지금도 읽을 수 있고, 같은 파일이 여전히 손상 상태인지 확인합니다.
 
 지정한 결과를 삭제했거나 해당 파일이 이미 없으면 HTTP `204`를 반환합니다. 저장된 결과가 바뀌었거나 검증할 수 없으면 `storage_check_result_changed`를, 검사·삭제·관리형 유지보수 작업이 진행 중이면 `storage_maintenance_in_progress`를 담은 HTTP `409`를 반환합니다. 파일을 안전하게 삭제할 수 없으면 HTTP `500`을 반환합니다. 선택한 진단 결과 파일만 삭제하며 재시작은 필요하지 않습니다.
 
@@ -106,7 +116,7 @@ Storage의 네이티브 폴더 선택은 `/api/storage/recovery/picker/{token}`�
 
 `GET /api/settings/tokenizer`는 `state`(`ready`, `missing`, `invalid`, `installing` 중 하나)와 `can_install`을 반환합니다. 네트워크에 접속하지 않고 로컬 파일을 확인합니다. 설치하려면 루프백에서 `localhost` 또는 `127.0.0.1`에 `X-Helios-Tokenizer: install` 헤더를 붙여 본문 없이 `POST /api/settings/tokenizer`를 보냅니다. Helios는 지정된 공개 파일을 내려받아 검증한 뒤 로컬 사본을 교체하고 새 요청부터 사용합니다.
 
-설치가 완료되면 HTTP `200`과 `state: "ready"`를 반환합니다. 이미 다운로드가 진행 중이면 HTTP `202`와 `state: "installing"`을 반환합니다. 상태를 다시 조회해 결과를 확인할 수 있습니다. 호스트·접속 주소·헤더 조건을 충족하지 못하면 HTTP `403`, 삭제 중이면 HTTP `409`, 다운로드 또는 무결성 검증에 실패하면 HTTP `502`, 로컬 저장이나 로드에 실패하면 HTTP `500`을 반환합니다.
+설치가 완료되면 HTTP `200`과 `state: "ready"`를 반환합니다. 앱에서 이미 다운로드가 진행 중이면 HTTP `202`와 `state: "installing"`을 반환합니다. 상태를 다시 조회해 결과를 확인할 수 있습니다. 호스트·접속 주소·헤더 조건을 충족하지 못하면 HTTP `403`, 다른 캐시 작업이 쓰기 잠금을 사용 중이거나 삭제 중이면 HTTP `409`, 다운로드 또는 무결성 검증에 실패하면 HTTP `502`, 로컬 저장이나 로드에 실패하면 HTTP `500`을 반환합니다.
 
 `installing` 상태의 응답에는 `download`가 포함됩니다. `phase`는 `downloading` 또는 `verifying`이며, `received_bytes`는 지금까지 받은 바이트 수입니다. `total_bytes`에는 다운로드 서버가 보낸 `Content-Length`를 사용하며, 전체 크기를 알 수 없으면 `null`입니다.
 

@@ -9,11 +9,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from config import Settings
+from services.cache_staging import is_cache_stage
 from services.json_storage import migration_backup_pattern
 from services.local_work import check_local_cancelled
 from services.project_access import directory_identity, is_link
 from services.storage_diagnostics import is_upload_id
-from services.storage_maintenance import RECOVERY_APPLY, RECOVERY_PREVIEW, ownership_path, recovery_record_dir, result_path
+from services.storage_maintenance import REPORT_CACHE_NAMES, ownership_path, recovery_record_dir, result_path
 from services.storage_references import CALL_USAGE, MANIFEST, SUMMARY_USAGE
 
 
@@ -125,9 +126,11 @@ def measure_storage_usage(settings: Settings) -> dict:
     _measure(logs, _app_log, locations["logs"])
     _measure(recovery_record_dir(root), _recovery_record, locations["logs"])
     tokenizer = settings.tokenizer_path.absolute()
-    _measure(tokenizer.parent, (tokenizer.name,), locations["cache"])
-    result_names = tuple(result_path(root, scope=scope).name for scope in ("basic", "deep", RECOVERY_PREVIEW, RECOVERY_APPLY))
-    _measure(result_path(root).parent, result_names, locations["cache"])
+    _measure(tokenizer.parent, lambda name: name == tokenizer.name or is_cache_stage(name, (tokenizer.name,)),
+             locations["cache"])
+    result_names = tuple(REPORT_CACHE_NAMES.values())
+    _measure(result_path(root).parent, lambda name: name in result_names or is_cache_stage(name, result_names),
+             locations["cache"])
     backup_name = migration_backup_pattern(*registries)
     _measure(root, lambda name: backup_name.fullmatch(name) is not None, locations["backups"])
     return {

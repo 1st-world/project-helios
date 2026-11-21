@@ -96,12 +96,14 @@ The [storage usage API](api.md#measure-local-storage-usage) measures logical fil
 | `app_data` | Settings, profiles, their locks, work runs, the attachment manifest, and the storage ownership lock. |
 | `usage_records` | Model call and memory summary usage databases. |
 | `logs` | App logs and their rotations, plus records of published recovery copies. |
-| `cache` | The configured tokenizer vocabulary and saved diagnostic or recovery job results. |
+| `cache` | The configured tokenizer vocabulary, saved diagnostic and recovery results, and recognized cache staging files. |
 | `backups` | Migration originals of settings and profiles named by Helios. |
 
 SQLite sidecars are counted with their databases. Optional files that do not exist contribute zero. Unreadable locations, links, and recognized paths that cannot be measured produce a partial result. Unrecognized files do not contribute to totals.
 
-The [vocabulary removal API](api.md#remove-the-tokenizer-vocabulary) covers the ordinary cache file at `.cache/tokenizers/o200k_base.tiktoken` in the app storage directory. It verifies the reviewed file revision before removal. The app runs installation and removal one at a time. Saved check results have their [own removal endpoint](api.md#remove-a-saved-check-result).
+The [cache review API](api.md#review-cached-files) lists removable vocabulary and diagnostic reports alongside protected recovery state. [Vocabulary removal](api.md#remove-the-tokenizer-vocabulary) verifies the reviewed revision at `.cache/tokenizers/o200k_base.tiktoken` in the app storage directory and runs separately from installation. [Check result removal](api.md#remove-a-saved-check-result) verifies the saved result ID.
+
+Vocabulary and saved maintenance result writes use named stages and a directory lock. A force-closed writer can leave a stage behind. Cleanup holds the same lock and verifies the reviewed group before removing those files. Earlier temporary files without the current naming and locking contract are left in place.
 
 ### Read-only storage diagnostics
 

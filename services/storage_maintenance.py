@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 
+from services.cache_staging import cache_write_lock, staged_cache_write
 from services.project_access import is_link, signature
 from services.storage_diagnostics import ATTACHMENT_RECOVERY_CODES
 from services.storage_recovery import (
@@ -39,6 +40,10 @@ RECOVERY_PREVIEW = "recovery-preview"
 RECOVERY_APPLY = "recovery-apply"
 CheckScope = Literal["basic", "deep"]
 RecoveryOperation = Literal["recovery-preview", "recovery-apply"]
+REPORT_CACHE_NAMES = {
+    "basic": "last-basic-check.json", "deep": "last-deep-check.json",
+    RECOVERY_PREVIEW: "last-recovery-preview.json", RECOVERY_APPLY: "last-recovery-copy.json",
+}
 logger = logging.getLogger(__name__)
 
 
@@ -66,6 +71,10 @@ def own_storage(root: Path):
 
 def write_job(path: Path, job: dict) -> None:
     """Publish job state atomically before either process acts on it."""
+    if path.name in REPORT_CACHE_NAMES.values() and path.parent.parts[-2:] == (".cache", "storage-maintenance"):
+        with staged_cache_write(path, encoding="utf-8") as target:
+            json.dump(job, target, ensure_ascii=True, allow_nan=False)
+        return
     temporary = None
     try:
         with NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as target:
@@ -79,23 +88,24 @@ def write_job(path: Path, job: dict) -> None:
             temporary.unlink(missing_ok=True)
 
 
-def read_job(path: Path) -> dict | None:
+def read_job(path: Path, *, strict_io: bool = False) -> dict | None:
     """Return an intact job envelope and treat missing or damaged state as absent."""
     try:
         job = json.loads(path.read_text(encoding="utf-8"))
         identity = job["id"]
         if isinstance(identity, str) and str(UUID(identity)) == identity:
             return job
-    except (OSError, ValueError, KeyError, TypeError, RecursionError):
+    except OSError:
+        if strict_io:
+            raise
+    except (ValueError, KeyError, TypeError, RecursionError):
         pass
     return None
 
 
 def result_path(root: Path, *, scope: CheckScope | RecoveryOperation = "deep") -> Path:
     """Locate the latest report of the selected maintenance operation."""
-    filename = {"basic": "last-basic-check.json", "deep": "last-deep-check.json",
-                RECOVERY_PREVIEW: "last-recovery-preview.json", RECOVERY_APPLY: "last-recovery-copy.json"}[scope]
-    return root / ".cache" / "storage-maintenance" / filename
+    return root / ".cache" / "storage-maintenance" / REPORT_CACHE_NAMES[scope]
 
 
 def recovery_record_dir(root: Path) -> Path:
@@ -152,9 +162,9 @@ def check_result(job: dict | None, *, scope: CheckScope) -> dict | None:
     return None
 
 
-def load_check_result(path: Path, *, scope: CheckScope) -> dict | None:
+def load_check_result(path: Path, *, scope: CheckScope, strict_io: bool = False) -> dict | None:
     """Read the saved result and treat a missing or malformed file as no history."""
-    return check_result(read_job(path), scope=scope)
+    return check_result(read_job(path, strict_io=strict_io), scope=scope)
 
 
 def _check_result_signature(path: Path) -> tuple | None:
@@ -173,16 +183,19 @@ def _check_result_signature(path: Path) -> tuple | None:
 def remove_check_result(root: Path, scope: CheckScope, result_id: UUID) -> bool:
     """Remove a reviewed check result, returning false if a different result occupies its slot."""
     path = result_path(root.absolute(), scope=scope)
-    before = _check_result_signature(path)
-    if before is None:
+    if _check_result_signature(path) is None:
         return True
-    result = load_check_result(path, scope=scope)
-    after = _check_result_signature(path)
-    if after is None:
-        return True
-    if before != after or result is None or result["id"] != str(result_id):
-        return False
-    path.unlink(missing_ok=True)
+    with cache_write_lock(path.parent):
+        before = _check_result_signature(path)
+        if before is None:
+            return True
+        result = load_check_result(path, scope=scope)
+        after = _check_result_signature(path)
+        if after is None:
+            return True
+        if before != after or result is None or result["id"] != str(result_id):
+            return False
+        path.unlink(missing_ok=True)
     return True
 
 

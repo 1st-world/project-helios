@@ -50,6 +50,7 @@ from services.attachment_errors import ProviderAttachmentError
 from services.attachment_service import (
     AttachmentError, AttachmentService, PreparedAttachments,
 )
+from services.cache_staging import CacheWriteBusy
 from services.context_budget import (
     ContextBudget,
     ContextBudgetExceeded,
@@ -99,7 +100,10 @@ from services.settings_service import SettingsStorageError
 from services.storage_backup_cleanup import (
     BackupRemovalRequest, inspect_migration_backups, remove_migration_backups,
 )
-from services.storage_cache import TokenizerCacheUnavailable, inspect_tokenizer_cache, remove_tokenizer_cache
+from services.storage_cache_cleanup import (
+    CacheEntryUnavailable, CacheStagingScope, remove_cache_staging, remove_damaged_check_cache,
+    remove_tokenizer_cache, review_storage_cache, review_tokenizer_cache,
+)
 from services.storage_maintenance import (
     RECOVERY_APPLY, RECOVERY_PREVIEW, CheckScope, MaintenanceBusy, MaintenanceSession, RecoveryOperation,
     load_check_result, load_recovery_result, own_storage, ownership_path,
@@ -2031,8 +2035,8 @@ async def get_application_settings():
     return application_settings_response()
 
 
-def is_local_tokenizer_request(request: Request) -> bool:
-    """Restrict explicit vocabulary changes to the computer running Helios."""
+def is_loopback_http_request(request: Request) -> bool:
+    """Require both the local host name and a connection from the local computer."""
     return (request.url.hostname in {"localhost", "127.0.0.1"}
             and request.client is not None and request.client.host in {"127.0.0.1", "::1"})
 
@@ -2043,7 +2047,7 @@ async def get_application_tokenizer(request: Request):
     runtime = current_runtime()
     state = ("installing" if runtime.tokenizer_install_lock.locked()
              else await run_local(vocabulary_status, runtime.settings.tokenizer_path))
-    can_install = is_local_tokenizer_request(request)
+    can_install = is_loopback_http_request(request)
     payload = {"state": state, "can_install": can_install}
     if runtime.tokenizer_install_lock.locked():
         payload["state"] = "installing"
@@ -2056,7 +2060,7 @@ async def get_application_tokenizer(request: Request):
 @router.post("/api/settings/tokenizer")
 async def install_application_tokenizer(request: Request):
     """Download the official vocabulary once for concurrent local requests."""
-    if not is_local_tokenizer_request(request) or request.headers.get("x-helios-tokenizer") != "install":
+    if not is_loopback_http_request(request) or request.headers.get("x-helios-tokenizer") != "install":
         raise HTTPException(status_code=403, detail="Download the vocabulary from local Helios Settings.")
     runtime = current_runtime()
     if runtime.tokenizer_remove_lock.locked():
@@ -2084,6 +2088,8 @@ async def install_application_tokenizer(request: Request):
                 raise installation_failure(500, "Could not load the installed vocabulary. Check file access and try again.")
         except VocabularyDownloadError as error:
             raise installation_failure(502, str(error)) from None
+        except CacheWriteBusy:
+            raise installation_failure(409, "Wait for the current vocabulary operation to finish.") from None
         except OSError:
             raise installation_failure(500, "Could not save the vocabulary. Check write access and try again.") from None
         finally:
@@ -2091,21 +2097,29 @@ async def install_application_tokenizer(request: Request):
     return JSONResponse({"state": "ready", "can_install": True}, headers={"Cache-Control": "no-store"})
 
 
+@router.get("/api/storage/cache")
+async def get_storage_cache(request: Request):
+    """List known cache files and identify those available for removal."""
+    if not is_loopback_http_request(request):
+        raise HTTPException(status_code=403, detail="Open Helios on its host computer to review cached files.")
+    runtime = current_runtime()
+    maintenance = runtime.maintenance
+    report = await until_disconnect(
+        request, run_local, review_storage_cache, runtime.settings,
+        tokenizer_busy=runtime.tokenizer_install_lock.locked() or runtime.tokenizer_remove_lock.locked(),
+        checks_busy=runtime.storage_check_lock.locked() or (maintenance is not None and maintenance.pending is not None),
+    )
+    return JSONResponse(report, headers={"Cache-Control": "no-store"})
+
+
 @router.get("/api/storage/cache/tokenizer")
 async def get_tokenizer_cache(request: Request):
     """Return the file size and revision for local vocabulary cleanup."""
-    if not is_local_tokenizer_request(request):
+    if not is_loopback_http_request(request):
         raise HTTPException(status_code=403, detail="Open Helios on its host computer to review the tokenizer cache.")
     runtime = current_runtime()
-    if runtime.tokenizer_install_lock.locked() or runtime.tokenizer_remove_lock.locked():
-        payload = {"state": "busy"}
-    else:
-        try:
-            entry = await run_local(inspect_tokenizer_cache, runtime.settings)
-        except TokenizerCacheUnavailable:
-            payload = {"state": "unavailable"}
-        else:
-            payload = {"state": "empty"} if entry is None else {"state": "available", **asdict(entry)}
+    busy = runtime.tokenizer_install_lock.locked() or runtime.tokenizer_remove_lock.locked()
+    payload = await run_local(review_tokenizer_cache, runtime.settings, busy=busy)
     return JSONResponse(payload, headers={"Cache-Control": "no-store"})
 
 
@@ -2114,7 +2128,7 @@ async def remove_storage_tokenizer_cache(
     request: Request, revision: str = Query(pattern=r"^[0-9a-f]{64}$"),
 ):
     """Remove only the tokenizer file the local user reviewed."""
-    if not is_local_tokenizer_request(request) or request.headers.get("x-helios-maintenance") != "remove-tokenizer":
+    if not is_loopback_http_request(request) or request.headers.get("x-helios-maintenance") != "remove-tokenizer":
         raise HTTPException(status_code=403, detail="Remove the vocabulary from local Helios Settings.")
     runtime = current_runtime()
     if runtime.tokenizer_install_lock.locked() or runtime.tokenizer_remove_lock.locked():
@@ -2124,7 +2138,11 @@ async def remove_storage_tokenizer_cache(
     async with runtime.tokenizer_remove_lock:
         try:
             removed = await run_local(remove_tokenizer_cache, runtime.settings, revision)
-        except TokenizerCacheUnavailable:
+        except CacheWriteBusy:
+            raise HTTPException(status_code=409, detail={
+                "code": "tokenizer_cache_busy", "message": "Wait for the current vocabulary operation to finish.",
+            }) from None
+        except CacheEntryUnavailable:
             raise HTTPException(status_code=409, detail={
                 "code": "tokenizer_cache_unavailable", "message": "The app-managed vocabulary file cannot be removed safely.",
             }) from None
@@ -2137,6 +2155,43 @@ async def remove_storage_tokenizer_cache(
                 "code": "tokenizer_cache_changed", "message": "The vocabulary changed. Refresh the cache information before removing it.",
             })
         runtime.tokenizer_install_error = None
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
+
+
+@router.delete("/api/storage/cache/staging/{scope}", status_code=204)
+async def remove_storage_cache_staging(
+    request: Request, scope: CacheStagingScope, revision: str = Query(pattern=r"^[0-9a-f]{64}$"),
+):
+    """Remove only the reviewed staging files from one managed cache directory."""
+    if not is_loopback_http_request(request) or not is_local_maintenance_request(request, "remove-cache-staging"):
+        raise HTTPException(status_code=403, detail="Remove cache staging files from local Helios.")
+    runtime = current_runtime()
+    maintenance = runtime.maintenance
+    if scope == "tokenizer":
+        lock = runtime.tokenizer_remove_lock
+        busy = runtime.tokenizer_install_lock.locked()
+    else:
+        lock = runtime.storage_check_lock
+        busy = maintenance is not None and maintenance.pending is not None
+    try:
+        if lock.locked() or busy:
+            raise CacheWriteBusy("Another cache operation is in progress.")
+        async with lock:
+            removed = await run_local(remove_cache_staging, runtime.settings, scope, revision)
+    except CacheWriteBusy:
+        raise HTTPException(status_code=409, detail={
+            "code": "cache_staging_busy", "message": "Wait for the current cache operation to finish.",
+        }) from None
+    except CacheEntryUnavailable:
+        raise HTTPException(status_code=409, detail={
+            "code": "cache_staging_unavailable", "message": "The staging files cannot be removed safely.",
+        }) from None
+    except OSError:
+        raise HTTPException(status_code=500, detail="Could not remove all reviewed staging files.") from None
+    if not removed:
+        raise HTTPException(status_code=409, detail={
+            "code": "cache_staging_changed", "message": "The staging files changed. Refresh the cache information.",
+        })
     return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
 
@@ -2205,11 +2260,16 @@ def is_local_maintenance_request(request: Request, operation: str) -> bool:
 
 
 @router.delete("/api/storage/diagnostics/results/{scope}", status_code=204)
-async def remove_saved_storage_check(request: Request, scope: CheckScope, result_id: UUID):
+async def remove_saved_storage_check(
+    request: Request, scope: CheckScope, result_id: UUID | None = None,
+    revision: str | None = Query(default=None, pattern=r"^[0-9a-f]{64}$"),
+):
     """Remove one previously reviewed diagnostic result from local Settings."""
     if (not is_local_maintenance_request(request, "remove-check-result")
             or request.client is None or request.client.host not in {"127.0.0.1", "::1"}):
         raise HTTPException(status_code=403, detail="Remove saved check results from local Helios.")
+    if (result_id is None) == (revision is None):
+        raise HTTPException(status_code=422, detail="Supply a result ID or a reviewed damaged-file revision.")
     runtime = current_runtime()
     maintenance = runtime.maintenance
     if runtime.storage_check_lock.locked() or (maintenance is not None and maintenance.pending is not None):
@@ -2218,7 +2278,15 @@ async def remove_saved_storage_check(request: Request, scope: CheckScope, result
         })
     async with runtime.storage_check_lock:
         try:
-            removed = await run_local(remove_check_result, runtime.storage_root, scope, result_id)
+            if result_id is None:
+                removed = await run_local(remove_damaged_check_cache, runtime.storage_root, scope, revision)
+            else:
+                removed = await run_local(remove_check_result, runtime.storage_root, scope, result_id)
+        except CacheWriteBusy:
+            raise HTTPException(status_code=409, detail={
+                "code": "storage_maintenance_in_progress",
+                "message": "Wait for storage maintenance to finish before removing a result.",
+            }) from None
         except (OSError, RuntimeError):
             raise HTTPException(status_code=500, detail="Could not remove the saved check result.") from None
     if not removed:

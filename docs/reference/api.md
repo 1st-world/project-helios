@@ -42,6 +42,14 @@ Microsoft's [Foundry REST reference](https://learn.microsoft.com/en-us/rest/api/
 
 The response includes the UTC `measured_at` timestamp, `total_bytes`, `complete`, and `categories`. Each category has an `id`, measured `bytes`, counted `files`, and a `skipped` count. A skipped entry can be a file or an entire location that could not be measured. When `complete` is false, totals cover only the files counted. The endpoint returns aggregates without file paths, and does not save a report.
 
+### Review cached files
+
+`GET /api/storage/cache` returns `items` for `tokenizer`, `basic`, `deep`, `recovery-preview`, `recovery-copy`, `tokenizer-staging`, and `maintenance-staging`. It requires a loopback peer and a `localhost` or `127.0.0.1` host. Each item has an `id`, a `state`, and `size_bytes` when its file size can be verified. States are `available`, `damaged`, `empty`, `busy`, `unavailable`, and `protected`. Published recovery files are protected while stored and support the recovery workflow across restarts.
+
+An available tokenizer entry includes its `revision` for [vocabulary removal](#remove-the-tokenizer-vocabulary). An available check entry includes `finished_at` and a `result_id`. A readable, damaged basic or deep report includes a `revision` for [check result removal](#remove-a-saved-check-result). Files that cannot be reviewed safely return `unavailable`.
+
+Available staging items include a `revision` and a `files` count. Send `DELETE /api/storage/cache/staging/{scope}?revision=<revision>` with `scope` set to `tokenizer` or `maintenance` and `X-Helios-Maintenance: remove-cache-staging` from the same local host. HTTP `204` indicates that the reviewed group was removed or was already absent. HTTP `409` indicates a busy writer, changed files, or unavailable staging. HTTP `500` indicates a removal failure. Refresh to review any files left after a partial failure. Only recognized Helios stages participate, and the writer's directory lock must be available.
+
 ### Review and remove migration backups
 
 `GET /api/storage/backups` lists Helios-named settings and profile migration backups next to their live registries. Each item contains `registry` (`settings` or `profiles`), `name`, `size_bytes`, UTC `modified_at`, `protected`, and an opaque `revision`. `incomplete` lists registries whose backups could not all be inspected. The list uses file metadata.
@@ -69,6 +77,8 @@ Both report types include `scope` (`basic` or `deep`), `complete`, and a `summar
 ### Remove a saved check result
 
 Send `DELETE /api/storage/diagnostics/results/{scope}?result_id=<UUID>` with `scope` set to `basic` or `deep` and the `id` from the saved result. The request must come from loopback, use `localhost` or `127.0.0.1` as its host, and include `X-Helios-Maintenance: remove-check-result`. The endpoint returns HTTP `403` for requests that fail these checks.
+
+For an entry marked `damaged` in cache review, send `revision=<revision>` as the sole query parameter. Helios checks that the same readable file is still damaged.
 
 HTTP `204` means the specified result was removed or its file was already absent. HTTP `409` means the saved result has changed or cannot be validated (`storage_check_result_changed`), or that a check, removal, or managed maintenance job is in progress (`storage_maintenance_in_progress`). A file that cannot be removed safely returns HTTP `500`. The endpoint only removes the selected diagnostic report file. No restart is required.
 
@@ -106,7 +116,7 @@ The API can update the next-response choice during active or paused work. Alread
 
 `GET /api/settings/tokenizer` returns `state` (`ready`, `missing`, `invalid`, or `installing`) and `can_install`. It checks the local file without accessing the network. Install with `POST /api/settings/tokenizer` from loopback using `localhost` or `127.0.0.1` and `X-Helios-Tokenizer: install`. The request has no body. Helios downloads the configured public file, verifies it before replacing the local copy, and uses it for new requests.
 
-HTTP `200` returns `state: "ready"`. If a download is already in progress, HTTP `202` returns `state: "installing"`. Read the status again to see the outcome. HTTP `403` indicates an invalid host, peer, or header. HTTP `409` means removal is in progress. HTTP `502` indicates a failed or unverifiable download. HTTP `500` indicates a local save or load failure.
+HTTP `200` returns `state: "ready"`. If a download is already in progress in the app, HTTP `202` returns `state: "installing"`. Read the status again to see the outcome. HTTP `403` indicates an invalid host, peer, or header. HTTP `409` means another cache operation holds the write lock or removal is in progress. HTTP `502` indicates a failed or unverifiable download. HTTP `500` indicates a local save or load failure.
 
 While the state is `installing`, the response includes `download` with `phase` (`downloading` or `verifying`), `received_bytes`, and `total_bytes`. The total comes from the upstream `Content-Length` and is `null` when unavailable.
 
