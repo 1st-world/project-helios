@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import replace
@@ -14,6 +15,7 @@ from models.conversation import Conversation
 from models.message import Message
 from models.workspace import WorkspaceBinding
 from services.attachment_errors import AttachmentReferencesUnavailableError
+from services.project_access import signature
 from services.work_run_store import WorkRunStore
 
 logger = logging.getLogger(__name__)
@@ -39,6 +41,7 @@ class ConversationManager:
         self._default_profile_id = default_profile_id or (lambda: None)
         self._storage_root.mkdir(parents=True, exist_ok=True)
         self._conversations: dict[str, Conversation] = {}
+        self._file_revisions: dict[str, tuple] = {}
         self._reference_lock = RLock()
         self._attachment_references: dict[str, set[str]] = {}
         self._attachment_counts: Counter[str] = Counter()
@@ -54,6 +57,14 @@ class ConversationManager:
             raise ValueError("Invalid conversation identifier.") from exc
         return self._storage_root / f"{safe_id}.json"
 
+    @staticmethod
+    def _file_revision(path: Path) -> tuple | None:
+        """Capture the file identity for later cleanup without changing save semantics."""
+        try:
+            return signature(path.lstat())
+        except OSError:
+            return None
+
     def _load(self) -> None:
         """Load valid conversation files while logging and skipping invalid records."""
         try:
@@ -66,6 +77,7 @@ class ConversationManager:
             if path.suffix != ".json":
                 continue
             try:
+                revision = self._file_revision(path)
                 conversation = Conversation.from_dict(
                     json.loads(path.read_text(encoding="utf-8"))
                 )
@@ -74,6 +86,8 @@ class ConversationManager:
                         "Conversation file name does not match its id."
                     )
                 self._conversations[conversation.id] = conversation
+                if revision is not None and self._file_revision(path) == revision:
+                    self._file_revisions[conversation.id] = revision
                 self._index_attachments(conversation.id, self._message_attachment_ids(conversation))
             except (
                 OSError,
@@ -108,15 +122,24 @@ class ConversationManager:
         temporary = target.with_suffix(".tmp")
         identities = self._message_attachment_ids(conversation)
         try:
-            temporary.write_text(
-                json.dumps(
+            with temporary.open("w", encoding="utf-8") as output:
+                output.write(json.dumps(
                     conversation.to_dict(), ensure_ascii=False, indent=2
-                ),
-                encoding="utf-8",
-            )
+                ))
+                output.flush()
+                try:
+                    staged = signature(os.fstat(output.fileno()))
+                except OSError:
+                    staged = None
             # Request leases protect new copies until this committed index is published.
             with self._reference_lock:
                 temporary.replace(target)
+                published = self._file_revision(target)
+                # Rename can change ctime. The identity, size, and mtime must still match.
+                if staged is not None and published is not None and staged[:4] == published[:4]:
+                    self._file_revisions[conversation.id] = published
+                else:
+                    self._file_revisions.pop(conversation.id, None)
                 released = self._index_attachments(conversation.id, identities)
         except Exception:
             try:
@@ -218,6 +241,14 @@ class ConversationManager:
         """Return a registered conversation by identifier, or None if absent."""
         return self._conversations.get(conversation_id)
 
+    def saved_conversations(self) -> tuple[Conversation, ...]:
+        """Snapshot the registered conversations on the event loop for storage review."""
+        return tuple(self._conversations.values())
+
+    def saved_transcript(self, conversation_id: str) -> tuple[Path, tuple | None]:
+        """Return the transcript path and the revision last loaded or saved by Helios."""
+        return self._path_for(conversation_id), self._file_revisions.get(conversation_id)
+
     def get_or_create(self, conversation_id: str | None) -> Conversation:
         """Return the requested conversation when found, otherwise create one."""
         return (
@@ -237,25 +268,21 @@ class ConversationManager:
         self._commit_changes(conversation, title=cleaned_title[:100])
         return conversation
 
-    def delete(self, conversation_id: str) -> bool:
-        """Delete a conversation and its file, restoring registration if deletion fails."""
-        conversation = self._conversations.pop(conversation_id, None)
+    def delete(self, conversation_id: str, *, before_unlink: Callable[[], None] | None = None) -> bool:
+        """Remove the file before releasing the conversation and its references."""
+        conversation = self._conversations.get(conversation_id)
         if not conversation:
             return False
-        previous_version = conversation.version
-        conversation.is_deleted = True
-        conversation.version += 1
-        try:
-            with self._reference_lock:
-                self._path_for(conversation_id).unlink(missing_ok=True)
-                released = self._index_attachments(conversation_id, set())
-                self._attachment_references.pop(conversation_id, None)
-        except OSError:
-            # Keep the conversation in memory if the disk deletion did not succeed.
-            conversation.is_deleted = False
-            conversation.version = previous_version
-            self._conversations[conversation_id] = conversation
-            raise
+        with self._reference_lock:
+            if before_unlink is not None:
+                before_unlink()
+            self._path_for(conversation_id).unlink(missing_ok=True)
+            self._conversations.pop(conversation_id)
+            conversation.is_deleted = True
+            conversation.version += 1
+            released = self._index_attachments(conversation_id, set())
+            self._attachment_references.pop(conversation_id, None)
+            self._file_revisions.pop(conversation_id, None)
         self._notify_attachments(released)
         return True
 

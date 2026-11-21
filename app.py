@@ -29,7 +29,7 @@ from fastapi import (
 )
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError, model_validator
 from starlette.requests import ClientDisconnect
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -103,6 +103,10 @@ from services.storage_backup_cleanup import (
 from services.storage_cache_cleanup import (
     CacheEntryUnavailable, CacheStagingScope, remove_cache_staging, remove_damaged_check_cache,
     remove_tokenizer_cache, review_storage_cache, review_tokenizer_cache,
+)
+from services.storage_conversation_cleanup import (
+    ConversationCleanupRequest, ConversationFileChanged, ConversationFileUnavailable,
+    cleanup_timestamp, require_reviewed_transcript, review_transcripts,
 )
 from services.storage_maintenance import (
     RECOVERY_APPLY, RECOVERY_PREVIEW, CheckScope, MaintenanceBusy, MaintenanceSession, RecoveryOperation,
@@ -1456,28 +1460,49 @@ async def work_evidence(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.delete("/api/conversations/{conversation_id}")
-async def delete_conversation(conversation_id: str):
-    """Delete a conversation from memory and disk, reporting storage failures."""
+def remove_saved_conversation(conversation_id: str, *, reviewed_revision: str | None = None) -> set[str] | None:
+    """Delete the transcript and release its live references synchronously."""
     runtime = current_runtime()
     conversation = runtime.conversation_manager.get(conversation_id)
+    if conversation is None:
+        return None
     candidates = {
         source["attachment_id"] for message in conversation.messages
         for source in message.attachment_sources if source["source"] == "upload"
-    } if conversation else set()
+    }
+
+    def check_reviewed_file() -> None:
+        """Recheck the selected transcript inside the store's deletion guard."""
+        if reviewed_revision is not None:
+            path, expected = runtime.conversation_manager.saved_transcript(conversation_id)
+            require_reviewed_transcript(path, expected, reviewed_revision)
+
+    if not runtime.conversation_manager.delete(
+        conversation_id, before_unlink=check_reviewed_file if reviewed_revision is not None else None,
+    ):
+        return None
+    runtime.memory_service.background_updates.publish(conversation_id, "idle")
+    runtime.conversation_workspaces.forget(conversation_id)
+    runtime.context_recovery.forget_conversation(conversation_id)
     try:
-        deleted = runtime.conversation_manager.delete(conversation_id)
+        runtime.work_run_store.forget_conversation(conversation_id)
+    except sqlite3.Error:
+        logger.exception("Could not release work checkpoints after deleting conversation: %s", conversation_id)
+    return candidates
+
+
+@router.delete("/api/conversations/{conversation_id}")
+async def delete_conversation(conversation_id: str):
+    """Delete a conversation from memory and disk, reporting storage failures."""
+    try:
+        candidates = remove_saved_conversation(conversation_id)
     except OSError:
         logger.exception("Could not delete conversation: %s", conversation_id)
         raise HTTPException(
             status_code=500, detail="Could not delete conversation from disk."
         )
-    if not deleted:
+    if candidates is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
-    runtime.memory_service.background_updates.publish(conversation_id, "idle")
-    runtime.conversation_workspaces.forget(conversation_id)
-    runtime.context_recovery.forget_conversation(conversation_id)
-    runtime.work_run_store.forget_conversation(conversation_id)
     await collect_attachments(candidates)
     return {"deleted": True}
 
@@ -2329,6 +2354,110 @@ async def remove_storage_backups(request: Request, payload: BackupRemovalRequest
     documents = storage_backup_documents(request, remove=True)
     report = await run_local(remove_migration_backups, documents, payload.items)
     return JSONResponse(report, headers={"Cache-Control": "no-store"})
+
+
+def conversation_cleanup_blocker(conversation_id: str) -> str | None:
+    """Read live request, Workspace, memory, and work protection without changing state."""
+    runtime = current_runtime()
+    if runtime.context_recovery.is_busy(conversation_id):
+        return "request_in_progress"
+    workspace = runtime.conversation_workspaces.saved.get(conversation_id)
+    if workspace is not None and workspace.session_id in runtime.workspace_operations.values():
+        return "workspace_in_use"
+    if runtime.memory_service.is_background_running(conversation_id):
+        return "memory_update_in_progress"
+    try:
+        status = runtime.work_run_store.unfinished_status(conversation_id)
+    except sqlite3.Error:
+        return "work_status_unavailable"
+    if status is None:
+        return None
+    return "work_run_paused" if status == "paused" else "work_run_in_progress"
+
+
+@router.get("/api/storage/conversations")
+async def review_storage_conversations(
+    request: Request, updated_before: AwareDatetime,
+    offset: int = Query(default=0, ge=0), limit: int = Query(default=50, ge=1, le=100),
+):
+    """List a metadata-only page of saved conversations older than the selected time."""
+    if not is_loopback_http_request(request):
+        raise HTTPException(status_code=403, detail="Review saved conversations from local Helios.")
+    manager = current_runtime().conversation_manager
+    cutoff = cleanup_timestamp(updated_before)
+    ordered = sorted(
+        (updated_at, conversation.id, conversation.title)
+        for conversation in manager.saved_conversations()
+        if (updated_at := cleanup_timestamp(conversation.updated_at)) < cutoff
+    )
+    page = ordered[offset:offset + limit]
+    sources = [manager.saved_transcript(identity) for _, identity, _ in page]
+    files = await until_disconnect(request, run_local, review_transcripts, sources)
+    items = []
+    for (updated_at, identity, title), source, file in zip(page, sources, files, strict=True):
+        item = {"id": identity, "title": title, "updated_at": updated_at.isoformat()}
+        if file is None or manager.get(identity) is None or manager.saved_transcript(identity) != source:
+            item.update(state="unavailable")
+        elif (reason := conversation_cleanup_blocker(identity)) is not None:
+            item.update(state="protected", reason=reason, size_bytes=file["size_bytes"])
+        else:
+            item.update(state="available", **file)
+        items.append(item)
+    next_offset = offset + len(items)
+    return JSONResponse({
+        "items": items, "total": len(ordered), "updated_before": cutoff.isoformat(),
+        "next_offset": next_offset if next_offset < len(ordered) else None,
+    }, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/api/storage/conversations/remove")
+async def remove_storage_conversations(request: Request, payload: ConversationCleanupRequest):
+    """Revalidate each selected idle conversation and use normal deletion to release its references."""
+    if not is_loopback_http_request(request) or not is_local_maintenance_request(request, "remove-conversations"):
+        raise HTTPException(status_code=403, detail="Remove saved conversations from local Helios.")
+    runtime = current_runtime()
+    if runtime.maintenance is not None and runtime.maintenance.pending is not None:
+        raise HTTPException(status_code=409, detail={
+            "code": "storage_maintenance_in_progress",
+            "message": "Wait for storage maintenance to finish before removing conversations.",
+        })
+    cutoff = cleanup_timestamp(payload.updated_before)
+    candidates = set()
+    items = []
+    for selection in payload.items:
+        item = {"id": selection.id}
+        items.append(item)
+        conversation = runtime.conversation_manager.get(selection.id)
+        if conversation is None:
+            item.update(outcome="missing")
+            continue
+        if cleanup_timestamp(conversation.updated_at) >= cutoff:
+            item.update(outcome="changed")
+            continue
+        if (reason := conversation_cleanup_blocker(conversation.id)) is not None:
+            item.update(outcome="protected", reason=reason)
+            continue
+        # The check and the mutation run without a suspension on the owning event loop.
+        try:
+            released = remove_saved_conversation(conversation.id, reviewed_revision=selection.revision)
+        except ConversationFileChanged:
+            item.update(outcome="changed")
+            continue
+        except ConversationFileUnavailable:
+            item.update(outcome="unavailable")
+            continue
+        except OSError:
+            logger.exception("Could not remove conversation: %s", conversation.id)
+            item.update(outcome="failed")
+            continue
+        if released is None:
+            item.update(outcome="missing")
+        else:
+            candidates.update(released)
+            item.update(outcome="removed")
+    if candidates:
+        await collect_attachments(candidates)
+    return JSONResponse({"items": items}, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/api/storage/maintenance")

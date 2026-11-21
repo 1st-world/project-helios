@@ -58,6 +58,14 @@ Microsoft의 [Foundry REST 참조](https://learn.microsoft.com/en-us/rest/api/mi
 
 선택한 파일별 `outcome`은 `removed`, `missing`, `changed`, `protected`, `unavailable`, `failed` 중 하나입니다. Helios는 설정 또는 프로필 저장과 동일한 잠금을 사용하여 파일이 바뀌었는지와 현재 참조를 재확인합니다. 현재 파일에서 참조하거나 다음 마이그레이션에 필요한 백업은 보호합니다. 삭제 대상은 설정·프로필 파일 옆에 있는 이름 규칙에 맞는 백업으로 한정합니다.
 
+### 오래된 대화 조회 및 삭제
+
+`GET /api/storage/conversations?updated_before=<시각>`은 마지막 저장 시각이 지정한 기준보다 이른 대화를 오래된 순서로 조회합니다. 기준 시각에는 시간대 정보가 필요합니다. `offset`의 기본값은 `0`이고 `limit`의 기본값은 `50`, 최댓값은 `100`입니다. 응답에는 UTC로 변환한 기준 시각, `total`, `next_offset`, `items`가 들어갑니다. 각 항목에는 `id`, `title`, `updated_at`과 `state`(`available`, `protected`, `unavailable` 중 하나)가 들어갑니다. 삭제할 수 있는 항목은 `size_bytes`와 `revision`을, 요청·Workspace 작업·메모리 갱신·미완료 작업 또는 작업 상태 확인 실패로 보호된 항목은 `reason`을 반환합니다.
+
+`X-Helios-Maintenance: remove-conversations` 헤더와 `{"updated_before":"2026-01-01T00:00:00Z","items":[{"id":"<대화 ID>","revision":"<확인한 revision>"}]}` 본문을 붙여 `POST /api/storage/conversations/remove`를 보냅니다. 두 API 모두 루프백에서 보내고 호스트는 `localhost` 또는 `127.0.0.1`이어야 합니다. 한 번에 서로 다른 대화를 최대 100개까지 지정할 수 있으며, 대기 중인 관리형 유지보수 작업이 있으면 삭제 요청에 HTTP `409`를 반환합니다.
+
+선택한 대화별 `outcome`은 `removed`, `missing`, `changed`, `protected`, `unavailable`, `failed` 중 하나입니다. Helios는 삭제 직전에 기준 시각, 진행 중인 작업, 대화 파일의 변경 여부를 재확인합니다. 표시하는 크기는 대화 파일 자체의 크기입니다. 기존 대화 삭제 흐름을 사용해 첨부 사본 참조를 해제하고, 기록된 사용량과 실행 기록은 보존합니다.
+
 ### 기본 검사 실행
 
 `GET /api/storage/diagnostics`는 서버의 설정·프로필 파일, 대화, 개별 SQLite 데이터베이스를 읽기 전용으로 검사하고 결과를 별도 파일에 저장합니다. 저널 보조 파일이 있거나 WAL 모드인 데이터베이스는 검사를 보류합니다. 검사 중에 같은 요청이 들어오면 HTTP `409`와 `detail.code: "storage_check_in_progress"`를 반환합니다.

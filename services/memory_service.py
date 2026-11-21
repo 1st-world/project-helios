@@ -875,6 +875,10 @@ class ConversationMemoryService:
                 progress.selected_new_summary = start > original_count
             return inputs
 
+    def is_background_running(self, conversation_id: str) -> bool:
+        """Report whether background memory has claimed a conversation."""
+        return conversation_id in self._running
+
     async def compact_if_needed(
         self, conversation: Conversation, profile_id: str | None = None,
         *, summary_policy: MemoryPolicySnapshot | None = None,

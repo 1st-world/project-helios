@@ -58,6 +58,14 @@ Send `POST /api/storage/backups/remove` with `X-Helios-Maintenance: remove-migra
 
 Each selected item returns an `outcome` of `removed`, `missing`, `changed`, `protected`, `unavailable`, or `failed`. Helios rechecks file revisions and registry references under the registry save lock. Backups needed by a live registry or its pending migration are protected. The operation covers only the recognized files beside the live registries.
 
+### Review and remove older conversations
+
+`GET /api/storage/conversations?updated_before=<timestamp>` lists saved conversations last updated strictly before the supplied timezone-aware timestamp, oldest first. Optional `offset` starts at `0` and `limit` defaults to `50` with a maximum of `100`. The response repeats the cutoff in UTC and returns `total`, `next_offset`, and `items`. Each item has an `id`, `title`, `updated_at`, and a `state` of `available`, `protected`, or `unavailable`. Available items also have `size_bytes` and a `revision`. Protected items give a `reason` when a request, Workspace operation, memory update, unfinished work run, or unverified work status prevents removal.
+
+Send `POST /api/storage/conversations/remove` with `X-Helios-Maintenance: remove-conversations` and a body such as `{"updated_before":"2026-01-01T00:00:00Z","items":[{"id":"<conversation ID>","revision":"<reviewed revision>"}]}`. Both routes require a loopback peer and a `localhost` or `127.0.0.1` host. A batch accepts up to 100 distinct conversations, and pending managed maintenance returns HTTP `409`.
+
+Each selection returns an `outcome` of `removed`, `missing`, `changed`, `protected`, `unavailable`, or `failed`. Helios verifies the cutoff, live activity, and transcript revision at removal. The reported size counts the transcript file. Removal uses the standard conversation deletion flow, releases attachment references, and retains recorded usage and work history.
+
 ### Run a basic check
 
 `GET /api/storage/diagnostics` checks the configured settings, profiles, transcripts, and individual SQLite databases. It reads the inspected stores without changing them and saves the resulting report separately. Databases with journal sidecars or WAL mode are deferred. A second basic check requested while one is running receives HTTP `409` with `detail.code: "storage_check_in_progress"`.

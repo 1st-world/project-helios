@@ -1656,3 +1656,14 @@ class WorkRunStore:
             if run["status"] == "paused":
                 return run
         return None
+
+    def unfinished_status(self, conversation_id: str) -> str | None:
+        """Read a protection state without loading or expiring a resumable checkpoint."""
+        states = (*sorted(ACTIVE_STATES), "paused")
+        placeholders = ", ".join("?" for _ in states)
+        row = self.connection.execute(
+            f"SELECT status FROM work_runs WHERE conversation_id=? AND status IN ({placeholders}) "
+            "ORDER BY status='paused' DESC LIMIT 1",
+            (conversation_id, *states),
+        ).fetchone()
+        return row[0] if row is not None else None
