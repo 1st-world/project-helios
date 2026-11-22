@@ -3554,37 +3554,6 @@ textarea::placeholder {
 .storage-cleanup-dialog .storage-cleanup-filters select {
   width: 100%;
 }
-@supports (appearance: base-select) and selector(::picker(select)) {
-  .storage-cleanup-dialog select,
-  .storage-cleanup-dialog select::picker(select) {
-    appearance: base-select;
-  }
-  .storage-cleanup-dialog select::picker(select) {
-    margin-block: 4px;
-    padding: 4px;
-    border: 1px solid var(--border-strong);
-    border-radius: 6px;
-    background: var(--bg-surface-elevated);
-    box-shadow: var(--shadow-md);
-    color: var(--text-main);
-  }
-  .storage-cleanup-dialog option {
-    padding: 8px 10px;
-    border-radius: 4px;
-    line-height: var(--line-height-input);
-    cursor: pointer;
-  }
-  .storage-cleanup-dialog option:checked {
-    color: var(--accent);
-  }
-  .storage-cleanup-dialog option:not(:disabled):is(:hover, :focus-visible) {
-    background: var(--bg-element-hover);
-  }
-  .storage-cleanup-dialog option:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: -2px;
-  }
-}
 .storage-cleanup-dialog :is(.storage-cleanup-list, .storage-cleanup-issues):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
@@ -4269,6 +4238,52 @@ textarea::placeholder {
 .settings-dialog select:disabled,
 .preferences-dialog .settings-preference-row input:disabled {
   color: var(--text-muted);
+}
+
+@supports (appearance: base-select) and selector(::picker(select)) {
+  .settings-dialog select,
+  .settings-dialog select::picker(select) {
+    appearance: base-select;
+  }
+  .settings-dialog select::picker(select) {
+    box-sizing: border-box;
+    inline-size: anchor-size(width);
+    margin-block: 4px;
+    padding: 4px;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    background: var(--bg-surface-elevated);
+    box-shadow: var(--shadow-md);
+    color: var(--text-main);
+  }
+  .settings-dialog select selectedcontent {
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .settings-dialog select option {
+    padding: 8px 10px;
+    border-radius: 4px;
+    line-height: var(--line-height-input);
+    white-space: normal;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+  }
+  .settings-dialog select option:checked {
+    color: var(--accent);
+  }
+  .settings-dialog select option:disabled {
+    color: var(--text-muted);
+    cursor: not-allowed;
+  }
+  .settings-dialog select option:not(:disabled):is(:hover, :focus-visible) {
+    background: var(--bg-element-hover);
+  }
+  .settings-dialog select option:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
 }
 
 .preferences-dialog .settings-preference-row .settings-switch {
@@ -6106,7 +6121,7 @@ button svg,
 
 @media (forced-colors: active) {
   /* Use platform colors because high-contrast mode replaces the normal design palette. */
-  .storage-cleanup-dialog select {
+  .settings-dialog select {
     appearance: auto;
   }
   .preferences-dialog .settings-preference-row .settings-switch,
