@@ -2327,7 +2327,7 @@ textarea::placeholder {
   top: 20px;
   right: 20px;
   align-items: center;
-  max-width: 400px;
+  max-width: min(400px, calc(100% - 40px));
   padding: 10px 14px;
   gap: 9px;
   border: 1px solid var(--border-strong);
@@ -2339,8 +2339,10 @@ textarea::placeholder {
   font-weight: var(--font-weight-label);
   font-size: var(--font-size-body-compact);
   line-height: var(--line-height-description);
-  animation: toast-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: auto;
+}
+.toast-entering {
+  animation: toast-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 @keyframes toast-in {
   from {
@@ -2352,20 +2354,54 @@ textarea::placeholder {
     opacity: 1;
   }
 }
-.toast svg {
-  flex-shrink: 0;
+.toast-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+}
+.toast-icon > svg {
   width: 16px;
   height: 16px;
 }
-.toast span {
+.toast-message {
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.toast-dismiss {
+  display: grid;
+  position: relative;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+}
+.toast-dismiss:hover {
+  background: var(--bg-element-hover);
+}
+.toast-dismiss > svg {
+  width: 14px;
+  height: 14px;
+}
+.toast[data-countdown] .toast-dismiss::before {
+  position: absolute;
+  inset: 0;
+  border: 2px solid currentColor;
+  border-radius: inherit;
+  content: "";
+  mask: conic-gradient(currentColor var(--toast-remaining), transparent 0);
+  pointer-events: none;
 }
 .toast-success {
   border-color: var(--success-border);
   background: var(--success-subtle);
   color: var(--success-text);
 }
-.toast-success svg {
+.toast-success .toast-icon {
   color: var(--success);
 }
 .toast-error,
@@ -2374,8 +2410,8 @@ textarea::placeholder {
   background: var(--danger-subtle);
   color: var(--danger-text);
 }
-.toast-error svg,
-.toast-danger svg {
+.toast-error .toast-icon,
+.toast-danger .toast-icon {
   color: var(--danger);
 }
 .toast-warning {
@@ -2383,7 +2419,7 @@ textarea::placeholder {
   background: var(--warning-subtle);
   color: var(--warning-text);
 }
-.toast-warning svg {
+.toast-warning .toast-icon {
   color: var(--warning);
 }
 .toast-info {
@@ -2391,7 +2427,7 @@ textarea::placeholder {
   background: var(--info-subtle);
   color: var(--info-text);
 }
-.toast-info svg {
+.toast-info .toast-icon {
   color: var(--info);
 }
 
@@ -6005,6 +6041,12 @@ button svg,
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .toast-entering {
+    animation: none;
+  }
+  .toast[data-countdown] .toast-dismiss::before {
+    display: none;
+  }
   button[aria-busy="true"] > svg[data-lucide="refresh-cw"],
   .response-progress .response-progress-indicator,
   .composer-conversation-notices [data-tone="progress"] [data-notice-icon="progress"],

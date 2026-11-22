@@ -141,7 +141,12 @@
     </footer>
   </main>
 
-  <div id="toast" class="toast hidden"></div>
+  <span id="toast-announcement" class="sr-only" role="status"></span>
+  <div id="toast" class="toast hidden">
+    <span class="toast-icon" aria-hidden="true"></span>
+    <span class="toast-message"></span>
+    <button class="toast-dismiss" type="button" aria-label="Dismiss notification" title="Dismiss notification"><i data-lucide="x" aria-hidden="true"></i></button>
+  </div>
 
   <dialog id="work-tools-settings-dialog" class="settings-dialog work-tools-settings" aria-labelledby="work-tools-settings-title">
     <div class="dialog-heading"><div><i data-lucide="tool-case" aria-hidden="true"></i><h2 id="work-tools-settings-title">Work tools</h2></div><button class="dialog-close" type="button" data-close-dialog="work-tools-settings-dialog" aria-label="Close Work tools settings"><i data-lucide="x" aria-hidden="true"></i></button></div>
@@ -1062,7 +1067,6 @@
         </div>
       </div>
       <p id="storage-cleanup-status" class="storage-status" role="status" aria-atomic="true"></p>
-      <span id="storage-cleanup-announcement" class="sr-only" role="status"></span>
       <p id="storage-cleanup-outcome" class="storage-status" role="status" aria-atomic="true" tabindex="-1"></p>
       <ul id="storage-cleanup-issues" class="storage-cleanup-issues" aria-label="Cleanup results that need attention" tabindex="0" hidden></ul>
       <p id="storage-cleanup-empty" class="field-hint" hidden></p>

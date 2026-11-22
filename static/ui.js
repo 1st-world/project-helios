@@ -45,11 +45,89 @@ export function refreshIcons(root = document) {
   root.querySelectorAll('svg[data-helios-icon]').forEach((icon) => icon.removeAttribute('data-helios-icon'));
 }
 
+const toastDuration = 4500;
 let toastTimer = null;
+let toastFrame = null;
+let toastAnnouncementTimer = null;
+let toastFocusReturn = null;
+let toastObserver;
+let toastElement;
+let toastAnnouncement;
+let modalOrder = [];
+
+function placeToast(records) {
+  // Opening mutations follow the modal stack even when dialogs appear in a different DOM order.
+  for (const { target, oldValue } of records) {
+    if (!(target instanceof HTMLDialogElement) || oldValue !== null || !target.matches(':modal')) continue;
+    modalOrder = modalOrder.filter(dialog => dialog !== target);
+    modalOrder.push(target);
+  }
+  modalOrder = modalOrder.filter(dialog => dialog.isConnected && dialog.matches(':modal'));
+  const host = modalOrder.at(-1) || document.body;
+  if (toastElement.parentElement !== host) {
+    toastElement.classList.remove('toast-entering');
+    setText(toastAnnouncement, '');
+    host.append(toastElement, toastAnnouncement);
+  }
+}
+
+function stopToastTimer() {
+  clearTimeout(toastTimer);
+  cancelAnimationFrame(toastFrame);
+  toastTimer = toastFrame = null;
+  toastElement.removeAttribute('data-countdown');
+}
+
+function dismissToast() {
+  const focusWasInside = toastElement.contains(document.activeElement);
+  stopToastTimer();
+  clearTimeout(toastAnnouncementTimer);
+  setText(toastAnnouncement, '');
+  toastElement.classList.add('hidden');
+  if (focusWasInside && toastFocusReturn?.isConnected) toastFocusReturn.focus({ preventScroll: true });
+  toastFocusReturn = null;
+}
+
+function startToastTimer() {
+  toastTimer = setTimeout(dismissToast, toastDuration);
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const started = performance.now();
+  toastElement.style.setProperty('--toast-remaining', '100%');
+  toastElement.setAttribute('data-countdown', '');
+
+  function updateRing(now) {
+    const remaining = Math.max(0, 1 - (now - started) / toastDuration);
+    toastElement.style.setProperty('--toast-remaining', `${remaining * 100}%`);
+    if (remaining) toastFrame = requestAnimationFrame(updateRing);
+  }
+
+  toastFrame = requestAnimationFrame(updateRing);
+}
+
+function initializeToast() {
+  if (toastObserver) return;
+  toastElement = $('#toast');
+  toastAnnouncement = $('#toast-announcement');
+  if (!toastElement || !toastAnnouncement) return;
+  modalOrder = [...document.querySelectorAll('dialog:modal')];
+  toastObserver = new MutationObserver(records => {
+    if (records.some(({ target }) => target instanceof HTMLDialogElement)) placeToast(records);
+  });
+  toastObserver.observe(document.body, { subtree: true, attributeFilter: ['open'], attributeOldValue: true });
+  placeToast([]);
+  toastElement.querySelector('.toast-dismiss').onclick = dismissToast;
+  toastElement.addEventListener('pointerenter', event => {
+    if (event.pointerType !== 'touch') stopToastTimer();
+  });
+  toastElement.addEventListener('focusin', event => {
+    toastFocusReturn = event.relatedTarget;
+    stopToastTimer();
+  });
+}
 
 export function toast(message, type = 'info') {
-  const el = $('#toast');
-  if (!el) return;
+  initializeToast();
+  if (!toastObserver) return;
   const icons = {
     success: 'check-circle-2',
     error: 'alert-circle',
@@ -57,23 +135,21 @@ export function toast(message, type = 'info') {
     warning: 'alert-triangle',
     info: 'info'
   };
-  const iconName = icons[type] || 'info';
-  el.className = `toast toast-${type}`;
-  el.innerHTML = `<i data-lucide="${iconName}"></i><span>${escapeHtml(String(message))}</span>`;
-  const openDialog = document.querySelector('dialog[open]');
-  if (openDialog) {
-    if (el.parentElement !== openDialog) {
-      openDialog.appendChild(el);
-    }
-  } else {
-    if (el.parentElement !== document.body) {
-      document.body.appendChild(el);
-    }
-  }
-  refreshIcons();
-  el.classList.remove('hidden');
-  if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.add('hidden'), 4500);
+  const text = String(message);
+  const icon = document.createElement('i');
+  icon.dataset.lucide = icons[type] || 'info';
+  stopToastTimer();
+  // A caller can open a modal and display a notification in the same turn.
+  placeToast(toastObserver.takeRecords());
+  toastElement.querySelector('.toast-icon').replaceChildren(icon);
+  setText(toastElement.querySelector('.toast-message'), text);
+  toastElement.className = `toast toast-${type} toast-entering`;
+  refreshIcons(toastElement);
+  setText(toastAnnouncement, '');
+  clearTimeout(toastAnnouncementTimer);
+  toastAnnouncementTimer = setTimeout(() => setText(toastAnnouncement, text), 0);
+  const hovered = window.matchMedia('(any-hover: hover)').matches && toastElement.matches(':hover');
+  if (!hovered && !toastElement.contains(document.activeElement)) startToastTimer();
 }
 
 function setSidebarCollapsed(collapsed) {
@@ -121,6 +197,7 @@ export function closeMobileSidebar() {
 }
 
 export function initializeUI({ beforeDialogClose }) {
+  initializeToast();
   const closingDialogs = new WeakSet();
 
   async function closeDialog(dialog) {
@@ -263,13 +340,6 @@ export function initializeUI({ beforeDialogClose }) {
     });
 
     bindDialogBackdrop(dlg, () => closeDialog(dlg));
-
-    dlg.addEventListener('close', () => {
-      const el = $('#toast');
-      if (el && el.parentElement === dlg) {
-        document.body.appendChild(el);
-      }
-    });
   });
 
   document.body.classList.toggle('mobile-layout', window.innerWidth <= 720);

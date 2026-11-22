@@ -210,7 +210,6 @@ export function initializeStorageCleanup(settingsDialog) {
   const range = $('#storage-cleanup-range');
   const previous = $('#storage-cleanup-previous');
   const next = $('#storage-cleanup-next');
-  const announcement = $('#storage-cleanup-announcement');
   const outcome = $('#storage-cleanup-outcome');
   const issues = $('#storage-cleanup-issues');
   const selectionCount = $('#storage-cleanup-selection');
@@ -285,7 +284,6 @@ export function initializeStorageCleanup(settingsDialog) {
   }
 
   function clearOutcome() {
-    setText(announcement, '');
     if (outcome.textContent) setStorageStatus(outcome, '');
     issues.hidden = true;
     issues.replaceChildren();
@@ -440,7 +438,6 @@ export function initializeStorageCleanup(settingsDialog) {
     if (accepted) {
       if (feedback.type === 'warning') outcome.focus();
       else title.focus({ preventScroll: true });
-      setText(announcement, feedback.message);
       toast(feedback.message, feedback.type);
     } else if (!remove.disabled) remove.focus({ preventScroll: true });
   }

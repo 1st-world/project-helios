@@ -90,7 +90,7 @@ export function showActionDialog({ title, description, confirmLabel, cancelLabel
   dialog.addEventListener('keydown', event => {
     if (event.key === 'Enter' && event.isComposing) event.preventDefault();
     if (event.key !== 'Tab') return;
-    const controls = [...form.querySelectorAll('input, button')].filter(control => !control.disabled && control.getClientRects().length);
+    const controls = [...dialog.querySelectorAll('input, button')].filter(control => !control.disabled && control.getClientRects().length);
     const target = event.shiftKey ? controls.at(-1) : controls[0];
     const boundary = event.shiftKey ? controls[0] : controls.at(-1);
     if (!controls.length || document.activeElement === boundary || !controls.includes(document.activeElement)) {
