@@ -387,7 +387,10 @@
       <section id="storage-usage" class="settings-group" aria-labelledby="storage-usage-title">
         <div class="settings-panel-heading">
           <div class="dialog-section-title"><h3 id="storage-usage-title">Storage usage</h3><button class="help-popover-trigger" type="button" popovertarget="settings-help-storage-usage" aria-controls="settings-help-storage-usage" aria-expanded="false" aria-label="About storage usage" title="About storage usage"><i data-lucide="info" aria-hidden="true"></i></button></div>
-          <button id="refresh-storage-usage" class="quiet-btn" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>Refresh</span></button>
+          <div class="storage-usage-actions">
+            <button id="refresh-storage-usage" class="quiet-btn" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>Refresh</span></button>
+            <button id="review-storage-cleanup" class="quiet-btn" type="button" aria-haspopup="dialog" aria-controls="storage-cleanup-dialog"><i data-lucide="broom" aria-hidden="true"></i><span>Review cleanup</span></button>
+          </div>
         </div>
         <div class="settings-group-body storage-usage-body">
           <div class="storage-usage-feedback">
@@ -1023,6 +1026,51 @@
     <div id="settings-help-usage" class="help-popover" popover="auto" role="note" tabindex="0" aria-labelledby="settings-help-usage-title" hidden>
       <h4 id="settings-help-usage-title">Recorded usage</h4>
       <p>Totals and call history share the filters and include regeneration, memory summaries, and unsuccessful calls. Costs use the rates saved with each call.</p>
+    </div>
+  </dialog>
+
+  <dialog id="storage-cleanup-dialog" class="settings-dialog storage-cleanup-dialog" aria-labelledby="storage-cleanup-title">
+    <div class="dialog-heading"><div><i data-lucide="broom" aria-hidden="true"></i><h2 id="storage-cleanup-title" tabindex="-1">Storage cleanup</h2></div><button class="dialog-close" type="button" data-close-dialog="storage-cleanup-dialog" aria-label="Close storage cleanup"><i data-lucide="x" aria-hidden="true"></i></button></div>
+    <div class="storage-cleanup-body">
+      <div class="storage-cleanup-filters">
+        <div class="field-control">
+          <label for="storage-cleanup-kind">Category</label>
+          <select id="storage-cleanup-kind">
+            <option value="cache">Cache</option>
+            <option value="backups">Settings &amp; profile backups</option>
+            <option value="conversations">Older conversations</option>
+            <option value="attachments">Attachment copies</option>
+          </select>
+        </div>
+        <div id="storage-cleanup-date" class="field-control" hidden>
+          <label for="storage-cleanup-before">Updated before</label>
+          <div class="input-with-action">
+            <input id="storage-cleanup-before" type="date" min="0001-01-01" aria-describedby="storage-cleanup-timezone">
+            <button class="input-action-btn hidden" type="button" data-date-picker="storage-cleanup-before" title="Choose cutoff date" aria-label="Choose cutoff date"><i data-lucide="calendar" aria-hidden="true"></i></button>
+          </div>
+          <p id="storage-cleanup-timezone" class="field-hint"></p>
+        </div>
+      </div>
+      <div class="storage-cleanup-list-actions" hidden>
+        <span id="storage-cleanup-range" role="status" hidden></span>
+        <div class="storage-cleanup-list-buttons">
+          <nav id="storage-cleanup-pages" aria-label="Cleanup pages" hidden>
+            <button id="storage-cleanup-previous" class="quiet-btn" type="button" aria-label="Previous page"><i data-lucide="chevron-left" aria-hidden="true"></i></button>
+            <button id="storage-cleanup-next" class="quiet-btn" type="button" aria-label="Next page"><i data-lucide="chevron-right" aria-hidden="true"></i></button>
+          </nav>
+          <button id="refresh-storage-cleanup" class="quiet-btn" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>Refresh</span></button>
+        </div>
+      </div>
+      <p id="storage-cleanup-status" class="storage-status" role="status" aria-atomic="true"></p>
+      <span id="storage-cleanup-announcement" class="sr-only" role="status"></span>
+      <p id="storage-cleanup-outcome" class="storage-status" role="status" aria-atomic="true" tabindex="-1"></p>
+      <ul id="storage-cleanup-issues" class="storage-cleanup-issues" aria-label="Cleanup results that need attention" tabindex="0" hidden></ul>
+      <p id="storage-cleanup-empty" class="field-hint" hidden></p>
+      <div id="storage-cleanup-list" class="storage-cleanup-list" tabindex="0" role="region" aria-label="Storage cleanup candidates" hidden><ul></ul></div>
+    </div>
+    <div class="dialog-actions storage-cleanup-footer">
+      <span id="storage-cleanup-selection" class="field-hint" role="status">0 selected</span>
+      <button id="remove-storage-cleanup" class="danger-btn" type="button" disabled><i data-lucide="trash-2" aria-hidden="true"></i><span>Remove selected</span></button>
     </div>
   </dialog>
 

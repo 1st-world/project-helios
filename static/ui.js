@@ -244,6 +244,18 @@ export function initializeUI({ beforeDialogClose }) {
     };
   });
 
+  for (const button of document.querySelectorAll('[data-date-picker]')) {
+    const input = document.getElementById(button.dataset.datePicker);
+    if (typeof input?.showPicker !== 'function') continue;
+    button.classList.remove('hidden');
+    input.classList.add('date-picker-input');
+    button.onclick = () => {
+      if (input.disabled) return;
+      input.focus({ preventScroll: true });
+      input.showPicker();
+    };
+  }
+
   document.querySelectorAll('dialog').forEach((dlg) => {
     dlg.addEventListener('cancel', (event) => {
       event.preventDefault();

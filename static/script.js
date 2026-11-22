@@ -71,6 +71,7 @@ const settings = initializeSettings({
     usage.setFooterVisible(visible);
   },
   onResponseUsageVisibilityChange: chat.setResponseUsageVisibility,
+  onConversationsRemoved: chat.forgetRemovedConversations,
   hasUnsavedProfileChanges: profiles.hasUnsavedChanges,
   isProfileSaving: profiles.isSaving
 });
@@ -79,6 +80,7 @@ initializeUI({
     if (dialog.id === 'workspace-dialog') return workspace.beforeDialogClose();
     if (dialog.id === 'file-dialog') return workspace.beforeAttachmentDialogClose();
     if (dialog.id === 'settings-dialog') return settings.beforeDialogClose();
+    if (dialog.id === 'storage-cleanup-dialog') return settings.canCloseStorageCleanup();
     if (dialog.id === 'work-tools-settings-dialog') return workToolSettings.beforeDialogClose();
     return true;
   }

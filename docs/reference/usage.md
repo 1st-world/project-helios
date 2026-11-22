@@ -213,6 +213,12 @@ View local file sizes under **Settings → Storage → Storage usage**. Helios m
 
 The measurement includes app-managed files such as conversations, attachment copies, and migration backups. It does not estimate how much disk space a cleanup would free. See the [measurement scope](architecture.md#storage-usage).
 
+### Storage cleanup
+
+Choose Cache, Settings & profile backups, Older conversations, or Attachment copies under **Settings → Storage → Storage usage → Review cleanup**. For older conversations, choose a date in the app’s time zone. The list includes only conversations last updated before that day.
+
+Select up to 100 items in one category, including across pages, then choose **Remove selected** to confirm. Choosing **Refresh** or changing the category or date clears the selection. Protected items show why they cannot be selected. After removal, the list and usage measurement refresh. The result identifies items that changed, could not be removed, or are awaiting an automatic retry. Removing attachment copies keeps the original files. Removing conversations also removes their saved memory summaries and keeps recorded usage.
+
 ## Storage diagnostics
 
 Choose a check under **Settings → Storage → Storage diagnostics**.

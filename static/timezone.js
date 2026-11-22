@@ -19,21 +19,46 @@ function readPreference() {
 
 let preference = readPreference();
 
-export function getTimezonePreference() {
-  return preference;
-}
-
 export function getTimezone() {
   if (preference !== 'browser') return preference;
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
   catch { return 'UTC'; }
 }
 
-export function calendarDate(date = new Date()) {
-  const parts = Object.fromEntries(Intl.DateTimeFormat('en-US', {
+export function formatTimezoneLabel() {
+  const source = preference === 'browser' ? ', the browser timezone' : '';
+  return `${getTimezone()}${source}`;
+}
+
+function calendarFormatter() {
+  return Intl.DateTimeFormat('en-US', {
     timeZone: getTimezone(), year: 'numeric', month: '2-digit', day: '2-digit'
-  }).formatToParts(date).map(part => [part.type, part.value]));
+  });
+}
+
+function calendarKey(formatter, date) {
+  const parts = Object.fromEntries(formatter.formatToParts(date).map(part => [part.type, part.value]));
   return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+export function calendarDate(date = new Date()) {
+  return calendarKey(calendarFormatter(), date);
+}
+
+export function calendarDayStart(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const day = Date.parse(`${value}T00:00:00Z`);
+  if (!Number.isFinite(day) || new Date(day).toISOString().slice(0, 10) !== value) return null;
+  const formatter = calendarFormatter();
+  // Find the first instant of the civil date even when local midnight falls in a clock change.
+  let low = day - 86_400_000;
+  let high = day + 86_400_000;
+  while (high - low > 1) {
+    const middle = Math.floor((low + high) / 2);
+    if (calendarKey(formatter, new Date(middle)) < value) low = middle;
+    else high = middle;
+  }
+  return new Date(high).toISOString();
 }
 
 function timestampDate(value) {

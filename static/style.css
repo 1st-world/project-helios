@@ -2397,9 +2397,11 @@ textarea::placeholder {
 
 .settings-dialog,
 .action-dialog {
+  --dialog-padding: 24px;
+
   width: min(580px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);
-  padding: 24px;
+  padding: var(--dialog-padding);
   overflow-y: auto;
   border: 1px solid var(--border-strong);
   border-radius: 12px;
@@ -3126,13 +3128,13 @@ textarea::placeholder {
   animation: status-icon-spin calc(var(--motion-duration) * 5) linear infinite;
 }
 .preferences-dialog #context-tokenizer progress {
+  appearance: none;
   width: 100%;
   height: 5px;
   overflow: hidden;
   border: 0;
   border-radius: 4px;
   background: var(--bg-element);
-  appearance: none;
 }
 .preferences-dialog #context-tokenizer progress::-webkit-progress-bar {
   background: transparent;
@@ -3155,11 +3157,14 @@ textarea::placeholder {
 .preferences-dialog #settings-storage .storage-diagnostics > .settings-group-body {
   padding-top: 0;
 }
-.preferences-dialog #settings-storage .storage-check-actions {
+.preferences-dialog #settings-storage :is(.storage-check-actions, .storage-usage-actions) {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+.preferences-dialog #settings-storage .storage-usage-actions {
+  justify-content: flex-end;
 }
 .preferences-dialog #settings-storage #run-storage-check [hidden] {
   display: none;
@@ -3256,7 +3261,7 @@ textarea::placeholder {
   background: var(--accent);
 }
 
-:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-status {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog, .storage-cleanup-dialog) .storage-status {
   align-items: flex-start;
   margin: 0;
   gap: 4px;
@@ -3265,7 +3270,7 @@ textarea::placeholder {
   line-height: var(--line-height-description);
   overflow-wrap: anywhere;
 }
-:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-status:not(:empty) {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog, .storage-cleanup-dialog) .storage-status:not(:empty) {
   display: flex;
   margin-top: 12px;
 }
@@ -3286,33 +3291,33 @@ textarea::placeholder {
   gap: 4px;
   color: var(--text-muted);
 }
-:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) :is(.storage-status-icon, .storage-finding-icon) {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog, .storage-cleanup-dialog) :is(.storage-status-icon, .storage-finding-icon) {
   display: grid;
   flex: none;
   place-items: center;
   height: 1lh;
 }
-:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) :is(.storage-status-icon, .storage-finding-icon) > svg {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog, .storage-cleanup-dialog) :is(.storage-status-icon, .storage-finding-icon) > svg {
   width: 11px;
   height: 11px;
   color: var(--storage-status-icon-color, var(--text-muted));
 }
-:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-status[data-tone="running"] .storage-status-icon > svg {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog, .storage-cleanup-dialog) .storage-status[data-tone="running"] .storage-status-icon > svg {
   animation: status-icon-spin calc(var(--motion-duration) * 5) linear infinite;
 }
-:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-status[data-tone="success"],
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog, .storage-cleanup-dialog) .storage-status[data-tone="success"],
 :is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-finding-status[data-status="ok"] {
   --storage-status-icon-color: var(--success);
 
   color: var(--success-text);
 }
-:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-status[data-tone="warning"],
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog, .storage-cleanup-dialog) .storage-status[data-tone="warning"],
 :is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-finding-status:is([data-status="review"], [data-status="unavailable"]) {
   --storage-status-icon-color: var(--warning);
 
   color: var(--warning-text);
 }
-:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-status[data-tone="error"],
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog, .storage-cleanup-dialog) .storage-status[data-tone="error"],
 :is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-finding-status:is([data-status="invalid_data"], [data-status="unsupported_version"], [data-status="missing_reference"]) {
   --storage-status-icon-color: var(--danger);
 
@@ -3432,24 +3437,34 @@ textarea::placeholder {
 .preferences-dialog #settings-storage .storage-recovery-overview :is(.storage-status:not(:empty), .storage-result-time:not([hidden])) ~ .storage-recovery-record-location {
   margin-top: 8px;
 }
-.storage-recovery-dialog {
+:is(.storage-cleanup-dialog, .storage-recovery-dialog) {
   --settings-content-spacing: 16px;
 
   width: var(--dialog-width-compact);
   max-height: var(--dialog-height-max);
   overflow: hidden;
 }
-.storage-recovery-dialog[open] {
+.storage-cleanup-dialog {
+  padding-inline: 0;
+}
+:is(.storage-cleanup-dialog, .storage-recovery-dialog)[open] {
   display: flex;
   flex-direction: column;
 }
-.storage-recovery-dialog > .dialog-heading,
-.storage-recovery-dialog > .storage-recovery-footer {
+:is(.storage-cleanup-dialog, .storage-recovery-dialog) > .dialog-heading,
+:is(.storage-cleanup-dialog, .storage-recovery-dialog) > .dialog-actions {
   flex: none;
+}
+.storage-cleanup-dialog > :is(.dialog-heading, .storage-cleanup-footer) {
+  margin-inline: var(--dialog-padding);
 }
 .storage-recovery-dialog :is(.dialog-heading h2, .storage-recovery-step-title)[tabindex="-1"]:focus {
   outline: none;
 }
+.storage-cleanup-dialog .dialog-heading h2:focus {
+  outline: none;
+}
+.storage-cleanup-dialog .storage-cleanup-body,
 .storage-recovery-dialog .storage-recovery-body {
   flex: 1;
   min-width: 0;
@@ -3457,9 +3472,14 @@ textarea::placeholder {
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+.storage-cleanup-dialog .storage-cleanup-body {
+  padding-inline: var(--dialog-padding);
+}
+.storage-cleanup-dialog .storage-cleanup-body,
 .storage-recovery-dialog .storage-recovery-body:has(+ .storage-recovery-footer:not([hidden])) {
   padding-bottom: var(--settings-content-spacing);
 }
+.storage-cleanup-dialog > .storage-cleanup-footer,
 .storage-recovery-dialog > .storage-recovery-footer {
   flex-wrap: wrap;
   margin-top: 0;
@@ -3471,7 +3491,7 @@ textarea::placeholder {
   margin-inline-end: auto;
   white-space: nowrap;
 }
-.storage-recovery-dialog .storage-recovery-footer button {
+:is(.storage-cleanup-dialog, .storage-recovery-dialog) > .dialog-actions button {
   min-width: 0;
   max-width: 100%;
   height: auto;
@@ -3479,11 +3499,166 @@ textarea::placeholder {
   padding-block: 4px;
   overflow-wrap: anywhere;
 }
-.storage-recovery-dialog .storage-recovery-footer svg {
+:is(.storage-cleanup-dialog, .storage-recovery-dialog) > .dialog-actions svg {
   flex: none;
   width: 14px;
   height: 14px;
 }
+
+.storage-cleanup-dialog .storage-cleanup-filters {
+  display: grid;
+  gap: 12px;
+}
+.storage-cleanup-dialog .storage-cleanup-filters > .field-control[hidden] {
+  display: none;
+}
+.storage-cleanup-dialog .storage-cleanup-filters .field-control > label {
+  margin: 0;
+}
+.storage-cleanup-dialog .storage-cleanup-filters select {
+  width: 100%;
+}
+@supports (appearance: base-select) and selector(::picker(select)) {
+  .storage-cleanup-dialog select,
+  .storage-cleanup-dialog select::picker(select) {
+    appearance: base-select;
+  }
+  .storage-cleanup-dialog select::picker(select) {
+    margin-block: 4px;
+    padding: 4px;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    background: var(--bg-surface-elevated);
+    box-shadow: var(--shadow-md);
+    color: var(--text-main);
+  }
+  .storage-cleanup-dialog option {
+    padding: 8px 10px;
+    border-radius: 4px;
+    line-height: var(--line-height-input);
+    cursor: pointer;
+  }
+  .storage-cleanup-dialog option:checked {
+    color: var(--accent);
+  }
+  .storage-cleanup-dialog option:not(:disabled):is(:hover, :focus-visible) {
+    background: var(--bg-element-hover);
+  }
+  .storage-cleanup-dialog option:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+}
+.storage-cleanup-dialog :is(.storage-cleanup-list, .storage-cleanup-issues):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.storage-cleanup-dialog .storage-cleanup-list-actions:not([hidden]) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  margin-top: var(--settings-content-spacing);
+  gap: 6px 8px;
+  color: var(--text-sub);
+  font-size: var(--font-size-description);
+}
+.storage-cleanup-dialog .storage-cleanup-list-buttons {
+  grid-column: 2;
+}
+.storage-cleanup-dialog .storage-cleanup-list-buttons,
+.storage-cleanup-dialog .storage-cleanup-list-buttons nav:not([hidden]) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.storage-cleanup-dialog .storage-cleanup-list {
+  --storage-cleanup-list-height: min(360px, 42dvh);
+
+  max-height: var(--storage-cleanup-list-height);
+  margin-top: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+.storage-cleanup-dialog .storage-cleanup-list[data-paged] {
+  height: var(--storage-cleanup-list-height);
+}
+.storage-cleanup-dialog .storage-cleanup-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.storage-cleanup-dialog .storage-cleanup-list li + li {
+  border-top: 1px solid var(--border);
+}
+.storage-cleanup-dialog .storage-cleanup-list label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  margin: 0;
+  padding: 10px 12px;
+  gap: 8px;
+  color: var(--text-main);
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-meta);
+  overflow-wrap: anywhere;
+}
+.storage-cleanup-dialog .storage-cleanup-list label:has(input:enabled) {
+  cursor: pointer;
+}
+.storage-cleanup-dialog .storage-cleanup-list label:has(input:enabled):hover {
+  background: var(--bg-element-hover);
+}
+.storage-cleanup-dialog .storage-cleanup-list label:has(input:disabled) {
+  color: var(--text-sub);
+  cursor: not-allowed;
+}
+.storage-cleanup-dialog .storage-cleanup-list label:has(input:not([data-removable])) .storage-cleanup-reason {
+  color: var(--warning-text);
+}
+.storage-cleanup-dialog .storage-cleanup-list label > span {
+  display: grid;
+  gap: 2px;
+}
+.storage-cleanup-dialog .storage-cleanup-list strong {
+  font-weight: var(--font-weight-label);
+}
+.storage-cleanup-dialog .storage-cleanup-list input {
+  inline-size: 14px;
+  block-size: 14px;
+  margin: calc((1lh - 14px) / 2) 0 0;
+  accent-color: var(--accent);
+  color-scheme: dark;
+  cursor: inherit;
+}
+.storage-cleanup-dialog .storage-cleanup-list input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.storage-cleanup-dialog .storage-cleanup-footer > span {
+  margin-inline-end: auto;
+}
+.storage-cleanup-dialog .storage-cleanup-body > .field-hint:not([hidden]) {
+  margin: var(--settings-content-spacing) 0 0;
+}
+.storage-cleanup-dialog :is(.storage-cleanup-filters, .storage-cleanup-list) .field-hint {
+  margin: 0;
+}
+.storage-cleanup-dialog .storage-cleanup-issues {
+  max-height: min(128px, 22dvh);
+  margin: 6px 0 0;
+  padding-inline-start: 18px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  color: var(--text-sub);
+  font-size: var(--font-size-description);
+  line-height: var(--line-height-description);
+  overflow-wrap: anywhere;
+}
+
 .storage-recovery-dialog #storage-recovery-setup:not([hidden]) {
   display: grid;
   gap: var(--settings-content-spacing);
@@ -3697,7 +3872,8 @@ textarea::placeholder {
 
 /* Include padding and borders explicitly because native select line boxes differ from text inputs. */
 .preferences-dialog input:not([type="checkbox"]):not([type="hidden"]):not(#azure-long-threshold),
-.preferences-dialog select,
+.settings-dialog select,
+.settings-dialog input[type="date"],
 .storage-recovery-dialog .storage-recovery-field input {
   height: calc(var(--font-size-control) * var(--line-height-input) + 20px);
   min-height: 36px;
@@ -4038,10 +4214,9 @@ textarea::placeholder {
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
 }
-.preferences-dialog select,
+.settings-dialog select,
 .preferences-dialog .settings-preference-row input[type="number"] {
   flex: none;
-  width: 180px;
   max-width: 100%;
   padding: 9px 10px;
   border: 1px solid var(--border-strong);
@@ -4051,10 +4226,15 @@ textarea::placeholder {
   font-weight: var(--font-weight-regular);
   font-size: var(--font-size-control);
 }
-.preferences-dialog select:disabled,
+.preferences-dialog select,
+.preferences-dialog .settings-preference-row input[type="number"] {
+  width: 180px;
+}
+.settings-dialog select:disabled,
 .preferences-dialog .settings-preference-row input:disabled {
   color: var(--text-muted);
 }
+
 .preferences-dialog .settings-preference-row .settings-switch {
   appearance: none;
   position: relative;
@@ -4145,14 +4325,6 @@ textarea::placeholder {
 }
 .preferences-dialog .usage-date-range .field-control > label {
   margin: 0;
-}
-.preferences-dialog .usage-date-range input {
-  min-width: 0;
-  color-scheme: dark;
-}
-.preferences-dialog .usage-date-range .date-picker-input::-webkit-calendar-picker-indicator {
-  /* Hide the Chromium/WebKit indicator only after the separate picker button is available. */
-  display: none;
 }
 .preferences-dialog .settings-usage-overview p:not(.field-error) {
   font-size: var(--font-size-description);
@@ -4504,6 +4676,7 @@ textarea::placeholder {
 .info-callout code,
 .help-popover code,
 .settings-dialog .field-hint code,
+.storage-cleanup-dialog .storage-cleanup-issues code,
 .workspace-manager .workspace-exclusion-copy code {
   padding: 2px 5px;
   border-radius: 4px;
@@ -4662,11 +4835,13 @@ textarea::placeholder {
 }
 .preferences-dialog .quiet-btn,
 .preferences-dialog .default-profile-badge,
+.storage-cleanup-dialog .quiet-btn,
 .storage-recovery-dialog .quiet-btn {
   height: 28px;
   font-size: var(--font-size-control);
 }
 .preferences-dialog .quiet-btn > svg,
+.storage-cleanup-dialog .quiet-btn > svg,
 .storage-recovery-dialog .quiet-btn > svg {
   flex: none;
 }
@@ -4701,6 +4876,14 @@ textarea::placeholder {
 .input-with-action input {
   padding-right: 36px;
 }
+.input-with-action input[type="date"] {
+  min-width: 0;
+  color-scheme: dark;
+}
+.input-with-action .date-picker-input::-webkit-calendar-picker-indicator {
+  /* Hide the Chromium/WebKit indicator only after the separate picker button is available. */
+  display: none;
+}
 .input-action-btn {
   display: grid;
   position: absolute;
@@ -4719,7 +4902,7 @@ textarea::placeholder {
     color 0.15s ease,
     background 0.15s ease;
 }
-.input-action-btn:hover {
+.input-action-btn:hover:not(:disabled) {
   background: var(--bg-element-hover);
   color: var(--text-main);
 }
@@ -5602,7 +5785,7 @@ button svg,
     display: none;
   }
   .settings-dialog {
-    padding: 20px;
+    --dialog-padding: 20px;
   }
   .attachment-modal .file-dialog-actions {
     flex-wrap: wrap;
@@ -5613,6 +5796,12 @@ button svg,
 }
 
 @media (max-width: 520px) {
+  .storage-cleanup-dialog .storage-cleanup-list-actions > span {
+    grid-column: 1 / -1;
+  }
+  .storage-cleanup-dialog .storage-cleanup-footer > span {
+    flex-basis: 100%;
+  }
   .storage-recovery-dialog > .storage-recovery-footer {
     flex-wrap: nowrap;
     align-items: stretch;
@@ -5821,13 +6010,13 @@ button svg,
   .composer-conversation-notices [data-tone="progress"] [data-notice-icon="progress"],
   .composer-conversation-notices [data-tone="success"] [data-notice-icon="success"],
   .preferences-dialog #context-tokenizer-status .tokenizer-status-icon > svg,
-  :is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-status[data-tone="running"] .storage-status-icon > svg,
+  :is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog, .storage-cleanup-dialog) .storage-status[data-tone="running"] .storage-status-icon > svg,
   .preferences-dialog [data-field-control] [aria-invalid="true"],
   .work-tools-settings [data-field-control] [aria-invalid="true"],
   .action-dialog,
   .action-dialog::backdrop,
-  .storage-recovery-dialog,
-  .storage-recovery-dialog::backdrop,
+  :is(.storage-cleanup-dialog, .storage-recovery-dialog),
+  :is(.storage-cleanup-dialog, .storage-recovery-dialog)::backdrop,
   .work-tools-settings,
   .work-tools-settings::backdrop,
   .exploration-evidence,
@@ -5875,6 +6064,9 @@ button svg,
 
 @media (forced-colors: active) {
   /* Use platform colors because high-contrast mode replaces the normal design palette. */
+  .storage-cleanup-dialog select {
+    appearance: auto;
+  }
   .preferences-dialog .settings-preference-row .settings-switch,
   .workspace-manager .workspace-exclusion-switch,
   .tools-popover .work-tool-switch {

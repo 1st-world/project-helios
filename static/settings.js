@@ -8,6 +8,7 @@ import { initializeTimezoneSettings } from './timezone.js';
 import { initializeHelpPopovers } from './help-popovers.js';
 import { initializeStorageDiagnostics } from './storage-diagnostics.js';
 import { initializeStorageUsage } from './storage-usage.js';
+import { initializeStorageCleanup } from './storage-cleanup.js';
 import { initializeTokenizerSettings } from './tokenizer-settings.js';
 
 const panelScrollPositions = new Map();
@@ -48,12 +49,16 @@ export function selectSettingsPanel(name, focus = false) {
   $('#settings-dialog').dispatchEvent(new CustomEvent('settings-panel-change', { detail: { name } }));
 }
 
-export function initializeSettings({ onConversationUsageVisibilityChange, onResponseUsageVisibilityChange, hasUnsavedProfileChanges, isProfileSaving }) {
+export function initializeSettings({ onConversationUsageVisibilityChange, onResponseUsageVisibilityChange, onConversationsRemoved, hasUnsavedProfileChanges, isProfileSaving }) {
   initializeFontSettings();
   initializeFontSizeSettings();
   initializeTimezoneSettings();
   initializeStorageDiagnostics($('#settings-dialog'));
   initializeStorageUsage($('#settings-dialog'));
+  const canCloseStorageCleanup = initializeStorageCleanup($('#settings-dialog'));
+  document.addEventListener('storage-cleanup-complete', event => {
+    if (event.detail.kind === 'conversations') onConversationsRemoved(event.detail.removedIds);
+  });
   initializeTokenizerSettings($('#settings-dialog'));
   initializeSettingsDisclosures();
   const help = initializeHelpPopovers($('#settings-dialog'));
@@ -110,5 +115,5 @@ export function initializeSettings({ onConversationUsageVisibilityChange, onResp
   window.addEventListener('storage', event => {
     if (event.key === responseKey || event.key === null) restoreResponseUsage();
   });
-  return { beforeDialogClose: appSettings.beforeDialogClose };
+  return { beforeDialogClose: appSettings.beforeDialogClose, canCloseStorageCleanup };
 }

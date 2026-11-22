@@ -297,6 +297,9 @@ export function initializeStorageDiagnostics(dialog) {
   document.addEventListener('timezone-change', () => {
     for (const section of Object.values(reports)) refreshStorageTime(section.querySelector('[data-check-time]'));
   });
+  document.addEventListener('storage-cleanup-complete', event => {
+    if (event.detail.kind === 'cache') void refreshMaintenance();
+  });
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden && dialog.open && !$('#settings-storage').hidden) refreshMaintenance();
   });

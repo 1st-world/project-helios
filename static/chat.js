@@ -636,9 +636,12 @@ export function createChat({ getActiveProfileId, getModelSelection = () => ({}),
         if (!response.ok) throw new Error((await readResponseError(response)).message);
       }
     });
-    if (!deleted) return;
-    state.requestFeedback.delete(item.id);
-    if (state.conversationId === item.id) newChat();
+    if (deleted) forgetRemovedConversations([item.id]);
+  }
+
+  function forgetRemovedConversations(ids) {
+    for (const id of ids) state.requestFeedback.delete(id);
+    if (ids.includes(state.conversationId)) newChat();
     else loadConversations();
   }
 
@@ -1307,7 +1310,7 @@ export function createChat({ getActiveProfileId, getModelSelection = () => ({}),
     };
   }
 
-  return { init, newChat, prepareExploration, resumeWorkRun, stopWorkRun, setPausedRun, updateComposerState, setUsageVisibility, setResponseUsageVisibility, renderUsageContent, usageFooter, isGenerating: () => state.generating,
+  return { init, newChat, forgetRemovedConversations, prepareExploration, resumeWorkRun, stopWorkRun, setPausedRun, updateComposerState, setUsageVisibility, setResponseUsageVisibility, renderUsageContent, usageFooter, isGenerating: () => state.generating,
     setWorkspaceVersion(id, version) { if (id === state.conversationId && Number.isSafeInteger(version)) state.conversationVersion = version; }
   };
 }

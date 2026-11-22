@@ -135,6 +135,7 @@ export function initializeStorageUsage(dialog) {
       if (request === active) {
         request = null;
         setRefreshBusy(refresh, false);
+        if (shouldMeasure && dialog.open && !$('#settings-storage').hidden) void measure();
       }
     }
   }
@@ -148,6 +149,10 @@ export function initializeStorageUsage(dialog) {
     if (dialog.open) return;
     stop();
     shouldMeasure = true;
+  });
+  document.addEventListener('storage-cleanup-complete', () => {
+    if (dialog.open && !$('#settings-storage').hidden && !request) void measure();
+    else shouldMeasure = true;
   });
   document.addEventListener('timezone-change', () => refreshStorageTime(time));
 }

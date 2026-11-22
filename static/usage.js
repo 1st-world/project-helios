@@ -4,7 +4,7 @@ import { $, refreshIcons, setRefreshBusy } from './ui.js';
 import { describeRequestError } from './chat-feedback.js';
 import { createFieldValidation } from './field-validation.js';
 import { createUsageHistory } from './usage-history.js';
-import { getTimezone, getTimezonePreference, calendarDate, formatTimestamp } from './timezone.js';
+import { getTimezone, calendarDate, formatTimestamp, formatTimezoneLabel } from './timezone.js';
 
 const TOKEN_FIELDS = ['input_tokens', 'output_tokens', 'total_tokens', 'uncached_input_tokens', 'cache_read_tokens', 'cache_write_tokens', 'reasoning_tokens'];
 const MISSING_FIELDS = ['unknown_usage_calls', 'unknown_cost_calls', 'partial_cost_calls', 'unknown_cost_completeness_calls', 'unknown_timestamp_calls', 'legacy_calls'];
@@ -381,8 +381,7 @@ export function createUsage({ footer, renderFooter }) {
   }
 
   function updateTimezone() {
-    const source = getTimezonePreference() === 'browser' ? ', the browser timezone' : '';
-    $('#usage-timezone').textContent = `Dates use call start times in ${getTimezone()}${source}. Both range endpoints are included.`;
+    $('#usage-timezone').textContent = `Dates use call start times in ${formatTimezoneLabel()}. Both range endpoints are included.`;
     if (!datesEdited) {
       const today = calendarDate();
       $('#usage-start-date').value = today;
@@ -409,17 +408,6 @@ export function createUsage({ footer, renderFooter }) {
       refreshFooter();
       refreshSettings();
     });
-
-    for (const button of overview.querySelectorAll('[data-date-picker]')) {
-      const input = $(`#${button.dataset.datePicker}`);
-      if (typeof input.showPicker !== 'function') continue;
-      button.classList.remove('hidden');
-      input.classList.add('date-picker-input');
-      button.onclick = () => {
-        input.focus({ preventScroll: true });
-        input.showPicker();
-      };
-    }
 
     dialog.addEventListener('settings-panel-change', refreshSettings);
     document.addEventListener('helios-restarted', () => {
