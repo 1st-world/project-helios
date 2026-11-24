@@ -220,8 +220,14 @@
         <section class="workspace-group workspace-exclusions" aria-labelledby="workspace-exclusions-title">
           <div class="workspace-group-heading"><div class="dialog-section-title"><h3 id="workspace-exclusions-title">Automatic reading</h3><button class="help-popover-trigger" type="button" popovertarget="workspace-help-reading" aria-controls="workspace-help-reading" aria-expanded="false" aria-label="About automatic reading" title="About automatic reading"><i data-lucide="info" aria-hidden="true"></i></button></div></div>
           <div class="workspace-group-body workspace-exclusion-options">
-            <label class="workspace-exclusion-row" for="workspace-ignore-hidden"><span class="workspace-exclusion-copy"><strong id="workspace-ignore-hidden-label">Exclude hidden paths</strong><small id="workspace-ignore-hidden-help">Dot files and folders, and Windows hidden or system paths.</small></span><input id="workspace-ignore-hidden" class="workspace-exclusion-switch" type="checkbox" role="switch" aria-labelledby="workspace-ignore-hidden-label" aria-describedby="workspace-ignore-hidden-help"></label>
-            <label class="workspace-exclusion-row" for="workspace-use-gitignore"><span class="workspace-exclusion-copy"><strong id="workspace-use-gitignore-label">Use <code>.gitignore</code></strong><small id="workspace-use-gitignore-help">Apply case-sensitive rules from the Workspace root and its subfolders.</small></span><input id="workspace-use-gitignore" class="workspace-exclusion-switch" type="checkbox" role="switch" aria-labelledby="workspace-use-gitignore-label" aria-describedby="workspace-use-gitignore-help"></label>
+            <div class="workspace-exclusion-row">
+              <div class="workspace-exclusion-copy"><span id="workspace-ignore-hidden-label" class="workspace-exclusion-label">Exclude hidden paths</span><small id="workspace-ignore-hidden-help">Dot files and folders, and Windows hidden or system paths.</small></div>
+              <input id="workspace-ignore-hidden" class="workspace-exclusion-switch" type="checkbox" role="switch" aria-labelledby="workspace-ignore-hidden-label" aria-describedby="workspace-ignore-hidden-help">
+            </div>
+            <div class="workspace-exclusion-row">
+              <div class="workspace-exclusion-copy"><span id="workspace-use-gitignore-label" class="workspace-exclusion-label">Use <code>.gitignore</code></span><small id="workspace-use-gitignore-help">Apply case-sensitive rules from the Workspace root and its subfolders.</small></div>
+              <input id="workspace-use-gitignore" class="workspace-exclusion-switch" type="checkbox" role="switch" aria-labelledby="workspace-use-gitignore-label" aria-describedby="workspace-use-gitignore-help">
+            </div>
           </div>
           <div class="workspace-group-guidance">
             <p id="workspace-ignore-status" class="field-hint workspace-policy-status" role="status">Connect a folder to check for <code>.heliosignore</code>.</p>
@@ -299,7 +305,7 @@
       </section>
     </div>
     <div class="dialog-actions file-dialog-actions">
-      <span id="selected-file-label" role="status" hidden></span>
+      <span id="selected-file-label" class="field-hint" role="status" hidden></span>
       <div class="dialog-actions-right">
         <button class="quiet" type="button" data-close-dialog="file-dialog"><i data-lucide="x" aria-hidden="true"></i><span>Cancel</span></button>
         <button id="attach-selected-file" class="primary-btn" type="button" disabled><i data-lucide="check" aria-hidden="true"></i><span id="attach-selected-file-label">Check files</span></button>

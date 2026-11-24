@@ -1,6 +1,6 @@
 /* Edit app-wide context and attachment policies while keeping saved enforcement limits separate from drafts. */
 
-import { $, setStatusMessage, setText, toast } from './ui.js';
+import { $, setStatusMessage, setText, settingsRegistryNamePattern, toast } from './ui.js';
 import { PREFLIGHT_HELP, describeRequestError } from './chat-feedback.js';
 import { showActionDialog } from './dialogs.js';
 import { createFieldValidation, setFieldFeedback } from './field-validation.js';
@@ -22,7 +22,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
 
   function renderStatus() {
     const status = $('#app-settings-status');
-    setStatusMessage(status, state.feedback?.message || '', state.feedback?.type);
+    setStatusMessage(status, state.feedback?.message || '', state.feedback?.type, settingsRegistryNamePattern);
     status.dataset.state = state.feedback?.type || 'idle';
   }
 
@@ -160,8 +160,8 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     try { data = await response.json(); }
     catch { throw new Error(`Could not read the Settings response. (HTTP ${response.status})`); }
     if (!response.ok) {
-      const feedback = describeRequestError(data, 'Could not update app settings.', `HTTP ${response.status}`);
-      throw new Error([feedback.message, ...feedback.details].join('\n'));
+      const feedback = describeRequestError(data, 'Could not update app settings.', `(HTTP ${response.status})`);
+      throw new Error([feedback.message, ...feedback.details].join(' '));
     }
     return data;
   }
@@ -277,7 +277,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
       setStatus('');
       toast('Changes saved.', 'success');
     } catch (error) {
-      setStatus(`${error.message || 'Could not confirm the save.'}\nYour edits are kept. Reopen Settings to check saved values if the connection was interrupted.`, 'error');
+      setStatus(`${error.message || 'Could not confirm the save.'} Your edits are kept. Reopen Settings to check saved values if the connection was interrupted.`, 'error');
     } finally {
       state.saving = false;
       updateControls();

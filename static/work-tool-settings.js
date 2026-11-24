@@ -21,7 +21,7 @@ export function createWorkToolSettings({ getWorkspace, isGenerating }) {
 
   function updateState() {
     const busy = isGenerating();
-    $('#work-tools-run-fields').disabled = busy;
+    for (const [id] of fields) $(`#${id}`).disabled = busy;
     $('#apply-work-tools-settings').disabled = busy;
     const status = $('#work-tools-settings-status');
     const message = busy ? 'Settings are read-only while a response is being generated.' : '';

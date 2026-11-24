@@ -26,6 +26,8 @@ export function setText(element, text) {
   if (element.textContent !== text) element.textContent = text;
 }
 
+export const settingsRegistryNamePattern = /\b((?:settings|profiles)\.json)\b/g;
+
 export function setTextWithCode(element, text, codePattern) {
   // A single capturing group marks the literals to render as code.
   const parts = text.split(codePattern);

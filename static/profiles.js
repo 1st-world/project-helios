@@ -1,6 +1,6 @@
 /* Own connection profiles, model selection, and credential, context, and pricing editing. */
 
-import { $, closeMobileSidebar, escapeHtml, nameInText, refreshIcons, setRefreshBusy, setStatusMessage, setText, toast } from './ui.js';
+import { $, closeMobileSidebar, escapeHtml, nameInText, refreshIcons, setRefreshBusy, setStatusMessage, setText, settingsRegistryNamePattern, toast } from './ui.js';
 import { selectSettingsPanel } from './settings.js';
 import { createProfileContext } from './profile-context.js';
 import { describeRequestError } from './chat-feedback.js';
@@ -96,7 +96,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
   function updateEditorControls() {
     const dirty = hasUnsavedChanges();
     const status = $('#profile-settings-status');
-    setStatusMessage(status, state.feedback?.message || '', state.feedback?.type);
+    setStatusMessage(status, state.feedback?.message || '', state.feedback?.type, settingsRegistryNamePattern);
     status.dataset.state = state.feedback?.type || 'idle';
     $('#save-profile-btn').disabled = state.saving || state.defaultSaving || !dirty;
     $('#delete-profile-btn').disabled = state.saving || state.defaultSaving;
@@ -382,8 +382,8 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     try { data = await response.json(); }
     catch { throw new Error(`${fallback} (HTTP ${response.status})`); }
     if (!response.ok) {
-      const feedback = describeRequestError(data, fallback, `HTTP ${response.status}`);
-      throw new Error([feedback.message, ...feedback.details].join('\n'));
+      const feedback = describeRequestError(data, fallback, `(HTTP ${response.status})`);
+      throw new Error([feedback.message, ...feedback.details].join(' '));
     }
     return data;
   }
@@ -665,7 +665,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
           toast('Changes saved.', 'success');
         }
       } catch (err) {
-        setStatus(`${err.message || 'Could not confirm the save.'}\nYour edits are kept.`, 'error');
+        setStatus(`${err.message || 'Could not confirm the save.'} Your edits are kept.`, 'error');
       } finally {
         setSaving(false);
       }

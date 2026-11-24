@@ -2771,6 +2771,14 @@ textarea::placeholder {
   min-width: 0;
   line-height: var(--line-height-input);
 }
+.work-tools-settings .work-tools-setting input:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+.work-tools-settings .work-tools-setting input:disabled::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
 .work-tools-settings .work-tools-setting > .field-error {
   grid-column: 1 / -1;
   margin-top: 6px;
@@ -2803,7 +2811,6 @@ textarea::placeholder {
   color: var(--text-muted);
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
-  white-space: pre-line;
   overflow-wrap: anywhere;
 }
 .work-tools-settings #work-tools-settings-status:empty {
@@ -3142,12 +3149,14 @@ textarea::placeholder {
 .preferences-dialog .settings-group-body > .settings-preference-row:first-child,
 .preferences-dialog .settings-group-body > .font-settings:first-child .settings-preference-row:first-child,
 .preferences-dialog .settings-field-group > .settings-preference-row:first-child,
-.preferences-dialog .settings-field-group > .settings-field-title + .settings-preference-row {
+.preferences-dialog .settings-field-group > .settings-field-title + .settings-preference-row,
+.workspace-manager .workspace-exclusion-options > .workspace-exclusion-row:first-child {
   /* Body padding supplies the outer spacing once; rows supply spacing toward adjacent content. */
   padding-top: 0;
 }
 .preferences-dialog .settings-group-body > .settings-preference-row:last-child,
-.preferences-dialog .settings-field-group > .settings-preference-row:last-child {
+.preferences-dialog .settings-field-group > .settings-preference-row:last-child,
+.workspace-manager .workspace-exclusion-options > .workspace-exclusion-row:last-child {
   padding-bottom: 0;
   border-bottom: 0;
 }
@@ -4028,7 +4037,6 @@ textarea::placeholder {
   color: var(--text-muted);
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
-  white-space: pre-line;
   overflow-wrap: anywhere;
 }
 .preferences-dialog .settings-editor-footer .settings-editor-status[data-state="error"] {
@@ -4196,20 +4204,24 @@ textarea::placeholder {
   display: none;
 }
 
-.preferences-dialog .settings-preference-row {
-  display: flex;
+.preferences-dialog .settings-preference-row,
+.workspace-manager .workspace-exclusion-row {
   align-items: center;
   justify-content: space-between;
-  padding: var(--settings-content-spacing) 0;
-  gap: 20px;
+  padding: var(--settings-content-spacing, 16px) 0;
   border-bottom: 1px solid var(--border);
+}
+.preferences-dialog .settings-preference-row {
+  display: flex;
+  gap: 20px;
 }
 .preferences-dialog .settings-editor-form .settings-preference-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 220px;
   gap: 0 20px;
 }
-.preferences-dialog .settings-preference-row.settings-switch-row {
+.preferences-dialog .settings-preference-row.settings-switch-row,
+.workspace-manager .workspace-exclusion-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0 20px;
@@ -4221,11 +4233,13 @@ textarea::placeholder {
   grid-column: 1 / -1;
   margin-top: 6px;
 }
-.preferences-dialog .settings-preference-copy {
+.preferences-dialog .settings-preference-copy,
+.workspace-manager .workspace-exclusion-copy {
   flex: 1;
   min-width: 0;
 }
-.preferences-dialog .settings-preference-copy .settings-preference-label {
+.preferences-dialog .settings-preference-copy .settings-preference-label,
+.workspace-manager .workspace-exclusion-copy .workspace-exclusion-label {
   display: block;
   margin: 0;
   color: var(--text-sub);
@@ -4233,7 +4247,8 @@ textarea::placeholder {
   font-size: var(--font-size-label);
   line-height: var(--line-height-compact);
 }
-.preferences-dialog .settings-preference-copy small {
+.preferences-dialog .settings-preference-copy small,
+.workspace-manager .workspace-exclusion-copy small {
   display: block;
   margin-top: 5px;
   color: var(--text-muted);
@@ -4257,7 +4272,8 @@ textarea::placeholder {
   width: 180px;
 }
 .settings-dialog select:disabled,
-.preferences-dialog .settings-preference-row input:disabled {
+.preferences-dialog .settings-preference-row input:disabled,
+.workspace-manager .workspace-exclusion-row input:disabled {
   color: var(--text-muted);
 }
 
@@ -4307,7 +4323,8 @@ textarea::placeholder {
   }
 }
 
-.preferences-dialog .settings-preference-row .settings-switch {
+.preferences-dialog .settings-preference-row .settings-switch,
+.workspace-manager .workspace-exclusion-row .workspace-exclusion-switch {
   appearance: none;
   position: relative;
   flex: none;
@@ -4324,7 +4341,8 @@ textarea::placeholder {
     background-color var(--motion-duration-fast) var(--motion-easing-default),
     border-color var(--motion-duration-fast) var(--motion-easing-default);
 }
-.preferences-dialog .settings-preference-row .settings-switch::before {
+.preferences-dialog .settings-preference-row .settings-switch::before,
+.workspace-manager .workspace-exclusion-row .workspace-exclusion-switch::before {
   position: absolute;
   top: 2px;
   left: 2px;
@@ -4335,19 +4353,24 @@ textarea::placeholder {
   content: "";
   transition: transform var(--motion-duration) var(--motion-easing);
 }
-.preferences-dialog .settings-preference-row .settings-switch:checked {
+.preferences-dialog .settings-preference-row .settings-switch:checked,
+.workspace-manager .workspace-exclusion-row .workspace-exclusion-switch:checked {
   border-color: var(--accent);
   background: var(--accent);
   color: var(--accent-fg);
 }
-.preferences-dialog .settings-preference-row .settings-switch:checked::before {
+.preferences-dialog .settings-preference-row .settings-switch:checked::before,
+.workspace-manager .workspace-exclusion-row .workspace-exclusion-switch:checked::before {
   transform: translateX(16px);
 }
-.preferences-dialog .settings-preference-row .settings-switch:focus-visible {
+.preferences-dialog .settings-preference-row .settings-switch:focus-visible,
+.workspace-manager .workspace-exclusion-row .workspace-exclusion-switch:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
-.preferences-dialog .settings-preference-row .settings-switch:disabled {
+.preferences-dialog .settings-preference-row .settings-switch:disabled,
+.workspace-manager .workspace-exclusion-row .workspace-exclusion-switch:disabled {
+  cursor: not-allowed;
   opacity: 0.5;
 }
 .preferences-dialog .settings-panel :disabled {
@@ -5260,7 +5283,6 @@ textarea::placeholder {
   color: var(--text-muted);
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
-  white-space: pre-line;
   overflow-wrap: anywhere;
 }
 .workspace-manager #workspace-status:empty {
@@ -5320,84 +5342,6 @@ textarea::placeholder {
 
 .workspace-manager #workspace-path-input[aria-invalid="true"] {
   border-color: var(--danger);
-}
-.workspace-manager .workspace-exclusion-options {
-  padding: 0 16px;
-}
-.workspace-manager .workspace-exclusion-row {
-  display: flex;
-  align-items: center;
-  margin: 0;
-  padding: 16px 0;
-  gap: 16px;
-  cursor: pointer;
-}
-.workspace-manager .workspace-exclusion-row + .workspace-exclusion-row {
-  border-top: 1px solid var(--border);
-}
-.workspace-manager .workspace-exclusion-copy {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.workspace-manager .workspace-exclusion-row:has(input:disabled) {
-  cursor: default;
-}
-.workspace-manager .workspace-exclusion-copy strong {
-  display: block;
-  color: var(--text-sub);
-  font-weight: var(--font-weight-label);
-  font-size: var(--font-size-label);
-  line-height: var(--line-height-compact);
-}
-.workspace-manager .workspace-exclusion-copy small {
-  display: block;
-  margin-top: 5px;
-  color: var(--text-muted);
-  font-size: var(--font-size-description);
-  line-height: var(--line-height-description);
-}
-.workspace-manager .workspace-exclusion-switch {
-  display: grid;
-  appearance: none;
-  flex: none;
-  align-items: center;
-  width: 40px;
-  height: 24px;
-  margin: 0;
-  padding: 2px;
-  border: 1px solid var(--border-strong);
-  border-radius: 12px;
-  background: var(--bg-element);
-  color: var(--text-sub);
-  cursor: pointer;
-  transition:
-    background-color var(--motion-duration-fast) var(--motion-easing-default),
-    border-color var(--motion-duration-fast) var(--motion-easing-default);
-}
-.workspace-manager .workspace-exclusion-switch::before {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: currentColor;
-  content: "";
-  transition: transform var(--motion-duration) var(--motion-easing);
-}
-.workspace-manager .workspace-exclusion-switch:checked {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--accent-fg);
-}
-.workspace-manager .workspace-exclusion-switch:checked::before {
-  transform: translateX(16px);
-}
-.workspace-manager .workspace-exclusion-switch:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
-}
-.workspace-manager .workspace-exclusion-switch:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
 }
 .workspace-manager .workspace-policy-status[data-state="error"] {
   color: var(--danger-text);
@@ -5702,8 +5646,6 @@ textarea::placeholder {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  color: var(--text-muted);
-  font-size: var(--font-size-meta);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -5920,25 +5862,29 @@ button svg,
     grid-template-columns: minmax(0, 1fr) 32px;
     gap: 0 12px;
   }
-  .preferences-dialog .settings-preference-row.settings-switch-row {
+  .preferences-dialog .settings-preference-row.settings-switch-row,
+  .workspace-manager .workspace-exclusion-row {
     grid-template-rows: minmax(32px, auto) auto;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 0 12px;
   }
   .preferences-dialog .settings-editor-form .settings-preference-copy,
   .preferences-dialog .settings-switch-row .settings-preference-copy,
+  .workspace-manager .workspace-exclusion-copy,
   .preferences-dialog .app-settings-form .settings-preference-control:not(.settings-switch-control),
   .preferences-dialog .profile-context-settings .profile-context-control {
     display: contents;
   }
   .preferences-dialog .settings-editor-form .settings-preference-copy .settings-preference-label,
-  .preferences-dialog .settings-switch-row .settings-preference-copy .settings-preference-label {
+  .preferences-dialog .settings-switch-row .settings-preference-copy .settings-preference-label,
+  .workspace-manager .workspace-exclusion-copy .workspace-exclusion-label {
     grid-row: 1;
     grid-column: 1;
     align-self: center;
   }
   .preferences-dialog .settings-editor-form .settings-preference-copy small,
-  .preferences-dialog .settings-switch-row .settings-preference-copy small {
+  .preferences-dialog .settings-switch-row .settings-preference-copy small,
+  .workspace-manager .workspace-exclusion-copy small {
     grid-row: 2;
     grid-column: 1 / -1;
     margin-top: 5px;
@@ -5957,7 +5903,8 @@ button svg,
     grid-column: 2;
   }
   .preferences-dialog .app-settings-form .settings-switch-control,
-  .preferences-dialog .settings-switch-row > .settings-switch {
+  .preferences-dialog .settings-switch-row > .settings-switch,
+  .workspace-manager .workspace-exclusion-row > .workspace-exclusion-switch {
     grid-row: 1;
     grid-column: 2;
   }
@@ -6100,8 +6047,8 @@ button svg,
   .preferences-dialog .settings-preference-row .settings-switch::before,
   .tools-popover .work-tool-switch,
   .tools-popover .work-tool-switch::before,
-  .workspace-manager .workspace-exclusion-switch,
-  .workspace-manager .workspace-exclusion-switch::before,
+  .workspace-manager .workspace-exclusion-row .workspace-exclusion-switch,
+  .workspace-manager .workspace-exclusion-row .workspace-exclusion-switch::before,
   :is(.preferences-dialog, .storage-recovery-dialog) .settings-disclosure-header,
   :is(.preferences-dialog, .storage-recovery-dialog) .settings-disclosure-chevron,
   .preferences-dialog .pricing-accordion-status,
@@ -6135,27 +6082,27 @@ button svg,
     appearance: auto;
   }
   .preferences-dialog .settings-preference-row .settings-switch,
-  .workspace-manager .workspace-exclusion-switch,
+  .workspace-manager .workspace-exclusion-row .workspace-exclusion-switch,
   .tools-popover .work-tool-switch {
     border-color: ButtonText;
     background: Canvas;
     color: ButtonText;
   }
   .preferences-dialog .settings-preference-row .settings-switch:checked,
-  .workspace-manager .workspace-exclusion-switch:checked,
+  .workspace-manager .workspace-exclusion-row .workspace-exclusion-switch:checked,
   .tools-popover .work-tool-switch:checked {
     border-color: Highlight;
     background: Highlight;
     color: HighlightText;
   }
   .preferences-dialog .settings-preference-row .settings-switch::before,
-  .workspace-manager .workspace-exclusion-switch::before,
+  .workspace-manager .workspace-exclusion-row .workspace-exclusion-switch::before,
   .tools-popover .work-tool-switch::before {
     /* Keep the thumb visible using inherited system colors in high-contrast mode. */
     forced-color-adjust: none;
   }
   .preferences-dialog .settings-preference-row .settings-switch:focus-visible,
-  .workspace-manager .workspace-exclusion-switch:focus-visible,
+  .workspace-manager .workspace-exclusion-row .workspace-exclusion-switch:focus-visible,
   .tools-popover .work-tool-switch:focus-visible {
     outline-color: Highlight;
   }

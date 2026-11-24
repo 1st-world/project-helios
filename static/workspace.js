@@ -49,6 +49,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
   let checkedPath = null;
   const workspaceDialog = $('#workspace-dialog');
   const pathInput = $('#workspace-path-input');
+  const applyButton = $('#apply-workspace');
   const attachmentRail = createAttachmentRail($('.attachment-rail'));
   const pathValidation = createFieldValidation($('#workspace-form'), () => {
     const path = pathInput.value.trim();
@@ -502,11 +503,9 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
   function renderWorkspaceFeedback() {
     const status = $('#workspace-status');
     const feedback = state.workspaceFeedback || (state.changingWorkspace
-      ? { message: 'Applying workspace changes…', type: 'busy' }
-      : !state.generating && !picker.isPicking() && state.workspaceSessionId && workspaceFormChanged() && $('#workspace-path-input').value.trim()
-        ? { message: 'Apply to use the selected folder and reading options.', type: 'info' } : null);
+      ? { message: 'Applying workspace changes…', type: 'busy' } : null);
     const message = feedback?.message || '';
-    setStatusMessage(status, message, feedback?.type === 'busy' ? 'running' : feedback?.type === 'info' ? null : feedback?.type, ignoreFilePattern);
+    setStatusMessage(status, message, feedback?.type === 'busy' ? 'running' : feedback?.type, ignoreFilePattern);
     status.dataset.state = feedback?.type || 'idle';
   }
 
@@ -544,6 +543,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
   function updateWorkspaceControls() {
     const busy = state.generating || state.changingWorkspace || picker.isPicking() || !state.workspaceSessionId;
     const connected = Boolean(state.workspaceRoot);
+    const changed = workspaceFormChanged();
     const iconName = connected ? 'folder' : 'folder-plus';
     ['#workspace-card', '#workspace-context-chip'].forEach(selector => {
       const control = $(selector);
@@ -558,14 +558,14 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
         refreshIcons(control);
       }
     });
-    $('#workspace-path-input').disabled = busy;
-    const exclusionOptionsDisabled = busy || !$('#workspace-path-input').value.trim();
+    pathInput.disabled = busy;
+    const exclusionOptionsDisabled = busy || !pathInput.value.trim();
     $('#workspace-ignore-hidden').disabled = exclusionOptionsDisabled;
     $('#workspace-use-gitignore').disabled = exclusionOptionsDisabled;
     picker.update();
-    $('#apply-workspace').disabled = busy || !$('#workspace-path-input').value.trim();
+    applyButton.disabled = exclusionOptionsDisabled || !changed;
     $('#disconnect-workspace').disabled = busy || !connected;
-    $('#preview-workspace-context').setAttribute('aria-disabled', String(busy || !connected || workspaceFormChanged()));
+    $('#preview-workspace-context').setAttribute('aria-disabled', String(busy || !connected || changed));
     $('#preview-workspace-context').title = connected ? 'Preview the connected workspace context' : 'Connect a workspace to preview its context';
     $('.workspace-context-preview-body').setAttribute('aria-busy', String(Boolean(state.contextController)));
     $('#composer-workspace-sub').hidden = !connected;
@@ -594,6 +594,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     const revision = state.workspaceRevision;
     const sessionId = state.workspaceSessionId;
     const controller = new AbortController();
+    const fallback = 'Could not preview project context. Reopen Workspace and try again.';
     state.contextController = controller;
     setContextStatus('Preparing project context locally…', 'busy');
     updateWorkspaceControls();
@@ -604,7 +605,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
       });
       const data = await response.json();
       if (!response.ok) {
-        const feedback = describeRequestError(data, 'Could not preview project context.');
+        const feedback = describeRequestError(data, fallback);
         throw new Error(feedback.message);
       }
       if (state.contextController !== controller || revision !== state.workspaceRevision || sessionId !== state.workspaceSessionId) return;
@@ -612,7 +613,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
       $('#workspace-context-preview').hidden = false;
       setContextStatus('');
     } catch (error) {
-      if (error.name !== 'AbortError' && state.contextController === controller) setContextStatus(error.message || 'Could not preview project context.', 'error');
+      if (error.name !== 'AbortError' && state.contextController === controller) setContextStatus(error.message || fallback, 'error');
     } finally {
       if (state.contextController === controller) {
         state.contextController = null;
@@ -883,6 +884,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     }));
     $('#workspace-form').onsubmit = async event => {
       event.preventDefault();
+      if (applyButton.disabled) return;
       const path = pathInput.value.trim();
       if (path && (checkedPath === path || pathValidation.showErrors())) await changeWorkspace(path);
     };
