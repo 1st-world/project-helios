@@ -1,6 +1,6 @@
 /* Coordinate ledger aggregates and filtered call history without estimating missing usage or repricing history. */
 
-import { $, refreshIcons, setRefreshBusy } from './ui.js';
+import { $, refreshIcons, setRefreshBusy, setStatusMessage } from './ui.js';
 import { describeRequestError } from './chat-feedback.js';
 import { createFieldValidation } from './field-validation.js';
 import { createUsageHistory } from './usage-history.js';
@@ -142,7 +142,7 @@ export function createUsage({ footer, renderFooter }) {
   function setStateMessage(view, message, state) {
     const status = view.root.querySelector('[data-usage-state]');
     view.root.dataset.state = state;
-    status.textContent = message;
+    setStatusMessage(status, message, state === 'error' ? 'error' : state === 'loading' ? 'running' : null);
     status.hidden = !message;
     if (view === views.footer) view.refresh.hidden = state !== 'error';
   }

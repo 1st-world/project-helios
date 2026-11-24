@@ -842,12 +842,14 @@ body.sidebar-collapsed:not(.mobile-layout) .workspace-card:not(:disabled):hover 
   background: var(--info-subtle);
 }
 .status-callout > .status-callout-title {
-  display: block;
   margin: 0;
   color: var(--callout-title-color);
   font-weight: var(--font-weight-heading);
   font-size: var(--font-size-title-item);
   line-height: var(--line-height-heading);
+}
+.status-callout > .status-callout-title:not(.inline-status) {
+  display: block;
 }
 .status-callout > .status-callout-message {
   margin: 8px 0 0;
@@ -1742,8 +1744,45 @@ textarea::placeholder {
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
 }
-.status.error {
+
+.inline-status:not([hidden]) {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+.inline-status > .inline-status-message {
+  min-width: 0;
+  color: var(--inline-status-text-color, inherit);
+}
+.inline-status > .inline-status-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  height: 1lh;
+  color: var(--text-muted);
+}
+.inline-status > .inline-status-icon > svg {
+  width: 11px;
+  height: 11px;
+}
+.inline-status[data-tone="success"] > .inline-status-icon {
+  color: var(--success);
+}
+.inline-status[data-tone="warning"] {
+  --inline-status-text-color: var(--warning-text);
+}
+.inline-status[data-tone="warning"] > .inline-status-icon {
   color: var(--warning);
+}
+.inline-status[data-tone="error"] {
+  --inline-status-text-color: var(--danger-text);
+}
+.inline-status[data-tone="error"] > .inline-status-icon {
+  color: var(--danger);
+}
+.inline-status[data-tone="running"] > .inline-status-icon > svg {
+  animation: status-icon-spin calc(var(--motion-duration) * 5) linear infinite;
 }
 
 .work-tools {
@@ -2828,7 +2867,7 @@ textarea::placeholder {
 }
 .exploration-evidence .evidence-omission-notice {
   margin: 12px 0 0;
-  color: var(--warning-text);
+  color: var(--text-sub);
 }
 .exploration-evidence .evidence-text h4 {
   margin: 0 0 8px;
@@ -3147,22 +3186,6 @@ textarea::placeholder {
 .preferences-dialog #context-tokenizer :is(.field-hint, .field-error) {
   margin: 0;
 }
-.preferences-dialog #context-tokenizer-status {
-  display: flex;
-  align-items: flex-start;
-  gap: 4px;
-}
-.preferences-dialog #context-tokenizer-status .tokenizer-status-icon {
-  display: grid;
-  flex: none;
-  place-items: center;
-  height: 1lh;
-}
-.preferences-dialog #context-tokenizer-status .tokenizer-status-icon > svg {
-  width: 11px;
-  height: 11px;
-  animation: status-icon-spin calc(var(--motion-duration) * 5) linear infinite;
-}
 .preferences-dialog #context-tokenizer progress {
   appearance: none;
   width: 100%;
@@ -3298,16 +3321,13 @@ textarea::placeholder {
 }
 
 :is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog, .storage-cleanup-dialog) .storage-status {
-  align-items: flex-start;
   margin: 0;
-  gap: 4px;
   color: var(--text-sub);
   font-size: var(--font-size-description);
   line-height: var(--line-height-description);
   overflow-wrap: anywhere;
 }
 :is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog, .storage-cleanup-dialog) .storage-status:not(:empty) {
-  display: flex;
   margin-top: 12px;
 }
 :is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) :is(.storage-result-time, .storage-result-omitted) {
@@ -3327,19 +3347,16 @@ textarea::placeholder {
   gap: 4px;
   color: var(--text-muted);
 }
-:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog, .storage-cleanup-dialog) :is(.storage-status-icon, .storage-finding-icon) {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-finding-icon {
   display: grid;
   flex: none;
   place-items: center;
   height: 1lh;
 }
-:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog, .storage-cleanup-dialog) :is(.storage-status-icon, .storage-finding-icon) > svg {
+:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-finding-icon > svg {
   width: 11px;
   height: 11px;
   color: var(--storage-status-icon-color, var(--text-muted));
-}
-:is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog, .storage-cleanup-dialog) .storage-status[data-tone="running"] .storage-status-icon > svg {
-  animation: status-icon-spin calc(var(--motion-duration) * 5) linear infinite;
 }
 :is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog, .storage-cleanup-dialog) .storage-status[data-tone="success"],
 :is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog) .storage-finding-status[data-status="ok"] {
@@ -3558,20 +3575,24 @@ textarea::placeholder {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
-.storage-cleanup-dialog .storage-cleanup-list-actions:not([hidden]) {
+.storage-cleanup-dialog .storage-cleanup-list-actions:not([hidden]),
+.preferences-dialog .usage-call-history .usage-history-pagination:not([hidden]) {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  margin-top: var(--settings-content-spacing);
   gap: 6px 8px;
-  color: var(--text-sub);
+  color: var(--text-muted);
   font-size: var(--font-size-description);
+  font-variant-numeric: tabular-nums;
+}
+.storage-cleanup-dialog .storage-cleanup-list-actions {
+  margin-top: var(--settings-content-spacing);
 }
 .storage-cleanup-dialog .storage-cleanup-list-buttons {
   grid-column: 2;
 }
 .storage-cleanup-dialog .storage-cleanup-list-buttons,
-.storage-cleanup-dialog .storage-cleanup-list-buttons nav:not([hidden]) {
+.page-navigation:not([hidden]) {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -4561,18 +4582,6 @@ textarea::placeholder {
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
-.preferences-dialog .usage-call-history .usage-history-pagination {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.preferences-dialog .usage-call-history .usage-history-pagination span {
-  color: var(--text-muted);
-  font-size: var(--font-size-meta);
-  font-variant-numeric: tabular-nums;
-}
 
 .dialog-actions {
   display: flex;
@@ -4726,14 +4735,16 @@ textarea::placeholder {
 }
 .info-callout code,
 .help-popover code,
-.settings-dialog .field-hint code,
+.settings-dialog :is(p, .field-hint) code,
 .storage-cleanup-dialog .storage-cleanup-issues code,
-.workspace-manager .workspace-exclusion-copy code {
+.workspace-manager .workspace-exclusion-copy code,
+.inline-status-message > code {
   padding: 2px 5px;
   border-radius: 4px;
   background: var(--bg-element);
-  color: var(--text-main);
+  color: var(--inline-status-text-color, var(--text-main));
   font-size: var(--font-size-code-inline);
+  overflow-wrap: anywhere;
 }
 
 .preferences-dialog .profile-manager {
@@ -6066,8 +6077,7 @@ button svg,
   .response-progress .response-progress-indicator,
   .composer-conversation-notices [data-tone="progress"] [data-notice-icon="progress"],
   .composer-conversation-notices [data-tone="success"] [data-notice-icon="success"],
-  .preferences-dialog #context-tokenizer-status .tokenizer-status-icon > svg,
-  :is(.preferences-dialog :where(#settings-storage), .storage-recovery-dialog, .storage-cleanup-dialog) .storage-status[data-tone="running"] .storage-status-icon > svg,
+  .inline-status[data-tone="running"] > .inline-status-icon > svg,
   .preferences-dialog [data-field-control] [aria-invalid="true"],
   .work-tools-settings [data-field-control] [aria-invalid="true"],
   .action-dialog,

@@ -1,6 +1,6 @@
 /* Review managed storage, confirm explicit selections, and report removal outcomes. */
 
-import { $, formatSize, setRefreshBusy, setText, toast } from './ui.js';
+import { $, formatPageRange, formatSize, setRefreshBusy, setText, toast } from './ui.js';
 import { showActionDialog } from './dialogs.js';
 import { calendarDate, calendarDayStart, formatTimestamp, formatTimezoneLabel } from './timezone.js';
 import { setStorageStatus } from './storage-results.js';
@@ -277,10 +277,7 @@ export function initializeStorageCleanup(settingsDialog) {
     pages.hidden = total === null;
     range.hidden = pages.hidden;
     region.toggleAttribute('data-paged', Boolean(offset || nextOffset !== null));
-    const first = offset + 1;
-    const last = offset + rows.length;
-    const visibleRange = first === last ? String(first) : `${first}–${last}`;
-    setText(range, pages.hidden ? '' : rows.length ? `${visibleRange} of ${total}` : '0 items');
+    setText(range, pages.hidden ? '' : rows.length ? formatPageRange(offset, rows.length, total) : '0 items');
   }
 
   function clearOutcome() {
@@ -307,10 +304,11 @@ export function initializeStorageCleanup(settingsDialog) {
     });
     const countsText = [...outcomeLabels].filter(([result]) => counts.has(result))
       .map(([result, [label]]) => `${counts.get(result)} ${label}`).join(' · ');
-    setStorageStatus(outcome, 'Removal details', 'warning');
+    const type = results.every(result => result === 'removed' || result === 'missing') ? 'info' : 'warning';
+    setStorageStatus(outcome, 'Removal details', type);
     issues.replaceChildren(...notes);
     issues.hidden = !notes.length;
-    return `${countsText}.`;
+    return { message: `${countsText}.`, type };
   }
 
   function clearSelection() {
@@ -419,7 +417,7 @@ export function initializeStorageCleanup(settingsDialog) {
           clearOutcome();
           feedback = results.every(result => result === 'removed')
             ? { message: `Removed ${count}.`, type: 'success' }
-            : { message: showRemovalDetails(kind, chosen, results), type: 'warning' };
+            : showRemovalDetails(kind, chosen, results);
           const removedIds = chosen.filter((_, index) => ['removed', 'missing'].includes(results[index])).map(row => row.key);
           clearSelection();
           void load();
@@ -436,7 +434,7 @@ export function initializeStorageCleanup(settingsDialog) {
     if (!dialog.open) return;
     updateControls();
     if (accepted) {
-      if (feedback.type === 'warning') outcome.focus();
+      if (outcome.textContent) outcome.focus();
       else title.focus({ preventScroll: true });
       toast(feedback.message, feedback.type);
     } else if (!remove.disabled) remove.focus({ preventScroll: true });

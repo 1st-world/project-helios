@@ -1,5 +1,9 @@
 /* Present immutable tool evidence with exact text continuity, readable coverage, and optional technical details. */
 
+import { setStatusIcon } from './ui.js';
+
+const expectedOmissions = new Set(['ignored_path', 'hidden_path', 'protected_path', 'linked_path', 'special_file', 'binary_file']);
+
 function node(tag, text, className) {
   const element = document.createElement(tag);
   if (text != null) element.textContent = text;
@@ -141,8 +145,12 @@ export function renderExplorationEvidence(target, result, toolName) {
     if (view.requested) addFact(facts, 'Requested', view.requested);
     addFact(facts, 'Returned', view.returned);
     overview.append(facts);
-    if ([view.payload.omissions, view.payload.omission_totals].some(counts => Object.values(counts || {}).some(count => count > 0))) {
-      overview.append(node('p', 'Some entries were omitted from this result sequence. See Result details for coverage.', 'evidence-omission-notice'));
+    const omissions = [view.payload.omissions, view.payload.omission_totals]
+      .flatMap(counts => Object.entries(counts || {}).filter(([, count]) => count > 0));
+    if (omissions.length) {
+      const notice = node('p', 'Some entries were omitted from this result sequence. See Result details for coverage.', 'evidence-omission-notice');
+      setStatusIcon(notice, omissions.some(([reason]) => !expectedOmissions.has(reason)) ? 'warning' : 'info');
+      overview.append(notice);
     }
     target.append(overview);
     if (view.kind === 'read_file') {

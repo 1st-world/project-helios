@@ -1,15 +1,15 @@
 /* Manage the native folder picker connection, cancellation, and browser session restoration. */
 
-import { $, setText, toast } from './ui.js';
+import { $, setStatusMessage, toast } from './ui.js';
 
 export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, getWorkspaceScope = () => ({}), isBusy = () => false, onStateChange = () => {}, onCloseRequested = () => $('#workspace-dialog').close() }) {
   const pickerStorageKey = 'helios.workspacePicker';
   let workspacePicker = null;
   let pickerPageLeaving = false;
 
-  function setStatus(message, type = 'info') {
+  function setStatus(message, type = 'running') {
     const status = $('#workspace-path-status');
-    setText(status, message);
+    setStatusMessage(status, message, type);
     status.dataset.state = type;
     status.hidden = !message;
   }
@@ -60,7 +60,7 @@ export function createWorkspacePicker({ openWorkspaceDialog, getWorkspaceRoot, g
       input.dispatchEvent(new Event('input', { bubbles: true }));
       setStatus('', 'idle');
     } else if (result.status === 'cancelled' || (result.status === 'missing' && picker.cancelRequested)) {
-      setStatus('Folder selection cancelled. Your folder path is unchanged.');
+      setStatus('Folder selection cancelled. Your folder path is unchanged.', 'info');
     } else if (result.status === 'disconnected') {
       setStatus('Connection lost. Use Browse to check and close the previous folder picker.', 'warning');
     } else if (!picker.closeOnCancel && (result.status === 'error' || result.status === 'missing')) {

@@ -1,6 +1,6 @@
 /* Own tool-enabled response presentation, one-response consent, paged run activity, and immutable evidence views. */
 
-import { $, refreshIcons, toast } from './ui.js';
+import { $, refreshIcons, setStatusIcon, toast } from './ui.js';
 import { showActionDialog } from './dialogs.js';
 import { renderExplorationEvidence } from './exploration-evidence.js';
 import { createDisclosure } from './disclosure.js';
@@ -13,6 +13,7 @@ import { describeWorkRun, workStepStatus, WORK_ACTION_LABELS } from './work-run-
 const toolLabels = { helios_project_list_files: 'List files', helios_project_search_text: 'Search text', helios_project_read_file: 'Read file' };
 const toolIcons = { helios_project_list_files: 'folder', helios_project_search_text: 'search', helios_project_read_file: 'file-text' };
 const activeStates = new Set(['preparing', 'model', 'tools', 'ready']);
+const neutralOutcomeTones = { paused: 'paused', cancelled: 'stopped', stopped: 'stopped', completed: 'success' };
 
 function node(tag, text, className) {
   const element = document.createElement(tag);
@@ -254,8 +255,9 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     if (signature === card.outcomeSignature) return;
     const section = card.outcome || node('section', null, 'exploration-run-outcome status-callout');
     section.dataset.tone = outcome.tone;
-    section.replaceChildren(node('p', 'App work result', 'exploration-outcome-source status-callout-source'),
-      node('h4', card.phase || outcome.label, 'status-callout-title'),
+    const heading = node('h4', card.phase || outcome.label, 'status-callout-title');
+    setStatusIcon(heading, outcome.tone === 'neutral' ? neutralOutcomeTones[card.run.status] || 'info' : outcome.tone);
+    section.replaceChildren(node('p', 'App work result', 'exploration-outcome-source status-callout-source'), heading,
       node('p', outcome.message || 'Work is in progress. A final answer has not been saved yet.', 'status-callout-message'));
     if (outcome.details.length) section.append(node('p', outcome.details.join('\n'), 'exploration-outcome-details status-callout-details'));
     const controls = node('div', null, 'exploration-outcome-actions status-callout-actions');
@@ -475,7 +477,9 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     evidenceController = controller;
     evidenceOpener = opener;
     const target = $('#exploration-evidence-content');
-    target.replaceChildren(node('p', 'Loading saved result…'));
+    const loading = node('p', 'Loading saved result…');
+    setStatusIcon(loading, 'running');
+    target.replaceChildren(loading);
     if (!evidence.open) evidence.showModal();
     const id = conversationId;
     try {
@@ -491,7 +495,9 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     } catch (error) {
       if (error.name !== 'AbortError' && controller === evidenceController) {
         clearEvidence();
-        target.replaceChildren(node('p', error.message), button('Reload result', () => openEvidence(runId, step, opener)));
+        const status = node('p', error.message);
+        setStatusIcon(status, 'error');
+        target.replaceChildren(status, button('Reload result', () => openEvidence(runId, step, opener)));
       }
     }
   }
@@ -502,6 +508,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     card.more?.remove();
     card.error?.remove();
     const loading = node('p', 'Loading work process…');
+    setStatusIcon(loading, 'running');
     card.body.append(loading);
     const version = generation;
     const revision = card.activityRevision || 0;
@@ -535,6 +542,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
       if (error.name !== 'AbortError' && version === generation && card.activityToken === token && revision === (card.activityRevision || 0)) {
         card.more = button(offset === 0 ? 'Reload steps' : 'Retry loading more steps', () => loadActivity(card, offset));
         card.error = node('p', error.message);
+        setStatusIcon(card.error, 'error');
         card.body.append(card.error, card.more);
       }
     } finally {
@@ -599,6 +607,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     historyRetry?.remove();
     historyError?.remove();
     const status = node('p', 'Loading work history…');
+    setStatusIcon(status, 'running');
     region.append(status);
     try {
       const data = await json(`${base()}${before == null ? '' : `?before=${before}`}`, historyController.signal, 'Work history');
@@ -621,6 +630,7 @@ export function createExploration({ getWorkspace, chooseWorkspace, getLimits = (
     } catch (error) {
       if (error.name !== 'AbortError' && version === generation) {
         historyError = node('p', error.message);
+        setStatusIcon(historyError, 'error');
         historyRetry = button(before == null ? 'Reload work history' : 'Retry loading older runs', () => loadPage(before));
         region.append(historyError, historyRetry);
       }

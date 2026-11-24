@@ -1,6 +1,6 @@
 /* Own applied work-tool limits, modal drafts, guarded dismissal, and read-scope guidance. */
 
-import { $, setText, toast } from './ui.js';
+import { $, setStatusMessage, toast } from './ui.js';
 import { showActionDialog } from './dialogs.js';
 import { initializeHelpPopovers } from './help-popovers.js';
 import { createFieldValidation } from './field-validation.js';
@@ -25,7 +25,7 @@ export function createWorkToolSettings({ getWorkspace, isGenerating }) {
     $('#apply-work-tools-settings').disabled = busy;
     const status = $('#work-tools-settings-status');
     const message = busy ? 'Settings are read-only while a response is being generated.' : '';
-    setText(status, message);
+    setStatusMessage(status, message, 'info');
     $('#work-tools-workspace').textContent = getWorkspace().root || 'No workspace connected. Choose one from the sidebar to use Explore project.';
   }
 

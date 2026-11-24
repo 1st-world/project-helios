@@ -281,14 +281,15 @@ async def call_usage_records(
     timezone: str = "UTC", start_date: date | None = None,
     end_date: date | None = None, limit: int = 100, offset: int = 0,
 ):
-    """Return a bounded page of immutable call results and saved pricing metadata."""
+    """Return a bounded page of call results, saved prices, and its filtered total."""
     runtime = current_runtime()
     try:
-        return {"calls": runtime.call_usage_store.records(
+        calls, total = runtime.call_usage_store.record_page(
             conversation_id=conversation_id, kind=kind,
             timezone_name=timezone, start_date=start_date, end_date=end_date,
             limit=limit, offset=offset,
-        )}
+        )
+        return {"calls": calls, "total": total}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

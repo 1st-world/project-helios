@@ -1,7 +1,7 @@
 /* Display the local estimation vocabulary status and handle explicit downloads in Settings. */
 
-import { $, formatSize, setRefreshBusy, setText } from './ui.js';
-import { fallbackEstimateLabel } from './estimation.js';
+import { $, formatSize, setRefreshBusy, setStatusMessage, setText } from './ui.js';
+import { fallbackEstimateLabel, vocabularyNamePattern } from './estimation.js';
 
 const vocabularyMessages = {
   ready: 'Current method: o200k_base vocabulary.',
@@ -26,8 +26,6 @@ export function initializeTokenizerSettings(dialog) {
   const panel = $('#settings-context');
   const body = $('#context-tokenizer-body');
   const status = $('#context-tokenizer-status');
-  const statusIcon = status.querySelector('.tokenizer-status-icon');
-  const statusText = status.querySelector('[data-tokenizer-status-text]');
   const error = $('#context-tokenizer-error');
   const loadFeedback = $('#context-tokenizer-load-feedback');
   const loadError = $('#context-tokenizer-load-error');
@@ -55,13 +53,12 @@ export function initializeTokenizerSettings(dialog) {
       else if (state === 'missing') message += ' The o200k_base vocabulary is available to download.';
     }
 
-    setText(statusText, message);
-    statusIcon.hidden = !installing;
+    setStatusMessage(status, message, installing ? 'running' : state === 'invalid' ? 'warning' : null, vocabularyNamePattern);
     body.hidden = reload;
     loadFeedback.hidden = !reload;
-    setText(loadError, reload ? failure.message : '');
+    setStatusMessage(loadError, reload ? failure.message : '', 'error', vocabularyNamePattern);
     error.hidden = failure?.action !== 'install';
-    setText(error, error.hidden ? '' : failure.message);
+    setStatusMessage(error, error.hidden ? '' : failure.message, 'error', vocabularyNamePattern);
     transfer.hidden = !installing;
     if (installing) {
       const received = download?.received_bytes ?? 0;

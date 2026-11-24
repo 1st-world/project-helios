@@ -1,7 +1,10 @@
 /* Present field feedback while preserving control descriptions and disclosure structure. */
 
+import { setStatusIcon, setStatusMessage } from './ui.js';
+
 export function setFieldFeedback(input, feedback, visible) {
   feedback.hidden = !visible;
+  if (feedback.classList.contains('field-review')) setStatusIcon(feedback, visible ? 'warning' : null);
   const descriptions = new Set((input.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean));
   if (visible) descriptions.add(feedback.id);
   else descriptions.delete(feedback.id);
@@ -27,7 +30,7 @@ export function createFieldValidation(container, updateValidity = () => {}) {
       messages.set(input, error);
     }
     if (!error) return;
-    if (error.textContent !== message) error.textContent = message;
+    setStatusMessage(error, message, 'error');
     setFieldFeedback(input, error, Boolean(message));
   }
 

@@ -1,6 +1,6 @@
 /* Manage browser-local font family and text size preferences, with optional installed font discovery. */
 
-import { $ } from './ui.js';
+import { $, setStatusMessage } from './ui.js';
 import { createFieldValidation } from './field-validation.js';
 
 const STORAGE_KEY = 'helios.uiFont';
@@ -42,7 +42,7 @@ export function initializeFontSizeSettings() {
     if (scale === 1) root.style.removeProperty('--ui-font-scale');
     else root.style.setProperty('--ui-font-scale', String(scale));
     size.value = String(scale);
-    status.textContent = '';
+    setStatusMessage(status, '');
     document.dispatchEvent(new Event('text-size-change'));
   }
 
@@ -54,14 +54,14 @@ export function initializeFontSizeSettings() {
       if (scale === 1) localStorage.removeItem(SCALE_STORAGE_KEY);
       else localStorage.setItem(SCALE_STORAGE_KEY, String(scale));
     } catch {
-      status.textContent = 'Your browser could not save the text size preference. It applies for this session only.';
+      setStatusMessage(status, 'Your browser could not save the text size preference. It applies for this session only.', 'error');
     }
   });
   window.addEventListener('storage', event => {
     if (event.key === SCALE_STORAGE_KEY || event.key === null) applyScale(readScale());
   });
   $('#settings-dialog').addEventListener('close', () => {
-    if (!$('#settings-dialog').open) status.textContent = '';
+    if (!$('#settings-dialog').open) setStatusMessage(status, '');
   });
 
   applyScale(readScale());
@@ -82,9 +82,9 @@ export function initializeFontSettings() {
   const canListFonts = window.isSecureContext && typeof window.queryLocalFonts === "function";
   let saved = readPreference();
   let listing = false;
-  let listMessage = canListFonts
-    ? ""
-    : "Automatic font listing is unavailable here. You can still enter an installed font family name.";
+  let listFeedback = canListFonts ? null : {
+    message: "Automatic font listing is unavailable here. You can still enter an installed font family name."
+  };
 
   function applyPreference(preference) {
     if (preference.source === "default") root.style.removeProperty("--font-sans");
@@ -95,26 +95,26 @@ export function initializeFontSettings() {
 
   function updateControls() {
     localFields.hidden = source.value !== "installed";
-    listStatus.textContent = listMessage;
+    setStatusMessage(listStatus, listFeedback?.message || "", listFeedback?.tone);
   }
 
   function fillSaved() {
     source.value = saved.source;
     family.value = saved.family;
     validation.reset();
-    status.textContent = "";
+    setStatusMessage(status, "");
     updateControls();
   }
 
   function persist(preference) {
     saved = preference;
     applyPreference(saved);
-    status.textContent = "";
+    setStatusMessage(status, "");
     try {
       if (saved.source === "default") localStorage.removeItem(STORAGE_KEY);
       else localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
     } catch {
-      status.textContent = "Your browser could not save the font preference. It applies for this session only.";
+      setStatusMessage(status, "Your browser could not save the font preference. It applies for this session only.", "error");
     }
   }
 
@@ -131,7 +131,7 @@ export function initializeFontSettings() {
   async function listInstalledFonts() {
     if (!canListFonts || listing) return;
     listing = true;
-    listMessage = "Waiting for access to installed fonts...";
+    listFeedback = { message: "Waiting for access to installed fonts...", tone: "running" };
     updateControls();
     try {
       // Call directly from the selection event to preserve browser user activation.
@@ -145,13 +145,14 @@ export function initializeFontSettings() {
         return option;
       });
       list.replaceChildren(...options);
-      listMessage = families.length
-        ? ""
-        : "No font families were returned. You can still enter a family name.";
+      listFeedback = families.length ? null : { message: "No font families were returned. You can still enter a family name." };
     } catch (error) {
-      listMessage = error.name === "NotAllowedError"
-        ? "Font access was denied. You can still enter a family name directly."
-        : "Could not list installed fonts. You can still enter a family name directly.";
+      listFeedback = {
+        message: error.name === "NotAllowedError"
+          ? "Font access was denied. You can still enter a family name directly."
+          : "Could not list installed fonts. You can still enter a family name directly.",
+        tone: "warning"
+      };
     } finally {
       listing = false;
       updateControls();

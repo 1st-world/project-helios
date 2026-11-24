@@ -1,6 +1,6 @@
 /* Render bounded pages of saved API call metadata and prices with retained, animated disclosures and explicit unknown values. */
 
-import { $, refreshIcons } from './ui.js';
+import { $, formatPageRange, refreshIcons, setStatusMessage, setText } from './ui.js';
 import { describeRequestError } from './chat-feedback.js';
 import { getTimezone, formatTimestamp } from './timezone.js';
 import { createDisclosure } from './disclosure.js';
@@ -77,8 +77,9 @@ function savedPrices(snapshot) {
   return container;
 }
 
-function validateRecords(data) {
-  if (!data || !Array.isArray(data.calls) || data.calls.length > PAGE_SIZE + 1
+function validateRecords(data, offset) {
+  if (!data || !Array.isArray(data.calls) || !Number.isSafeInteger(data.total) || data.total < 0
+    || data.calls.length !== Math.min(PAGE_SIZE, Math.max(0, data.total - offset))
     || !data.calls.every(call => call && typeof call.id === 'string' && call.id && typeof call.kind === 'string'
       && typeof call.status === 'string' && typeof call.source === 'string'
       && (call.usage == null || (typeof call.usage === 'object' && !Array.isArray(call.usage))))
@@ -90,7 +91,10 @@ function validateRecords(data) {
 export function createUsageHistory({ isVisible, onLoadingChange }) {
   const root = $('#usage-call-history');
   const list = $('#usage-calls-list');
+  const scroller = list.parentElement;
   const message = $('#usage-calls-state');
+  const pagination = $('#usage-calls-pagination');
+  const range = $('#usage-calls-page');
   const previous = $('#usage-calls-previous');
   const next = $('#usage-calls-next');
   let query = null;
@@ -101,6 +105,10 @@ export function createUsageHistory({ isVisible, onLoadingChange }) {
   let disclosureStates = new Map();
   const disclosures = new Map();
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  function isExpanded() {
+    return root.open && root.dataset.expanded !== 'false';
+  }
 
   function finishDisclosures() {
     disclosures.forEach(controller => controller.finish());
@@ -134,13 +142,15 @@ export function createUsageHistory({ isVisible, onLoadingChange }) {
 
   function clear(state, description) {
     root.dataset.state = state;
-    message.textContent = description;
+    setStatusMessage(message, description, state === 'loading' ? 'running' : state === 'error' ? 'error' : null);
     message.hidden = !description;
     disposeDisclosures();
     list.replaceChildren();
+    scroller.hidden = true;
     hasPage = false;
     hasNext = false;
-    $('#usage-calls-page').textContent = '';
+    pagination.hidden = true;
+    setText(range, '');
     updateControls();
   }
 
@@ -188,12 +198,10 @@ export function createUsageHistory({ isVisible, onLoadingChange }) {
     return item;
   }
 
-  async function loadPage(requestedOffset = offset, { keepPage = false } = {}) {
+  async function loadPage(requestedOffset = offset) {
     cancel();
-    if (!query || !root.open || !isVisible()) return;
-    const retainPage = hasPage && (requestedOffset === offset || keepPage);
-    if (retainPage) rememberDisclosures();
-    else if (requestedOffset !== offset) disclosureStates.clear();
+    if (!query || !isExpanded() || !isVisible()) return;
+    const retainPage = hasPage;
     const current = new AbortController();
     controller = current;
     if (retainPage) {
@@ -202,8 +210,7 @@ export function createUsageHistory({ isVisible, onLoadingChange }) {
       clear('loading', 'Loading recorded calls…');
     }
     const params = new URLSearchParams(query);
-    // One lookahead row identifies the next page without relying on a separate aggregate snapshot.
-    params.set('limit', PAGE_SIZE + 1);
+    params.set('limit', PAGE_SIZE);
     params.set('offset', requestedOffset);
     try {
       const response = await fetch(`/api/usage/calls?${params}`, { signal: current.signal });
@@ -213,27 +220,33 @@ export function createUsageHistory({ isVisible, onLoadingChange }) {
         throw new Error([feedback.message, ...feedback.details].join('\n'));
       }
       if (controller !== current) return;
-      validateRecords(data);
-      const calls = data.calls.slice(0, PAGE_SIZE);
-      const scroller = root.querySelector('.usage-calls-scroll');
+      validateRecords(data, requestedOffset);
+      const { calls, total } = data;
+      if (requestedOffset && !calls.length) {
+        const lastOffset = Math.max(0, Math.floor((total - 1) / PAGE_SIZE) * PAGE_SIZE);
+        return loadPage(lastOffset);
+      }
       const scrollTop = retainPage && requestedOffset === offset ? scroller.scrollTop : 0;
-      if (retainPage) rememberDisclosures();
+      if (retainPage && requestedOffset === offset) rememberDisclosures();
+      else disclosureStates.clear();
       disposeDisclosures();
       list.replaceChildren(...calls.map(renderCall));
+      scroller.hidden = !calls.length;
       offset = requestedOffset;
       hasPage = true;
-      hasNext = data.calls.length > PAGE_SIZE;
+      hasNext = offset + calls.length < total;
       root.dataset.state = 'ready';
-      message.textContent = calls.length ? '' : 'No records on this page. Refresh to check the newest records.';
-      message.hidden = !message.textContent;
-      $('#usage-calls-page').textContent = calls.length ? `${offset + 1}–${offset + calls.length}` : 'No records';
+      setStatusMessage(message, '');
+      message.hidden = true;
+      pagination.hidden = false;
+      setText(range, calls.length ? formatPageRange(offset, calls.length, total) : '0 calls');
       scroller.scrollTop = scrollTop;
     } catch (error) {
       if (controller === current && error.name !== 'AbortError') {
         const refreshHint = 'Use Refresh to load the newest records.';
         if (retainPage) {
           root.dataset.state = 'error';
-          message.textContent = `${error.message} Showing the previous page. ${refreshHint}`;
+          setStatusMessage(message, `${error.message} Showing the previous page. ${refreshHint}`, 'error');
           message.hidden = false;
         } else clear('error', `${error.message} ${refreshHint}`);
       }
@@ -249,7 +262,7 @@ export function createUsageHistory({ isVisible, onLoadingChange }) {
   function select(params, description = '', { reset = false } = {}) {
     cancel();
     const selected = params ? params.toString() : null;
-    const visible = root.open && isVisible();
+    const visible = isExpanded() && isVisible();
     const changed = selected !== query || reset && !visible;
     if (changed) {
       offset = 0;
@@ -257,7 +270,7 @@ export function createUsageHistory({ isVisible, onLoadingChange }) {
     }
     query = selected;
     if (changed || !query) clear('empty', description);
-    if (query && visible) loadPage(reset ? 0 : offset, { keepPage: reset });
+    if (query && visible) loadPage(reset ? 0 : offset);
   }
 
   function suspend() {
@@ -269,7 +282,7 @@ export function createUsageHistory({ isVisible, onLoadingChange }) {
     previous.onclick = () => loadPage(Math.max(0, offset - PAGE_SIZE));
     next.onclick = () => loadPage(offset + PAGE_SIZE);
     root.addEventListener('toggle', () => {
-      if (root.open && isVisible()) loadPage();
+      if (isExpanded() && isVisible()) loadPage();
       else suspend();
     });
     updateControls();

@@ -16,8 +16,71 @@ export function formatSize(bytes) {
   return `${sizeNumber.format(bytes)} ${sizeUnits[unit]}`;
 }
 
+export function formatPageRange(offset, count, total) {
+  const first = (offset + 1).toLocaleString();
+  const last = (offset + count).toLocaleString();
+  return `${first === last ? first : `${first}–${last}`} of ${total.toLocaleString()}`;
+}
+
 export function setText(element, text) {
   if (element.textContent !== text) element.textContent = text;
+}
+
+export function setTextWithCode(element, text, codePattern) {
+  // A single capturing group marks the literals to render as code.
+  const parts = text.split(codePattern);
+  const literals = parts.filter((_, index) => index % 2);
+  const existing = element.querySelectorAll('code');
+  if (element.textContent === text && existing.length === literals.length
+      && literals.every((literal, index) => existing[index].textContent === literal)) return;
+  element.replaceChildren(...parts.flatMap((part, index) => {
+    if (!part) return [];
+    if (index % 2 === 0) return [part];
+    const code = document.createElement('code');
+    code.textContent = part;
+    return [code];
+  }));
+}
+
+const statusIcons = {
+  info: 'info', running: 'loader-circle', paused: 'pause', stopped: 'square',
+  success: 'check', warning: 'triangle-alert', error: 'circle-alert'
+};
+
+export function setStatusIcon(element, tone) {
+  const icon = statusIcons[tone];
+  const marker = element.querySelector(':scope > .inline-status-icon');
+  const content = element.querySelector(':scope > .inline-status-message');
+  if (!icon) {
+    if (marker) element.replaceChildren(...content.childNodes);
+    element.classList.remove('inline-status');
+    delete element.dataset.tone;
+    return;
+  }
+  if (marker && element.dataset.tone === tone) return;
+  const nextMarker = document.createElement('span');
+  nextMarker.className = 'inline-status-icon';
+  nextMarker.setAttribute('aria-hidden', 'true');
+  const glyph = document.createElement('i');
+  glyph.dataset.lucide = icon;
+  nextMarker.append(glyph);
+  if (marker) marker.replaceWith(nextMarker);
+  else {
+    const copy = document.createElement('span');
+    copy.className = 'inline-status-message';
+    copy.append(...element.childNodes);
+    element.append(nextMarker, copy);
+  }
+  element.classList.add('inline-status');
+  element.dataset.tone = tone;
+  refreshIcons(element);
+}
+
+export function setStatusMessage(element, message, tone, codePattern) {
+  const content = element.querySelector(':scope > .inline-status-message') || element;
+  if (codePattern) setTextWithCode(content, message, codePattern);
+  else setText(content, message);
+  setStatusIcon(element, message ? tone : null);
 }
 
 export function setRefreshBusy(button, busy, disabled = busy) {

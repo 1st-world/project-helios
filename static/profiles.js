@@ -1,6 +1,6 @@
 /* Own connection profiles, model selection, and credential, context, and pricing editing. */
 
-import { $, closeMobileSidebar, escapeHtml, nameInText, refreshIcons, setRefreshBusy, setText, toast } from './ui.js';
+import { $, closeMobileSidebar, escapeHtml, nameInText, refreshIcons, setRefreshBusy, setStatusMessage, setText, toast } from './ui.js';
 import { selectSettingsPanel } from './settings.js';
 import { createProfileContext } from './profile-context.js';
 import { describeRequestError } from './chat-feedback.js';
@@ -96,7 +96,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
   function updateEditorControls() {
     const dirty = hasUnsavedChanges();
     const status = $('#profile-settings-status');
-    setText(status, state.feedback?.message || '');
+    setStatusMessage(status, state.feedback?.message || '', state.feedback?.type);
     status.dataset.state = state.feedback?.type || 'idle';
     $('#save-profile-btn').disabled = state.saving || state.defaultSaving || !dirty;
     $('#delete-profile-btn').disabled = state.saving || state.defaultSaving;
@@ -309,9 +309,11 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
       : !activeProfile ? model.profileId ? 'The selected profile is unavailable. Choose another model for the next response.'
       : state.profiles.length ? 'Select a model for this conversation.' : 'Add a model in Settings to start chatting.'
       : !activeProfile.is_configured ? 'The selected profile needs connection details in Settings.' : '');
-    status.textContent = message;
     const loading = state.online && !state.catalogError && !model.error && (!state.catalogLoaded || !model.ready);
-    status.className = `status ${message ? loading ? '' : 'error' : 'hidden'}`;
+    const failed = !state.online || state.catalogError || model.error;
+    const needsAttention = activeProfile ? !activeProfile.is_configured : Boolean(model.profileId);
+    setStatusMessage(status, message, loading ? 'running' : failed ? 'error' : needsAttention ? 'warning' : null);
+    status.hidden = !message;
     const signature = JSON.stringify([model.profileId, activeProfile && Object.fromEntries(Object.entries(activeProfile).filter(([key]) => key !== 'name'))]);
     if (signature !== modelContextSignature) {
       modelContextSignature = signature;
@@ -391,7 +393,7 @@ export function createProfiles({ isGenerating, onModelContextChange = () => {}, 
     const status = $('#profile-catalog-status');
     const message = state.catalogError ? state.catalogLoaded
       ? 'Could not load connection profiles. Showing the previous list.' : 'Could not load connection profiles.' : '';
-    setText(status, message);
+    setStatusMessage(status, message, 'error');
     setRefreshBusy($('#reload-profile-catalog'), state.catalogLoading, state.catalogLoading || state.saving || state.defaultSaving);
   }
 

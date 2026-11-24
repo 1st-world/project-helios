@@ -1,6 +1,6 @@
 /* Render status, timestamps, and bounded finding lists for the Storage panel. */
 
-import { refreshIcons, setText } from './ui.js';
+import { refreshIcons, setStatusMessage, setText } from './ui.js';
 import { formatMessageTimestamp, formatTimestamp } from './timezone.js';
 
 const findingPresentation = {
@@ -16,15 +16,6 @@ const findingPresentation = {
 };
 
 const summaryFindings = new Set(['conversations_read', 'attachment_hashes_checked']);
-
-const noticeIcons = {
-  running: 'loader-circle',
-  stopped: 'square',
-  success: 'check',
-  warning: 'triangle-alert',
-  error: 'circle-alert',
-  info: 'info'
-};
 
 function statusIcon(name) {
   const icon = document.createElement('i');
@@ -56,20 +47,8 @@ function findingRow(finding) {
   return row;
 }
 
-export function setStorageStatus(status, message, tone = 'info') {
-  if (!message) {
-    status.replaceChildren();
-    delete status.dataset.tone;
-  } else if (status.dataset.tone !== tone) {
-    const marker = document.createElement('span');
-    marker.className = 'storage-status-icon';
-    marker.append(statusIcon(noticeIcons[tone]));
-    status.replaceChildren(marker, document.createTextNode(message));
-    status.dataset.tone = tone;
-    refreshIcons(status);
-  } else if (status.lastChild.textContent !== message) {
-    status.lastChild.textContent = message;
-  }
+export function setStorageStatus(status, message, tone = 'info', codePattern) {
+  setStatusMessage(status, message, tone, codePattern);
 }
 
 export function refreshStorageTime(timing) {

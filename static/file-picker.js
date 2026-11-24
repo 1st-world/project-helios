@@ -1,6 +1,6 @@
 /* Coordinate host file selection, preparation, cancellation, and reconnects for the attachment dialog. */
 
-import { $, setText } from './ui.js';
+import { $, setStatusMessage } from './ui.js';
 
 export function createFilePicker({ getWorkspaceScope, isBusy, onSelected, onChange, onCloseRequested }) {
   const storageKey = 'helios.attachmentPicker';
@@ -9,7 +9,7 @@ export function createFilePicker({ getWorkspaceScope, isBusy, onSelected, onChan
 
   function setStatus(message, state = 'busy') {
     const status = $('#attachment-file-status');
-    setText(status, message);
+    setStatusMessage(status, message, state === 'busy' ? 'running' : state === 'idle' ? 'info' : state);
     status.dataset.state = state;
     status.hidden = !message;
   }

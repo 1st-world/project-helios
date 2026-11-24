@@ -1,8 +1,8 @@
 /* Edit profile context settings and preview their effective policy without provider calls. */
 
-import { $, setRefreshBusy, setText } from './ui.js';
+import { $, setRefreshBusy, setStatusMessage, setText, setTextWithCode } from './ui.js';
 import { PREFLIGHT_HELP, describeMemoryState, describeRequestError } from './chat-feedback.js';
-import { describeEstimation } from './estimation.js';
+import { describeEstimation, vocabularyNamePattern } from './estimation.js';
 import { setFieldFeedback } from './field-validation.js';
 
 export function createProfileContext({ isSaving }) {
@@ -84,11 +84,11 @@ export function createProfileContext({ isSaving }) {
     schedulePreview();
   }
 
-  function setPreviewFeedback(message = '') {
+  function setPreviewFeedback(message = '', tone) {
     const stale = Boolean(message) && policyValues.hasChildNodes();
     policyValues.toggleAttribute('data-stale', stale);
     const separator = message.includes('\n') ? '\n' : ' ';
-    setText(policyStatus, stale ? `${message}${separator}Showing previous values.` : message);
+    setStatusMessage(policyStatus, stale ? `${message}${separator}Showing previous values.` : message, tone);
   }
 
   function schedulePreview(delay = 0, { retrying = false } = {}) {
@@ -104,7 +104,7 @@ export function createProfileContext({ isSaving }) {
     retry.hidden = !retrying;
     if (invalid) {
       retry.hidden = true;
-      setPreviewFeedback('Check the context fields.');
+      setPreviewFeedback('Check the context fields.', 'warning');
       return;
     }
     if (key === state.loadedKey) {
@@ -113,7 +113,7 @@ export function createProfileContext({ isSaving }) {
       return;
     }
 
-    if (!retrying) setPreviewFeedback('Updating preview.');
+    if (!retrying) setPreviewFeedback('Updating preview.', 'running');
     const payload = draft ? { profile_id: profileId, ...edits } : null;
     if (delay) {
       state.timer = setTimeout(() => {
@@ -150,7 +150,7 @@ export function createProfileContext({ isSaving }) {
       retry.hidden = true;
     } catch (error) {
       if (error.name !== 'AbortError' && state.controller === controller) {
-        setPreviewFeedback(error.message || 'Could not load the effective policy.');
+        setPreviewFeedback(error.message || 'Could not load the effective policy.', 'error');
         retry.hidden = false;
       }
     } finally {
@@ -231,7 +231,7 @@ export function createProfileContext({ isSaving }) {
       noteGroup.className = 'settings-policy-notes';
       for (const note of notes) {
         const paragraph = document.createElement('p');
-        paragraph.textContent = note;
+        setTextWithCode(paragraph, note, vocabularyNamePattern);
         noteGroup.append(paragraph);
       }
       content.push(noteGroup);

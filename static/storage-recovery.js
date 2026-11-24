@@ -1,6 +1,6 @@
 /* Present attachment recovery in one dialog while maintenance continues independently. */
 
-import { $, refreshIcons, setText } from './ui.js';
+import { $, refreshIcons, setText, setTextWithCode } from './ui.js';
 import { bindDialogBackdrop, showActionDialog } from './dialogs.js';
 import { createDisclosure } from './disclosure.js';
 import { createFieldValidation } from './field-validation.js';
@@ -8,6 +8,7 @@ import { refreshStorageTime, setStorageStatus, setStorageTime, showStorageResult
 
 const PREVIEW = 'recovery-preview';
 const APPLY = 'recovery-apply';
+const launcherCommandPattern = /(\bpython app\.py\b)/g;
 
 const problems = {
   upload_copy_missing: 'The stored copy is missing.',
@@ -186,7 +187,7 @@ export function initializeStorageRecovery(settingsDialog, queueMaintenance, refr
     const hasResult = job?.finished_at && (kind !== PREVIEW || !isCleanPreview(job));
     const message = working === kind ? view.progressNote : hasResult ? unavailableReason : '';
     view.note.hidden = !message;
-    setText(view.note, message);
+    setTextWithCode(view.note, message, launcherCommandPattern);
   }
 
   function updateControls() {
@@ -410,7 +411,7 @@ export function initializeStorageRecovery(settingsDialog, queueMaintenance, refr
     const error = submitField ? '' : submitError;
     const busy = activity.busy && !working ? 'A storage check is in progress.' : '';
     const unavailable = !working && !recent && !canRecover() ? recoveryUnavailableMessage() : '';
-    setStorageStatus(submitStatus, error || busy || unavailable, error ? 'error' : busy ? 'running' : 'info');
+    setStorageStatus(submitStatus, error || busy || unavailable, error ? 'error' : busy ? 'running' : 'info', launcherCommandPattern);
     if (dialog.open && !wasShowingPreview && !setup.hidden && !previewStep.hidden) {
       body.scrollTop = 0;
       previewTitle.focus({ preventScroll: true });

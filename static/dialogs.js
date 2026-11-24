@@ -1,6 +1,7 @@
 /* Provide accessible app dialogs with asynchronous actions, inline errors, and focus restoration. */
 
 import { createFieldValidation } from './field-validation.js';
+import { setStatusMessage } from './ui.js';
 
 let activeDialog = null;
 
@@ -109,7 +110,7 @@ export function showActionDialog({ title, description, confirmLabel, cancelLabel
       accepted = true;
       dialog.close();
     } catch (failure) {
-      error.textContent = failure.message || 'Could not complete this action. Please try again.';
+      setStatusMessage(error, failure.message || 'Could not complete this action. Please try again.', 'error');
       error.hidden = false;
       setBusy(false);
       (field ? input : confirm).focus();

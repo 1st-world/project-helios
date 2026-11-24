@@ -1,6 +1,6 @@
 /* Own conversation state, render messages and request feedback, and coordinate reply streaming and regeneration. */
 
-import { $, closeMobileSidebar, escapeHtml, nameInText, refreshIcons, toast } from './ui.js';
+import { $, closeMobileSidebar, escapeHtml, nameInText, refreshIcons, setStatusMessage, toast } from './ui.js';
 import { describeContextWarning, describeRequestError } from './chat-feedback.js';
 import { describeWorkRun } from './work-run-status.js';
 import { describeAttachmentNotes } from './attachments.js';
@@ -145,7 +145,7 @@ export function createChat({ getActiveProfileId, getModelSelection = () => ({}),
     $('#composer-option-inputs').disabled = optionsLocked;
     prompt.disabled = locked || state.conversationLoading;
     $('#composer-pause-notice').hidden = !locked;
-    if (locked) $('#composer-pause-notice').textContent = `Paused on ${nameInText(state.pausedRun.profile?.name || state.pausedRun.profile?.deployment, 'the saved model')}. Choose a model to resume, or discard this run before sending another message.`;
+    if (locked) setStatusMessage($('#composer-pause-notice'), `Paused on ${nameInText(state.pausedRun.profile?.name || state.pausedRun.profile?.deployment, 'the saved model')}. Choose a model to resume, or discard this run before sending another message.`, 'paused');
     document.querySelectorAll('.composer-options details').forEach(details => {
       const disabled = details.id === 'model-picker' ? modelLocked : optionsLocked;
       const summary = details.querySelector('summary');
@@ -232,7 +232,7 @@ export function createChat({ getActiveProfileId, getModelSelection = () => ({}),
       notice.dataset.tone = type;
       const heading = document.createElement('strong');
       heading.className = 'status-callout-title';
-      heading.textContent = title;
+      setStatusMessage(heading, title, type === 'neutral' ? 'stopped' : type);
       const text = document.createElement('p');
       text.className = 'status-callout-message';
       text.textContent = message;
@@ -716,7 +716,7 @@ export function createChat({ getActiveProfileId, getModelSelection = () => ({}),
         input.disabled = save.disabled = cancel.disabled = false;
         save.textContent = 'Save & regenerate';
         form.setAttribute('aria-busy', 'false');
-        error.textContent = failure.message || 'Could not save your message. Your edits are kept.';
+        setStatusMessage(error, failure.message || 'Could not save your message. Your edits are kept.', 'error');
         error.hidden = false;
         input.focus();
         return;

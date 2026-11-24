@@ -1,6 +1,7 @@
 /* Describe general-purpose token estimation methods in saved connection policies. */
 
 export const fallbackEstimateLabel = 'Script-aware estimate';
+export const vocabularyNamePattern = /(\bo200k_base\b)/g;
 
 export function describeEstimation(policy) {
   if (!policy?.estimation_method || policy.estimation_method === 'disabled') return '';

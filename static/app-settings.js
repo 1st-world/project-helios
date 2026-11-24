@@ -1,6 +1,6 @@
 /* Edit app-wide context and attachment policies while keeping saved enforcement limits separate from drafts. */
 
-import { $, setText, toast } from './ui.js';
+import { $, setStatusMessage, setText, toast } from './ui.js';
 import { PREFLIGHT_HELP, describeRequestError } from './chat-feedback.js';
 import { showActionDialog } from './dialogs.js';
 import { createFieldValidation, setFieldFeedback } from './field-validation.js';
@@ -22,7 +22,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
 
   function renderStatus() {
     const status = $('#app-settings-status');
-    setText(status, state.feedback?.message || '');
+    setStatusMessage(status, state.feedback?.message || '', state.feedback?.type);
     status.dataset.state = state.feedback?.type || 'idle';
   }
 
@@ -171,7 +171,7 @@ export function createAppSettings({ hasUnsavedProfileChanges, isProfileSaving })
     const controller = new AbortController();
     state.controller = controller;
     state.loading = true;
-    setStatus('Loading saved app settings...');
+    setStatus('Loading saved app settings...', 'running');
     updateControls();
     try {
       const response = await fetch('/api/settings', { signal: controller.signal });

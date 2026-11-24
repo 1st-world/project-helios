@@ -1,6 +1,6 @@
 /* Coordinate workspace context and a single host-file attachment selection and restoration flow. */
 
-import { $, closeMobileSidebar, refreshIcons, setText, toast } from './ui.js';
+import { $, closeMobileSidebar, refreshIcons, setStatusMessage, toast } from './ui.js';
 import { createWorkspacePicker } from './workspace-picker.js';
 import { attachmentIcon, attachmentKey, attachmentSize, attachmentSourceLabel, attachmentSummary, attachmentWarnings } from './attachments.js';
 import { createFilePicker } from './file-picker.js';
@@ -11,6 +11,8 @@ import { createDisclosure } from './disclosure.js';
 import { showActionDialog } from './dialogs.js';
 import { initializeHelpPopovers } from './help-popovers.js';
 import { createFieldValidation } from './field-validation.js';
+
+const ignoreFilePattern = /(\.heliosignore\b|\.gitignore\b)/g;
 
 export function createWorkspace({ getActiveProfileId, getModelContextSignature = getActiveProfileId, onWorkspaceSaved }) {
   // Bound selected-file rendering without changing attachment resource limits.
@@ -148,7 +150,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
       if (hadWorkspaceFiles) state.selectionEdited = true;
       if ($('#file-dialog').open && removed) {
         $('#attachment-selection-notice').hidden = false;
-        $('#attachment-selection-notice').textContent = `Workspace changed. Removed ${removed} workspace file selection${removed === 1 ? '' : 's'}. Attachment copies are kept.`;
+        setStatusMessage($('#attachment-selection-notice'), `Workspace changed. Removed ${removed} workspace file selection${removed === 1 ? '' : 's'}. Attachment copies are kept.`, 'warning');
       }
       invalidateInspection();
       resetContextPreview();
@@ -239,7 +241,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
       notes.forEach(text => {
         const note = document.createElement('p');
         note.className = 'attachment-processing-note';
-        note.textContent = text;
+        setStatusMessage(note, text, 'warning');
         copy.append(note);
       });
       const remove = document.createElement('button');
@@ -464,16 +466,8 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
       || options.ignore_hidden !== state.workspaceReadOptions.ignore_hidden || options.use_gitignore !== state.workspaceReadOptions.use_gitignore;
   }
 
-  function setWorkspacePolicyStatus(message) {
-    const status = $('#workspace-ignore-status');
-    if (status.textContent === message) return;
-    const parts = message.split(/(\.heliosignore|\.gitignore)/g).map(part => {
-      if (part !== '.heliosignore' && part !== '.gitignore') return part;
-      const code = document.createElement('code');
-      code.textContent = part;
-      return code;
-    });
-    status.replaceChildren(...parts);
+  function setWorkspacePolicyStatus(message, tone) {
+    setStatusMessage($('#workspace-ignore-status'), message, tone, ignoreFilePattern);
   }
 
   function renderWorkspacePolicy() {
@@ -493,13 +487,15 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     if (invalid) {
       const reasons = { invalid_encoding: 'Use UTF-8 text.', invalid_control: 'Remove unsupported control characters.', invalid_pattern: 'Correct the invalid ignore pattern.', too_large: 'Keep the file within 64 KiB.', unsafe_file: 'Use a regular file without links.', changed: 'The file changed while being read. Try again.', unreadable: 'Check file access and try again.' };
       status.dataset.state = 'error';
-      setWorkspacePolicyStatus(`Cannot use ${invalid[0]}. ${reasons[invalid[1].reason] || reasons.unreadable} Automatic reading is unavailable until the active policy is valid.`);
+      setWorkspacePolicyStatus(`Cannot use ${invalid[0]}. ${reasons[invalid[1].reason] || reasons.unreadable} Automatic reading is unavailable until the active policy is valid.`, 'error');
     } else if (custom?.status === 'ready') {
       setWorkspacePolicyStatus('Custom rules loaded from .heliosignore.');
     } else if (custom?.status === 'missing') {
       setWorkspacePolicyStatus('No .heliosignore found. No custom exclusions are applied.');
     } else {
-      setWorkspacePolicyStatus(custom?.status === 'unavailable' ? 'The connected folder is unavailable. Custom exclusions could not be checked.' : 'Checking .heliosignore…');
+      const unavailable = custom?.status === 'unavailable';
+      setWorkspacePolicyStatus(unavailable ? 'The connected folder is unavailable. Custom exclusions could not be checked.' : 'Checking .heliosignore…',
+        unavailable ? 'warning' : 'running');
     }
   }
 
@@ -510,7 +506,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
       : !state.generating && !picker.isPicking() && state.workspaceSessionId && workspaceFormChanged() && $('#workspace-path-input').value.trim()
         ? { message: 'Apply to use the selected folder and reading options.', type: 'info' } : null);
     const message = feedback?.message || '';
-    setText(status, message);
+    setStatusMessage(status, message, feedback?.type === 'busy' ? 'running' : feedback?.type === 'info' ? null : feedback?.type, ignoreFilePattern);
     status.dataset.state = feedback?.type || 'idle';
   }
 
@@ -585,7 +581,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
 
   function setContextStatus(message, type = 'info') {
     const status = $('#workspace-context-status');
-    setText(status, message);
+    setStatusMessage(status, message, type === 'busy' ? 'running' : type, ignoreFilePattern);
     status.dataset.state = type;
   }
 
@@ -727,11 +723,11 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     if (state.inspectionFeedback) {
       const { message, details = [] } = state.inspectionFeedback;
       const text = [message, ...details].join('\n');
-      setText(status, text);
+      setStatusMessage(status, text, state.inspectionFeedback.type === 'checking' ? 'running' : state.inspectionFeedback.type);
       return;
     }
     if (!state.inspection) {
-      setText(status, 'No check results yet.');
+      setStatusMessage(status, 'No check results yet.');
       return;
     }
     const { context_policy: policy } = state.inspection.data;
@@ -745,7 +741,7 @@ export function createWorkspace({ getActiveProfileId, getModelContextSignature =
     if (Number.isSafeInteger(policy.declared_model_input_limit)) text.push(`Declared model input limit: ${policy.declared_model_input_limit.toLocaleString()} tokens.`);
     if (policy.mode === 'off') text.push('Context token estimation is off.');
     const message = text.join('\n');
-    setText(status, message);
+    setStatusMessage(status, message, policy.blocked ? 'error' : policy.warning ? 'warning' : 'success');
   }
 
   function updateAttachmentMetadata(files) {

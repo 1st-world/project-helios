@@ -310,17 +310,31 @@ class CallUsageStore:
         end_date: date | None = None, limit: int = 100, offset: int = 0,
     ) -> list[dict]:
         """Return a bounded page of call metadata without prompts or generated text."""
+        rows, _ = self.record_page(
+            conversation_id=conversation_id, kind=kind, timezone_name=timezone_name,
+            start_date=start_date, end_date=end_date, limit=limit, offset=offset,
+        )
+        return rows
+
+    def record_page(
+        self, *, conversation_id: str | None = None, kind: str | None = None,
+        timezone_name: str = "UTC", start_date: date | None = None,
+        end_date: date | None = None, limit: int = 100, offset: int = 0,
+    ) -> tuple[list[dict], int]:
+        """Read a call page and its filtered total from one database snapshot."""
         if not 1 <= limit <= 200 or offset < 0:
             raise ValueError("limit must be 1..200 and offset must be nonnegative.")
         clause, parameters, _, _ = self._selection(
             conversation_id, kind, timezone_name, start_date, end_date
         )
         rows = self.connection.execute(
-            "SELECT data FROM usage_calls" + clause
-            + " ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?",
-            [*parameters, limit, offset],
-        )
-        return [json.loads(raw) for (raw,) in rows]
+            f"WITH page AS (SELECT id, started_at, data FROM usage_calls{clause}"
+            " ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?)"
+            f" SELECT total, page.data FROM (SELECT COUNT(*) AS total FROM usage_calls{clause})"
+            " LEFT JOIN page ON TRUE ORDER BY page.started_at DESC, page.id DESC",
+            [*parameters, limit, offset, *parameters],
+        ).fetchall()
+        return [json.loads(raw) for _, raw in rows if raw is not None], rows[0][0]
 
     def _totals(self, records: list[dict]) -> dict:
         """Sum only known categories while keeping unknown costs and detail counts explicit."""

@@ -480,7 +480,7 @@
               <button id="context-tokenizer-action" class="quiet-btn" type="button" disabled><i data-lucide="download" aria-hidden="true"></i><span>Download vocabulary</span></button>
             </div>
             <div id="context-tokenizer-body" class="settings-group-body">
-              <p id="context-tokenizer-status" class="field-hint" role="status"><span class="tokenizer-status-icon" aria-hidden="true" hidden><i data-lucide="loader-circle"></i></span><span data-tokenizer-status-text>Checking the local vocabulary…</span></p>
+              <p id="context-tokenizer-status" class="field-hint" role="status">Checking the local vocabulary…</p>
               <div id="context-tokenizer-transfer" hidden>
                 <progress id="context-tokenizer-progress" value="0" max="1" aria-label="Vocabulary download" aria-describedby="context-tokenizer-bytes" hidden></progress>
                 <p id="context-tokenizer-bytes" class="field-hint"></p>
@@ -976,16 +976,18 @@
           <details id="usage-call-history" class="settings-usage-details settings-disclosure settings-subgroup-disclosure usage-call-history">
             <summary class="settings-disclosure-header"><h4 class="settings-disclosure-title">Call history</h4><i data-lucide="chevron-down" class="settings-disclosure-chevron" aria-hidden="true"></i></summary>
             <div class="settings-disclosure-body">
-              <p>Newest calls first. New calls can shift pages; Refresh returns to the newest records.</p>
+              <p>Newest first. New calls can shift page boundaries.</p>
+              <div id="usage-calls-pagination" class="usage-history-pagination" hidden>
+                <span id="usage-calls-page" role="status" aria-atomic="true"></span>
+                <nav class="page-navigation" aria-label="Call history pages">
+                  <button id="usage-calls-previous" class="quiet-btn" type="button" aria-label="Previous page" disabled><i data-lucide="chevron-left" aria-hidden="true"></i></button>
+                  <button id="usage-calls-next" class="quiet-btn" type="button" aria-label="Next page" disabled><i data-lucide="chevron-right" aria-hidden="true"></i></button>
+                </nav>
+              </div>
               <p id="usage-calls-state" role="status" hidden></p>
-              <div class="usage-calls-scroll" tabindex="0" aria-label="Recorded API calls">
+              <div class="usage-calls-scroll" tabindex="0" aria-label="Recorded API calls" hidden>
                 <ul id="usage-calls-list"></ul>
               </div>
-              <nav class="usage-history-pagination" aria-label="Call history pages">
-                <button id="usage-calls-previous" class="quiet-btn" type="button" disabled><i data-lucide="chevron-left"></i> Prev</button>
-                <span id="usage-calls-page"></span>
-                <button id="usage-calls-next" class="quiet-btn" type="button" disabled>Next <i data-lucide="chevron-right"></i></button>
-              </nav>
             </div>
           </details>
         </div>
@@ -1059,7 +1061,7 @@
       <div class="storage-cleanup-list-actions" hidden>
         <span id="storage-cleanup-range" role="status" hidden></span>
         <div class="storage-cleanup-list-buttons">
-          <nav id="storage-cleanup-pages" aria-label="Cleanup pages" hidden>
+          <nav id="storage-cleanup-pages" class="page-navigation" aria-label="Cleanup pages" hidden>
             <button id="storage-cleanup-previous" class="quiet-btn" type="button" aria-label="Previous page"><i data-lucide="chevron-left" aria-hidden="true"></i></button>
             <button id="storage-cleanup-next" class="quiet-btn" type="button" aria-label="Next page"><i data-lucide="chevron-right" aria-hidden="true"></i></button>
           </nav>
