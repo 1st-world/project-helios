@@ -146,7 +146,14 @@ def _wait_for_worker(command: list[str]) -> tuple[int, bool]:
                else {"start_new_session": True})
     with subprocess.Popen(command, cwd=PROJECT_ROOT, stdin=subprocess.PIPE, **options) as child:
         try:
-            return child.wait(), False
+            if os.name != "nt":
+                return child.wait(), False
+            # Windows can dispatch Ctrl+C in Python between timed process waits.
+            while True:
+                try:
+                    return child.wait(timeout=0.2), False
+                except subprocess.TimeoutExpired:
+                    continue
         except KeyboardInterrupt:
             child.stdin.close()
             child.wait()
