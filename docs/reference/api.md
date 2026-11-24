@@ -162,6 +162,26 @@ For compatibility, updating `summary_trigger_tokens` to `0` without the new cont
 
 Prepared work retains its input across generation/background changes; memory-using resumes and model handoffs require saved-memory permission from the current app policy and involved profiles. One-time context recovery explicitly grants only that retry and cannot schedule automatic background compaction.
 
+## Recorded usage API
+
+`GET /api/usage` and `GET /api/usage/calls` read the local call ledger. Both accept optional `conversation_id`, `kind`, `start_date`, and `end_date` filters. Date filters include both endpoints and use the call start time in the requested IANA `timezone` (default `UTC`). Calls with unknown start times are excluded when either date is supplied.
+
+### Read usage totals
+
+`GET /api/usage` returns `totals`, local-date buckets in `by_date`, and an opaque `revision` for the selected conversation or whole ledger. Unknown usage, missing costs, and incomplete historical coverage have separate fields. Cost estimates use recorded prices and reported usage.
+
+### Read call history
+
+`GET /api/usage/calls` returns newest-first `calls` and the filtered `total` from one read snapshot. `limit` defaults to `100` and accepts values from `1` to `200`. `offset` defaults to `0`. An offset past the end returns an empty list with the filtered total.
+
+### Subscribe to usage changes
+
+The same-origin WebSocket at `/api/usage/changes` accepts the `revision` from `GET /api/usage` and the same `conversation_id` if used. The server sends the current revision on connection if the supplied value is stale. It sends `{"revision":"…"}` over the same connection when usage changes. Fetch the totals again on receipt.
+
+### Read summary-call totals
+
+`GET /api/usage/summaries` reads the separate summary-call store, optionally filtered by `conversation_id`. For totals that include summary calls with other call types, use `GET /api/usage` alone to avoid double-counting.
+
 ## Project exploration API
 
 ### Workspace scope and previews
@@ -191,6 +211,8 @@ All three `exploration_limits` fields default to `null`. `max_model_calls` limit
 SSE `start` and final `done` events include `run_id`; `work_progress` identifies phases and tool calls. `work_usage` reports individual calls and `run_usage` reports a separate aggregate. Final `done` events and tool-assisted answers in `GET /api/conversations/{id}` include display-only `response_metadata` derived from existing run and usage stores. These response-wide totals are neither persisted as single-call Message fields nor written back into the usage ledger. Errors also provide run references and known totals; unavailable storage remains unknown. Connections, prices, policies, and read scope are pinned at startup. Conversation edits/deletion, Workspace changes, and revocation of memory already used by the run stop further execution and adoption. Revocation before the first submission can rebuild original history; a run that already used the summary does not continue by substituting original history.
 
 The additive `failure` field in run history and activity APIs stores and returns only allowed error codes, categories, phases, response states, HTTP status, request ID, and retry-after. Raw error messages, response bodies, and credentials are excluded. Optional diagnostic storage failure does not alter terminal handling or lease release. Older runs without this field use their retained state and reason for display.
+
+For ledger-wide totals and call history, see the [recorded usage API](#recorded-usage-api).
 
 ### Cancellation and saved state
 
