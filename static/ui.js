@@ -264,6 +264,15 @@ export function closeMobileSidebar() {
 export function initializeUI({ beforeDialogClose }) {
   initializeToast();
   const closingDialogs = new WeakSet();
+  const forcedColors = window.matchMedia('(forced-colors: active)');
+
+  document.addEventListener('pointerup', (event) => {
+    if (!forcedColors.matches || !event.isPrimary || event.button !== 0
+      || !event.target.matches(':is(input, textarea):disabled')) return;
+    // Forced colors can override the transparent caret, so clear a collapsed selection after the click.
+    const selection = document.getSelection();
+    if (selection?.type === 'Caret') selection.removeAllRanges();
+  }, { capture: true });
 
   async function closeDialog(dialog) {
     if (closingDialogs.has(dialog)) return;

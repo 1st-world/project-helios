@@ -213,6 +213,10 @@ select:focus-visible {
 button:disabled {
   cursor: not-allowed;
 }
+:is(input, textarea):disabled {
+  /* Chromium can paint a caret after a click even without focusing the control. */
+  caret-color: transparent;
+}
 
 .sr-only {
   position: absolute;
